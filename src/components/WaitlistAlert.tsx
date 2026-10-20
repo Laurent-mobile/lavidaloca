@@ -136,7 +136,7 @@ export default function WaitlistAlert({ siteId, isOpen, onClose, onSuccess }: Pr
       const nights = Math.max(1, Math.ceil(
         (new Date(match.checkOutDate).getTime() - new Date(match.checkInDate).getTime()) / 86400000
       ));
-      const totalAmount = nights * match.basePrice;
+      const totalAmount = nights * (match.basePrice ?? 0);
 
       // 1. Créer la réservation
       const { data: reservation, error: resError } = await supabase
@@ -285,7 +285,7 @@ export default function WaitlistAlert({ siteId, isOpen, onClose, onSuccess }: Pr
                       <div className="bg-slate-50 p-2 rounded">
                         <p className="text-xs text-slate-600">Tarif</p>
                         <p className="font-semibold text-emerald-900">
-                          {Number(match.basePrice).toLocaleString('fr-FR')} F/nuit
+                          {Number(match.basePrice ?? 0).toLocaleString('fr-FR')} F/nuit
                         </p>
                       </div>
                       <div className="bg-slate-50 p-2 rounded">

@@ -161,17 +161,17 @@ useEffect(() => {
 
       if (error) throw error;
 
-      const formattedOrders: PendingOrder[] = (orders || []).map(order => ({
+            const formattedOrders: PendingOrder[] = (orders || []).map(order => ({
         id: order.id,
         order_number: order.order_number,
         table_id: order.table_id,
-        table_number: order.restaurant_tables?.number || 'Direct',
+        table_number: order.restaurant_tables?.[0]?.number || 'Direct', // ✅ Correction [0]
         total_amount: order.total_amount || 0,
         status: order.status,
         created_at: order.created_at,
-        server_name: order.restaurant_employees?.[0] 
-  ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
-  : 'Inconnu',
+        server_name: order.restaurant_employees?.[0] // ✅ Correction [0]
+          ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
+          : 'Inconnu',
         items: order.restaurant_order_items || []
       }));
 
@@ -200,22 +200,28 @@ useEffect(() => {
 
       if (error) throw error;
 
-      const formattedCharges: PendingOrder[] = (orders || []).map(order => ({
-        id: order.id,
-        order_number: order.order_number,
-        table_id: order.table_id,
-        table_number: order.restaurant_tables?.number || 'Direct',
-        total_amount: order.total_amount || 0,
-        status: order.status,
-        created_at: order.created_at,
-        server_name: order.restaurant_employees ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}` : 'Inconnu',
-        items: order.restaurant_order_items || [],
-        stay_id: order.stay_id,
-        room_number: order.stays?.rooms?.[0]?.number,
-guest_name: order.stays?.customers?.[0] 
-  ? `${order.stays.customers[0].first_name} ${order.stays.customers[0].last_name}` 
-  : undefined
-      }));
+            const formattedCharges: PendingOrder[] = (orders || []).map(order => {
+        const stay = order.stays?.[0]; // ✅ stays est un tableau, on prend le premier
+        
+        return {
+          id: order.id,
+          order_number: order.order_number,
+          table_id: order.table_id,
+          table_number: order.restaurant_tables?.[0]?.number || 'Direct', // ✅ Correction [0]
+          total_amount: order.total_amount || 0,
+          status: order.status,
+          created_at: order.created_at,
+          server_name: order.restaurant_employees?.[0] // ✅ Correction [0]
+            ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
+            : 'Inconnu',
+          items: order.restaurant_order_items || [],
+          stay_id: order.stay_id,
+          room_number: stay?.rooms?.[0]?.number, // ✅ Correction [0] sur rooms
+          guest_name: stay?.customers?.[0] // ✅ Correction [0] sur customers
+            ? `${stay.customers[0].first_name} ${stay.customers[0].last_name}` 
+            : undefined
+        };
+      });
 
       setRoomCharges(formattedCharges);
     } catch (error) {
