@@ -88,10 +88,13 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
 
       if (error) throw error;
 
-      const formatted = (data || []).map(order => ({
+            const formatted = (data || []).map(order => ({
         ...order,
-        table_number: order.restaurant_tables?.number || null,
-        server_name: order.restaurant_employees ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}` : 'Inconnu',
+        // ✅ CORRECTION : Ajout de [0] pour les jointures Supabase
+        table_number: order.restaurant_tables?.[0]?.number || null,
+        server_name: order.restaurant_employees?.[0]
+          ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}`
+          : 'Inconnu',
         items_count: order.restaurant_order_items?.length || 0
       }));
 

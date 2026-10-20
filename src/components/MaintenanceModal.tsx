@@ -338,7 +338,13 @@ export default function MaintenanceModal({ siteId, rooms, isOpen, onClose, onSuc
                     </div>
                     <div className="flex gap-2">
                       <button type="button" onClick={() => setShowForm(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2 rounded-lg">Annuler</button>
-                      <button type="submit" disabled={loading || (roomBlocked && roomBlocked.includes('IMPOSSIBLE'))} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 rounded-lg disabled:opacity-50">{loading ? 'Enregistrement...' : '✅ Créer la demande'}</button>
+                      <button 
+  type="submit" 
+  disabled={loading || Boolean(roomBlocked && roomBlocked.includes('IMPOSSIBLE'))} 
+  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 rounded-lg disabled:opacity-50"
+>
+  {loading ? 'Enregistrement...' : '✅ Créer la demande'}
+</button>
                     </div>
                   </form>
                 </div>

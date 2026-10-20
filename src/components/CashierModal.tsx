@@ -74,8 +74,8 @@ export default function CashierModal({ siteId, isOpen, onClose, onSuccess }: Pro
         .eq('id', t.reference_id)
         .single();
       if (stay) {
-        name = `${stay.customers?.last_name || ''} ${stay.customers?.first_name || ''}`.trim() || name;
-        room_number = stay.rooms?.number || '';
+        name = `${stay.customers?.[0]?.last_name || ''} ${stay.customers?.[0]?.first_name || ''}`.trim() || name;
+room_number = stay.rooms?.[0]?.number || '';
       }
     }
     return { ...t, customer_name: name, room_number };

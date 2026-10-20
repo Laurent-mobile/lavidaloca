@@ -14,11 +14,12 @@ export default function AdminModal({ siteId, isOpen, onClose, onSuccess }: Props
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'category' | 'room'>('category');
+  // ✅ CORRECTION : Ajout de 'tax' au type
+  const [activeTab, setActiveTab] = useState<'category' | 'room' | 'tax'>('category');
   const [categories, setCategories] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [taxSettings, setTaxSettings] = useState<any>(null);
-const [taxForm, setTaxForm] = useState({ tax_name: 'TVA', tax_rate: 18, tax_number: '' });
+  const [taxForm, setTaxForm] = useState({ tax_name: 'TVA', tax_rate: 18, tax_number: '' });
 
   const [catForm, setCatForm] = useState({
     id: '',
@@ -61,7 +62,7 @@ const [taxForm, setTaxForm] = useState({ tax_name: 'TVA', tax_rate: 18, tax_numb
       .order('number');
     if (rm) setRooms(rm);
 
-        const { data: tax } = await supabase
+    const { data: tax } = await supabase
       .from('tax_settings')
       .select('*')
       .eq('site_id', siteId)
@@ -181,7 +182,6 @@ const [taxForm, setTaxForm] = useState({ tax_name: 'TVA', tax_rate: 18, tax_numb
   };
 
   const handleDeleteCategory = async (cat: any) => {
-    // Vérifier si des chambres utilisent cette catégorie
     const { count } = await supabase
       .from('rooms')
       .select('*', { count: 'exact', head: true })
@@ -199,7 +199,6 @@ const [taxForm, setTaxForm] = useState({ tax_name: 'TVA', tax_rate: 18, tax_numb
   };
 
   const handleDeleteRoom = async (room: any) => {
-    // Vérifier si la chambre a des réservations/séjours
     const { count: resCount } = await supabase
       .from('reservations')
       .select('*', { count: 'exact', head: true })
@@ -268,13 +267,13 @@ const [taxForm, setTaxForm] = useState({ tax_name: 'TVA', tax_rate: 18, tax_numb
               Chambres ({rooms.length})
             </button>
             <button
-  onClick={() => setActiveTab('tax')}
-  className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${
-    activeTab === 'tax' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'
-  }`}
->
-  ⚙️ TVA & Taxes
-</button>
+              onClick={() => { setActiveTab('tax'); resetForms(); }}
+              className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${
+                activeTab === 'tax' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ⚙️ TVA & Taxes
+            </button>
           </div>
 
           {activeTab === 'category' && (
@@ -411,44 +410,46 @@ const [taxForm, setTaxForm] = useState({ tax_name: 'TVA', tax_rate: 18, tax_numb
               </div>
             </div>
           )}
-{activeTab === 'tax' && (
-  <div className="space-y-4">
-    <form onSubmit={async (e) => {
-      e.preventDefault();
-      setLoading(true);
-      const { error } = taxSettings
-        ? await supabase.from('tax_settings').update(taxForm).eq('id', taxSettings.id)
-        : await supabase.from('tax_settings').insert({ site_id: siteId, ...taxForm });
-      if (!error) {
-        loadData();
-        setError('');
-      } else {
-        setError(error.message);
-      }
-      setLoading(false);
-    }} className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
-      <h3 className="font-semibold text-slate-900">⚙️ Paramètres de TVA</h3>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Nom de la taxe</label>
-          <input type="text" value={taxForm.tax_name} onChange={(e) => setTaxForm({ ...taxForm, tax_name: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm" />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-700 mb-1">Numéro de taxe</label>
-          <input type="text" value={taxForm.tax_number} onChange={(e) => setTaxForm({ ...taxForm, tax_number: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="TVA-001" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-700 mb-1">Taux de TVA (%)</label>
-        <input type="number" min="0" max="100" step="0.01" value={taxForm.tax_rate} onChange={(e) => setTaxForm({ ...taxForm, tax_rate: Number(e.target.value) })} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm" />
-        <p className="text-xs text-slate-500 mt-1">💡 Actuellement utilisé : {taxForm.tax_rate}% sur toutes les factures</p>
-      </div>
-      <button type="submit" disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded-lg disabled:opacity-50">
-        {loading ? 'Enregistrement...' : '💾 Enregistrer les paramètres'}
-      </button>
-    </form>
-  </div>
-)}
+
+          {activeTab === 'tax' && (
+            <div className="space-y-4">
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                const { error } = taxSettings
+                  ? await supabase.from('tax_settings').update(taxForm).eq('id', taxSettings.id)
+                  : await supabase.from('tax_settings').insert({ site_id: siteId, ...taxForm });
+                if (!error) {
+                  loadData();
+                  setError('');
+                } else {
+                  setError(error.message);
+                }
+                setLoading(false);
+              }} className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                <h3 className="font-semibold text-slate-900">⚙️ Paramètres de TVA</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Nom de la taxe</label>
+                    <input type="text" value={taxForm.tax_name} onChange={(e) => setTaxForm({ ...taxForm, tax_name: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Numéro de taxe</label>
+                    <input type="text" value={taxForm.tax_number} onChange={(e) => setTaxForm({ ...taxForm, tax_number: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="TVA-001" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Taux de TVA (%)</label>
+                  <input type="number" min="0" max="100" step="0.01" value={taxForm.tax_rate} onChange={(e) => setTaxForm({ ...taxForm, tax_rate: Number(e.target.value) })} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm" />
+                  <p className="text-xs text-slate-500 mt-1">💡 Actuellement utilisé : {taxForm.tax_rate}% sur toutes les factures</p>
+                </div>
+                <button type="submit" disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 rounded-lg disabled:opacity-50">
+                  {loading ? 'Enregistrement...' : '💾 Enregistrer les paramètres'}
+                </button>
+              </form>
+            </div>
+          )}
+
           {activeTab === 'room' && (
             <div className="space-y-4">
               <form onSubmit={handleSaveRoom} className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">

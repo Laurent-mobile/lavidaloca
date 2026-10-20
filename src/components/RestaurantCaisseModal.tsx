@@ -104,13 +104,14 @@ export default function RestaurantCaisseModal({ siteId, isOpen, onClose, onSucce
               `)
               .eq('id', orderId)
               .maybeSingle()
-              .then(({ data }) => {
+                            .then(({ data }) => {
                 if (data) {
                   const formatted = {
                     ...data,
-                    table_number: data.restaurant_tables?.number || 'Direct',
-                    server_name: data.restaurant_employees 
-                      ? `${data.restaurant_employees.first_name} ${data.restaurant_employees.last_name}` 
+                    // ✅ CORRECTION : Ajout de [0] pour les jointures Supabase
+                    table_number: data.restaurant_tables?.[0]?.number || 'Direct',
+                    server_name: data.restaurant_employees?.[0]
+                      ? `${data.restaurant_employees[0].first_name} ${data.restaurant_employees[0].last_name}`
                       : 'Inconnu',
                     items: data.restaurant_order_items || []
                   };
