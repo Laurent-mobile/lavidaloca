@@ -39,9 +39,8 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
   const [menuSearchTerm, setMenuSearchTerm] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [favorites, setFavorites] = useState<string[]>([]);
-const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  // ✅ Refs pour éviter les stale closures et les doubles exécutions
   const localOrderItemsRef = useRef(localOrderItems);
   const currentOrderRef = useRef(currentOrder);
   const selectedServerRef = useRef(selectedServer);
@@ -97,18 +96,16 @@ const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
     }
   }, [isOpen, orderId, table?.id]);
 
-  // Charger les favoris depuis localStorage
-useEffect(() => {
-  if (isOpen) {
-    const saved = localStorage.getItem(`restaurant_favorites_${siteId}`);
-    if (saved) setFavorites(JSON.parse(saved));
-  }
-}, [isOpen, siteId]);
+  useEffect(() => {
+    if (isOpen) {
+      const saved = localStorage.getItem(`restaurant_favorites_${siteId}`);
+      if (saved) setFavorites(JSON.parse(saved));
+    }
+  }, [isOpen, siteId]);
 
-// Sauvegarder les favoris
-useEffect(() => {
-  localStorage.setItem(`restaurant_favorites_${siteId}`, JSON.stringify(favorites));
-}, [favorites, siteId]);
+  useEffect(() => {
+    localStorage.setItem(`restaurant_favorites_${siteId}`, JSON.stringify(favorites));
+  }, [favorites, siteId]);
 
   const loadData = async () => {
     try {
@@ -144,13 +141,13 @@ useEffect(() => {
   };
 
   const toggleFavorite = (itemId: string) => {
-  setFavorites(prev => {
-    if (prev.includes(itemId)) {
-      return prev.filter(id => id !== itemId);
-    }
-    return [...prev, itemId];
-  });
-};
+    setFavorites(prev => {
+      if (prev.includes(itemId)) {
+        return prev.filter(id => id !== itemId);
+      }
+      return [...prev, itemId];
+    });
+  };
 
   const loadOccupiedRooms = async () => {
     try {
@@ -176,11 +173,11 @@ useEffect(() => {
       const { data, error } = await supabase
         .from('restaurant_orders')
         .select(`
-  id, order_number, server_id, order_type, status, room_id, stay_id, table_id, notes,
-  restaurant_employees(first_name, last_name),
-  restaurant_order_items(id, menu_item_id, item_name, quantity, unit_price, total_price, notes, status, destination),
-  restaurant_tables(number)
-`)
+          id, order_number, server_id, order_type, status, room_id, stay_id, table_id, notes,
+          restaurant_employees(first_name, last_name),
+          restaurant_order_items(id, menu_item_id, item_name, quantity, unit_price, total_price, notes, status, destination),
+          restaurant_tables(number)
+        `)
         .eq('id', id)
         .maybeSingle();
 
@@ -202,31 +199,25 @@ useEffect(() => {
         setPrintedQuantities(existingPrinted);
         setAllTicketsPrinted(true);
         
-       // ✅ Correction : restaurant_employees est un tableau
-const emp = data.restaurant_employees?.[0];
-if (emp) {
-  setServerName(`${emp.first_name} ${emp.last_name}`);
-}
+        const emp = data.restaurant_employees?.[0];
+        if (emp) {
+          setServerName(`${emp.first_name} ${emp.last_name}`);
+        }
 
-        // ✅ Charger l'adresse de livraison depuis les notes
-if (data.notes) {
-  console.log('📝 Notes de la commande:', data.notes);
-  
-  // Essayer différents formats possibles
-  let address = '';
-  if (data.notes.includes('📍 Livraison:')) {
-    address = data.notes.split('📍 Livraison:')[1].trim();
-  } else if (data.notes.includes('Livraison:')) {
-    address = data.notes.split('Livraison:')[1].trim();
-  }
-  
-  if (address) {
-    setDeliveryAddress(address);
-    console.log('📍 Adresse chargée:', address);
-  } else {
-    console.log('⚠️ Aucune adresse trouvée dans les notes');
-  }
-}
+        if (data.notes) {
+          console.log('📝 Notes de la commande:', data.notes);
+          let address = '';
+          if (data.notes.includes('📍 Livraison:')) {
+            address = data.notes.split('📍 Livraison:')[1].trim();
+          } else if (data.notes.includes('Livraison:')) {
+            address = data.notes.split('Livraison:')[1].trim();
+          }
+          
+          if (address) {
+            setDeliveryAddress(address);
+            console.log('📍 Adresse chargée:', address);
+          }
+        }
       }
     } catch (err) {
       console.error('❌ Erreur chargement par orderId:', err);
@@ -267,9 +258,8 @@ if (data.notes) {
         setAllTicketsPrinted(true);
 
         const emp = data.restaurant_employees?.[0];
-if (emp) {
-  setServerName(`${emp.first_name} ${emp.last_name}`);
-} else {
+        if (emp) setServerName(`${emp.first_name} ${emp.last_name}`);
+      } else {
         console.log('ℹ️ Aucune commande pour cette table');
       }
     } catch (err) {
@@ -292,7 +282,6 @@ if (emp) {
     return Array.from(map.values());
   };
 
-  // ✅ saveDraftOrder avec verrouillage anti-double-exécution
   const saveDraftOrder = useCallback(async () => {
     if (isSavingDraftRef.current) {
       console.log('⏭️ saveDraftOrder ignoré (déjà en cours)');
@@ -360,7 +349,6 @@ if (emp) {
         }
       }
 
-      // ✅ Utiliser upsert pour éviter les conflits 409
       for (const item of items) {
         const { error: itemError } = await supabase
           .from('restaurant_order_items')
@@ -395,13 +383,12 @@ if (emp) {
     }
   }, [table, chargeToRoom, siteId]);
 
-  // ✅ NOUVEAU : Sauvegarder automatiquement quand l'adresse de livraison change
   useEffect(() => {
     if (orderType === 'DELIVERY' && !table && !chargeToRoom && localOrderItems.length > 0 && deliveryAddress.trim()) {
       const timer = setTimeout(() => {
         console.log('💾 Sauvegarde auto de l\'adresse de livraison...');
         saveDraftOrder();
-      }, 1000); // Attend 1 seconde après la dernière frappe
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [deliveryAddress, orderType, table, chargeToRoom, localOrderItems.length, saveDraftOrder]);
@@ -636,34 +623,31 @@ if (emp) {
           .eq('id', orderIdToUse);
 
         if (updateError) throw new Error(`Erreur update commande: ${updateError.message}`);
-
-        
       }
 
-     // ✅ Utiliser upsert au lieu de insert pour éviter les conflits 409
-for (let i = 0; i < localOrderItems.length; i++) {
-  const item = localOrderItems[i];
-  const { error: itemError } = await supabase
-    .from('restaurant_order_items')
-    .upsert({
-      order_id: orderIdToUse,
-      menu_item_id: item.menu_item_id,
-      item_name: item.item_name,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      total_price: item.total_price,
-      notes: item.notes,
-      destination: item.destination,
-      status: 'PENDING',
-    }, {
-      onConflict: 'order_id,menu_item_id'
-    });
+      for (let i = 0; i < localOrderItems.length; i++) {
+        const item = localOrderItems[i];
+        const { error: itemError } = await supabase
+          .from('restaurant_order_items')
+          .upsert({
+            order_id: orderIdToUse,
+            menu_item_id: item.menu_item_id,
+            item_name: item.item_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            total_price: item.total_price,
+            notes: item.notes,
+            destination: item.destination,
+            status: 'PENDING',
+          }, {
+            onConflict: 'order_id,menu_item_id'
+          });
 
-  if (itemError) {
-    console.error('Erreur insertion article:', itemError);
-    throw new Error(`Erreur insertion article: ${itemError.message}`);
-  }
-}
+        if (itemError) {
+          console.error('Erreur insertion article:', itemError);
+          throw new Error(`Erreur insertion article: ${itemError.message}`);
+        }
+      }
 
       if (chargeToRoom && selectedStay && orderIdToUse) {
         const newFolioBalance = (selectedStay.folio_balance || 0) + cartTotal;
@@ -706,7 +690,8 @@ for (let i = 0; i < localOrderItems.length; i++) {
         });
         window.dispatchEvent(paymentEvent);
       }
-await new Promise(resolve => setTimeout(resolve, 500));
+
+      await new Promise(resolve => setTimeout(resolve, 500));
       setLastOrderNumber(orderNumber);
       setLoading(false);
       onSuccess();
@@ -1004,84 +989,82 @@ await new Promise(resolve => setTimeout(resolve, 500));
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {!isPaid && (
-  <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-    <div className="bg-slate-100 px-4 py-3 border-b border-slate-200">
-      <h3 className="font-semibold text-slate-900 text-sm mb-2"> Menu</h3>
-      <div className="relative mb-2">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
-        <input
-          type="text"
-          placeholder="Rechercher un article..."
-          value={menuSearchTerm}
-          onChange={(e) => setMenuSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-        />
-      </div>
-      
-      {/* ✅ NOUVEAU : Bouton Favoris + Catégories */}
-      <div className="flex gap-1 overflow-x-auto">
-        {favorites.length > 0 && (
-          <button
-            onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-            className={`flex items-center gap-1 px-3 py-2 rounded text-sm font-medium whitespace-nowrap ${
-              showFavoritesOnly ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-             Favoris ({favorites.length})
-          </button>
-        )}
-        {categories.map(cat => (
-          <button
-            key={cat.id}
-            onClick={() => { setActiveCategory(cat.id); setShowFavoritesOnly(false); }}
-            className={`flex items-center gap-1 px-3 py-2 rounded text-sm font-medium whitespace-nowrap ${
-              activeCategory === cat.id && !showFavoritesOnly ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <span>{cat.icon || '️'}</span> {cat.name}
-          </button>
-        ))}
-      </div>
-    </div>
-    
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 max-h-96 overflow-y-auto">
-      {(showFavoritesOnly 
-        ? menuItems.filter(item => favorites.includes(item.id))
-        : currentCategoryItems
-      ).map(item => (
-        <div key={item.id} className="relative">
-          <button
-            onClick={() => addToCart(item)}
-            className="w-full bg-white border-2 border-slate-200 hover:border-amber-400 rounded-lg p-3 text-left transition-colors hover:shadow-sm"
-          >
-            <div className="font-semibold text-sm text-slate-900">{item.name}</div>
-            <div className="text-amber-700 font-bold text-sm mt-2">
-              {Number(item.price).toLocaleString('fr-FR')} F
-            </div>
-            <div className="text-[10px] text-slate-400 mt-1">
-              {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : item.destination === 'BAR' ? '🍹 Bar' : '👨‍🍳 Les deux'}
-            </div>
-          </button>
-          {/* ✅ Bouton favori (étoile) */}
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleFavorite(item.id); }}
-            className={`absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs ${
-              favorites.includes(item.id) ? 'bg-amber-400 text-white' : 'bg-slate-200 text-slate-400 hover:bg-slate-300'
-            }`}
-            title={favorites.includes(item.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-          >
-            {favorites.includes(item.id) ? '★' : '☆'}
-          </button>
-        </div>
-      ))}
-      {(showFavoritesOnly ? menuItems.filter(item => favorites.includes(item.id)) : currentCategoryItems).length === 0 && (
-        <div className="col-span-full text-center py-8 text-slate-500 text-sm">
-          {showFavoritesOnly ? 'Aucun favori. Cliquez sur ☆ pour en ajouter.' : 'Aucun article trouvé'}
-        </div>
-      )}
-    </div>
-  </div>
-)}
+                <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                  <div className="bg-slate-100 px-4 py-3 border-b border-slate-200">
+                    <h3 className="font-semibold text-slate-900 text-sm mb-2">📋 Menu</h3>
+                    <div className="relative mb-2">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
+                      <input
+                        type="text"
+                        placeholder="Rechercher un article..."
+                        value={menuSearchTerm}
+                        onChange={(e) => setMenuSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      />
+                    </div>
+                    
+                    <div className="flex gap-1 overflow-x-auto">
+                      {favorites.length > 0 && (
+                        <button
+                          onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                          className={`flex items-center gap-1 px-3 py-2 rounded text-sm font-medium whitespace-nowrap ${
+                            showFavoritesOnly ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          ⭐ Favoris ({favorites.length})
+                        </button>
+                      )}
+                      {categories.map(cat => (
+                        <button
+                          key={cat.id}
+                          onClick={() => { setActiveCategory(cat.id); setShowFavoritesOnly(false); }}
+                          className={`flex items-center gap-1 px-3 py-2 rounded text-sm font-medium whitespace-nowrap ${
+                            activeCategory === cat.id && !showFavoritesOnly ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          <span>{cat.icon || '🍽️'}</span> {cat.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 max-h-96 overflow-y-auto">
+                    {(showFavoritesOnly 
+                      ? menuItems.filter(item => favorites.includes(item.id))
+                      : currentCategoryItems
+                    ).map(item => (
+                      <div key={item.id} className="relative">
+                        <button
+                          onClick={() => addToCart(item)}
+                          className="w-full bg-white border-2 border-slate-200 hover:border-amber-400 rounded-lg p-3 text-left transition-colors hover:shadow-sm"
+                        >
+                          <div className="font-semibold text-sm text-slate-900">{item.name}</div>
+                          <div className="text-amber-700 font-bold text-sm mt-2">
+                            {Number(item.price).toLocaleString('fr-FR')} F
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-1">
+                            {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : item.destination === 'BAR' ? '🍹 Bar' : '👨‍🍳 Les deux'}
+                          </div>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(item.id); }}
+                          className={`absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+                            favorites.includes(item.id) ? 'bg-amber-400 text-white' : 'bg-slate-200 text-slate-400 hover:bg-slate-300'
+                          }`}
+                          title={favorites.includes(item.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                        >
+                          {favorites.includes(item.id) ? '★' : '☆'}
+                        </button>
+                      </div>
+                    ))}
+                    {(showFavoritesOnly ? menuItems.filter(item => favorites.includes(item.id)) : currentCategoryItems).length === 0 && (
+                      <div className="col-span-full text-center py-8 text-slate-500 text-sm">
+                        {showFavoritesOnly ? 'Aucun favori. Cliquez sur ☆ pour en ajouter.' : 'Aucun article trouvé'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="border-2 border-amber-200 rounded-lg bg-amber-50 flex flex-col">
                 <div className="px-4 py-3 border-b border-amber-200 bg-amber-100">
