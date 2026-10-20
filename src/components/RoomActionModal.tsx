@@ -243,7 +243,7 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
     }
   };
 
-  const handleExtendStay = async () => {
+    const handleExtendStay = async () => {
     if (!currentStay || !currentStay.reservation_id) {
       setError('Aucun séjour actif à prolonger.');
       return;
@@ -254,24 +254,57 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
     }
     setLoading(true);
     setError('');
+    
     try {
-      const { data: reservation } = await supabase.from('reservations').select('check_out_date, nightly_rate, total_amount, notes').eq('id', currentStay.reservation_id).single();
+      // ✅ CORRECTION : Utiliser maybeSingle() et vérifier si reservation existe
+      const { data: reservation, error: resError } = await supabase
+        .from('reservations')
+        .select('check_out_date, nightly_rate, total_amount, notes')
+        .eq('id', currentStay.reservation_id)
+        .maybeSingle();
+
+      if (resError || !reservation) {
+        throw new Error('Impossible de récupérer les détails de la réservation.');
+      }
+
       const currentCheckOut = new Date(reservation.check_out_date);
       const newCheckOut = new Date(currentCheckOut);
       newCheckOut.setDate(newCheckOut.getDate() + extendNights);
-      const additionalAmount = extendNights * reservation.nightly_rate;
+      const additionalAmount = extendNights * (reservation.nightly_rate || 0);
 
       if (!isOnline) {
-        await addToOutbox({ type: 'UPDATE', table: 'reservations', data: { id: currentStay.reservation_id, check_out_date: newCheckOut.toISOString().split('T')[0], total_amount: (reservation.total_amount || 0) + additionalAmount } });
-        await addToOutbox({ type: 'UPDATE', table: 'stays', data: { id: currentStay.id, folio_balance: (currentStay.folio_balance || 0) + additionalAmount } });
+        await addToOutbox({ 
+          type: 'UPDATE', 
+          table: 'reservations', 
+          data: { 
+            id: currentStay.reservation_id, 
+            check_out_date: newCheckOut.toISOString().split('T')[0], 
+            total_amount: (reservation.total_amount || 0) + additionalAmount 
+          } 
+        });
+        await addToOutbox({ 
+          type: 'UPDATE', 
+          table: 'stays', 
+          data: { 
+            id: currentStay.id, 
+            folio_balance: (currentStay.folio_balance || 0) + additionalAmount 
+          } 
+        });
         setLoading(false);
         onSuccess();
         onClose();
         return;
       }
 
-      await supabase.from('reservations').update({ check_out_date: newCheckOut.toISOString().split('T')[0], total_amount: (reservation.total_amount || 0) + additionalAmount }).eq('id', currentStay.reservation_id);
-      await supabase.from('stays').update({ folio_balance: (currentStay.folio_balance || 0) + additionalAmount }).eq('id', currentStay.id);
+      await supabase.from('reservations').update({ 
+        check_out_date: newCheckOut.toISOString().split('T')[0], 
+        total_amount: (reservation.total_amount || 0) + additionalAmount 
+      }).eq('id', currentStay.reservation_id);
+      
+      await supabase.from('stays').update({ 
+        folio_balance: (currentStay.folio_balance || 0) + additionalAmount 
+      }).eq('id', currentStay.id);
+      
       setLoading(false);
       onSuccess();
       onClose();

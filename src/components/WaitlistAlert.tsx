@@ -79,7 +79,7 @@ export default function WaitlistAlert({ siteId, isOpen, onClose, onSuccess }: Pr
       const today = new Date().toISOString().split('T')[0];
       const matched: WaitlistMatch[] = [];
 
-      // 3. Pour chaque client en attente, trouver une chambre compatible
+            // 3. Pour chaque client en attente, trouver une chambre compatible
       for (const item of waitlist) {
         // Chercher une chambre libre de la bonne catégorie
         const matchingRoom = vacantRooms.find(r => 
@@ -95,12 +95,17 @@ export default function WaitlistAlert({ siteId, isOpen, onClose, onSuccess }: Pr
           if (daysUntilCheckIn <= 1) urgency = 'HIGH';
           else if (daysUntilCheckIn <= 3) urgency = 'MEDIUM';
 
+          // ✅ CORRECTION : Supabase retourne les jointures sous forme de tableaux
+          const customer = item.customers?.[0] || {};
+          const roomCat = item.room_categories?.[0] || {};
+          const matchRoomCat = matchingRoom.room_categories?.[0] || {};
+
           matched.push({
             waitlistId: item.id,
-            customerName: `${item.customers?.last_name || ''} ${item.customers?.first_name || ''}`.trim(),
-            customerPhone: item.customers?.phone || '',
-            categoryCode: item.room_categories?.code || '',
-            categoryName: item.room_categories?.name || '',
+            customerName: `${customer.last_name || ''} ${customer.first_name || ''}`.trim(),
+            customerPhone: customer.phone || '',
+            categoryCode: roomCat.code || '',
+            categoryName: roomCat.name || '',
             checkInDate: item.check_in_date,
             checkOutDate: item.check_out_date,
             adults: item.adults,
@@ -109,7 +114,7 @@ export default function WaitlistAlert({ siteId, isOpen, onClose, onSuccess }: Pr
             notes: item.notes || '',
             roomId: matchingRoom.id,
             roomNumber: matchingRoom.number,
-            basePrice: matchingRoom.room_categories?.base_price || 0,
+            basePrice: matchRoomCat.base_price || 0,
             urgency,
           });
         }

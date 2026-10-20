@@ -169,7 +169,9 @@ useEffect(() => {
         total_amount: order.total_amount || 0,
         status: order.status,
         created_at: order.created_at,
-        server_name: order.restaurant_employees ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}` : 'Inconnu',
+        server_name: order.restaurant_employees?.[0] 
+  ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
+  : 'Inconnu',
         items: order.restaurant_order_items || []
       }));
 
@@ -209,8 +211,10 @@ useEffect(() => {
         server_name: order.restaurant_employees ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}` : 'Inconnu',
         items: order.restaurant_order_items || [],
         stay_id: order.stay_id,
-        room_number: order.stays?.rooms?.number,
-        guest_name: order.stays?.customers ? `${order.stays.customers.first_name} ${order.stays.customers.last_name}` : undefined
+        room_number: order.stays?.rooms?.[0]?.number,
+guest_name: order.stays?.customers?.[0] 
+  ? `${order.stays.customers[0].first_name} ${order.stays.customers[0].last_name}` 
+  : undefined
       }));
 
       setRoomCharges(formattedCharges);
