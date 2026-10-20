@@ -69,14 +69,14 @@ export default function NightAuditModal({ siteId, rooms, isOpen, onClose, onSucc
 
     if (overstays) {
       for (const stay of overstays) {
-        const checkOut = stay.reservations?.check_out_date;
+        const checkOut = stay.reservation?.[0]?.check_out_date;
         if (checkOut && new Date(checkOut) < new Date(today)) {
           const nightsOverdue = Math.ceil((new Date(today).getTime() - new Date(checkOut).getTime()) / 86400000);
           foundIssues.push({
             type: 'OVERSTAY',
             severity: 'HIGH',
-            title: `Dépassement: ${stay.rooms?.number}`,
-            description: `${stay.customers?.last_name || 'Client'} - Départ prévu: ${checkOut} (${nightsOverdue} nuit(s) de retard) - Solde: ${Number(stay.folio_balance || 0).toLocaleString('fr-FR')} F`,
+            title: `Dépassement: ${stay.rooms?.[0]?.number}`,
+            description: `${stay.customers?.[0]?.last_name || 'Client'} - Départ prévu: ${checkOut} (${nightsOverdue} nuit(s) de retard) - Solde: ${Number(stay.folio_balance || 0).toLocaleString('fr-FR')} F`,
             action: 'Prolonger ou forcer le check-out',
             data: stay,
           });

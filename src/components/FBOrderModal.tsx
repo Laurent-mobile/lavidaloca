@@ -202,10 +202,11 @@ useEffect(() => {
         setPrintedQuantities(existingPrinted);
         setAllTicketsPrinted(true);
         
-        const emp = data.restaurant_employees;
-        if (emp) {
-          setServerName(`${emp.first_name} ${emp.last_name}`);
-        }
+       // ✅ Correction : restaurant_employees est un tableau
+const emp = data.restaurant_employees?.[0];
+if (emp) {
+  setServerName(`${emp.first_name} ${emp.last_name}`);
+}
 
         // ✅ Charger l'adresse de livraison depuis les notes
 if (data.notes) {
