@@ -14,6 +14,8 @@ import SupplierManagerModal from '@/components/SupplierManagerModal';
 import FBFloorPlan from '@/components/FBFloorPlan';
 import FBKitchenDisplay from '@/components/FBKitchenDisplay';
 
+export const dynamic = 'force-dynamic';
+
 export default function RestaurantDashboard() {
   const router = useRouter();
   const supabase = createClient();
