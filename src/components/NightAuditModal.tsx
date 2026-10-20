@@ -53,7 +53,7 @@ export default function NightAuditModal({ siteId, rooms, isOpen, onClose, onSucc
           type: 'NO_SHOW',
           severity: 'HIGH',
           title: `No-Show: ${res.number}`,
-          description: `${res.customers?.last_name || 'Client'} - Arrivée prévue le ${res.check_in_date} - Chambre ${res.rooms?.number || 'non assignée'}`,
+          description: `${res.customers?.[0]?.last_name || 'Client'} - Arrivée prévue le ${res.check_in_date} - Chambre ${res.rooms?.[0]?.number || 'non assignée'}`,
           action: 'Marquer comme No-Show (annuler)',
           data: res,
         });
@@ -69,7 +69,7 @@ export default function NightAuditModal({ siteId, rooms, isOpen, onClose, onSucc
 
     if (overstays) {
       for (const stay of overstays) {
-        const checkOut = stay.reservation?.[0]?.check_out_date;
+        const checkOut = stay.reservations?.[0]?.check_out_date;
         if (checkOut && new Date(checkOut) < new Date(today)) {
           const nightsOverdue = Math.ceil((new Date(today).getTime() - new Date(checkOut).getTime()) / 86400000);
           foundIssues.push({

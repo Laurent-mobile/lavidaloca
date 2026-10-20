@@ -176,11 +176,11 @@ useEffect(() => {
       const { data, error } = await supabase
         .from('restaurant_orders')
         .select(`
-          id, order_number, server_id, order_type, status, room_id, stay_id, table_id,
-          restaurant_employees(first_name, last_name),
-          restaurant_order_items(id, menu_item_id, item_name, quantity, unit_price, total_price, notes, status, destination),
-          restaurant_tables(number)
-        `)
+  id, order_number, server_id, order_type, status, room_id, stay_id, table_id, notes,
+  restaurant_employees(first_name, last_name),
+  restaurant_order_items(id, menu_item_id, item_name, quantity, unit_price, total_price, notes, status, destination),
+  restaurant_tables(number)
+`)
         .eq('id', id)
         .maybeSingle();
 
@@ -266,9 +266,10 @@ if (data.notes) {
         setPrintedQuantities(existingPrinted);
         setAllTicketsPrinted(true);
 
-        const emp = data.restaurant_employees;
-        if (emp) setServerName(`${emp.first_name} ${emp.last_name}`);
-      } else {
+        const emp = data.restaurant_employees?.[0];
+if (emp) {
+  setServerName(`${emp.first_name} ${emp.last_name}`);
+} else {
         console.log('ℹ️ Aucune commande pour cette table');
       }
     } catch (err) {

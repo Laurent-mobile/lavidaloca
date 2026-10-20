@@ -302,7 +302,7 @@ export default function MaintenanceModal({ siteId, rooms, isOpen, onClose, onSuc
                         <label className="block text-xs font-medium text-slate-700 mb-1">Chambre concernée</label>
                         <select value={form.room_id} onChange={(e) => setForm({ ...form, room_id: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm">
                           <option value="">-- Aucune (maintenance générale) --</option>
-                          {rooms.map(r => (<option key={r.id} value={r.id} disabled={r.status === 'OCCUPIED'}>Chambre {r.number} ({r.room_categories?.code}) {r.status === 'OCCUPIED' ? '🚫 OCCUPÉE' : r.status === 'RESERVED' ? '⚠️ RÉSERVÉE' : '✓ Libre'}</option>))}
+                          {rooms.map(r => (<option key={r.id} value={r.id} disabled={r.status === 'OCCUPIED' ? true : undefined}>Chambre {r.number} ({r.room_categories?.code}) {r.status === 'OCCUPIED' ? '🚫 OCCUPÉE' : r.status === 'RESERVED' ? '⚠️ RÉSERVÉE' : '✓ Libre'}</option>))}
                         </select>
                       </div>
                       <div>

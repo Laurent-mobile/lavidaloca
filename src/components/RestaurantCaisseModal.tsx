@@ -322,10 +322,10 @@ const handleReprintReceipt = async (transaction: any) => {
         
         // Ajouter les infos de la commande à la transaction pour l'impression
         transaction.order_number = orderData.order_number;
-        transaction.table_number = orderData.restaurant_tables?.number || 'Direct';
-        transaction.server_name = orderData.restaurant_employees 
-          ? `${orderData.restaurant_employees.first_name} ${orderData.restaurant_employees.last_name}` 
-          : 'Inconnu';
+        transaction.table_number = orderData.restaurant_tables?.[0]?.number || 'Direct';
+transaction.server_name = orderData.restaurant_employees?.[0]
+  ? `${orderData.restaurant_employees[0].first_name} ${orderData.restaurant_employees[0].last_name}` 
+  : 'Inconnu';
       }
     }
 
