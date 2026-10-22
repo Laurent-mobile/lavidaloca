@@ -41,7 +41,7 @@ interface RestaurantOrder {
   table_id: string | null;
   room_id: string | null;
   room_number?: string;
-  order_type: string;
+  order_type?: string;
   status: string;
   total_amount: number;
   created_at: string;
@@ -293,23 +293,25 @@ export default function CommandesPage() {
     }
   };
 
-  const getOrderTypeLabel = (type: string) => {
-    switch (type) {
+      const getOrderTypeLabel = (type: string | undefined) => {
+    const t = type || 'DINE_IN';
+    switch (t) {
       case 'DINE_IN': return 'Sur place';
       case 'TAKEAWAY': return 'À emporter';
       case 'DELIVERY': return 'Livraison';
       case 'ROOM_SERVICE': return 'Chambre';
-      default: return type;
+      default: return 'Sur place';
     }
   };
 
-  const getOrderTypeIcon = (type: string) => {
-    switch (type) {
+  const getOrderTypeIcon = (type: string | undefined) => {
+    const t = type || 'DINE_IN';
+    switch (t) {
       case 'DINE_IN': return '🍽️';
       case 'TAKEAWAY': return '🥡';
       case 'DELIVERY': return '🚚';
       case 'ROOM_SERVICE': return '🛎️';
-      default: return '📋';
+      default: return '🍽️';
     }
   };
 
@@ -800,7 +802,7 @@ export default function CommandesPage() {
       <div class="info">
         <div><span>N°:</span><span>${order.order_number}</span></div>
         <div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div>
-        <div><span>Type:</span><span>${getOrderTypeLabel(order.order_type)}</span></div>
+        <div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}</span></div>
       </div>
       <div class="items">${items.map(i=>`<div class="item"><span>${i.item_name} x${i.quantity}</span><span>${Number(i.total_price).toLocaleString('fr-FR')} F</span></div>`).join('')}</div>
       <div class="total"><span>TOTAL</span><span>${Number(order.total_amount).toLocaleString('fr-FR')} F</span></div>
@@ -901,8 +903,8 @@ export default function CommandesPage() {
     doc.setFontSize(10); doc.setTextColor(50, 50, 50);
     doc.text(`N°: ${order.order_number}`, 20, 45);
     doc.text(`Date: ${new Date(order.created_at).toLocaleString('fr-FR')}`, 20, 52);
-    doc.text(`Lieu: ${getLocationLabel(order)}`, 20, 59);
-    doc.text(`Type: ${getOrderTypeLabel(order.order_type)}`, 20, 66);
+        doc.text(`Lieu: ${getLocationLabel(order)}`, 20, 59);
+    doc.text(`Type: ${getOrderTypeLabel(order.order_type || 'DINE_IN')}`, 20, 66);
     doc.text(`Statut: ${getStatusConfig(order.status).label}`, 20, 73);
     const tableData = items.map(i => [i.item_name, i.quantity.toString(), `${Number(i.unit_price).toLocaleString('fr-FR')} F`, `${Number(i.total_price).toLocaleString('fr-FR')} F`]);
     autoTable(doc, {
@@ -1325,7 +1327,9 @@ export default function CommandesPage() {
                                   : <span className="text-slate-400">-</span>
                                 }
                               </td>
-                              <td className="px-6 py-4 text-sm text-slate-700">{getOrderTypeIcon(order.order_type)} {getOrderTypeLabel(order.order_type)}</td>
+                              <td className="px-6 py-4 text-sm text-slate-700">
+                                {getOrderTypeIcon(order.order_type || 'DINE_IN')} {getOrderTypeLabel(order.order_type || 'DINE_IN')}
+                              </td>
                               <td className="px-6 py-4 text-center text-sm text-slate-700"><span className="font-medium">{itemsQty}</span><span className="text-xs text-slate-500 ml-1">({itemsCount})</span></td>
                               <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} F</td>
                               <td className="px-6 py-4 text-sm text-slate-600">
@@ -1394,7 +1398,7 @@ export default function CommandesPage() {
                 </div>
                 <div className="bg-slate-50 p-3 rounded-lg">
                   <div className="text-xs text-slate-500 mb-1">Type</div>
-                  <div className="font-semibold text-slate-900">{getOrderTypeIcon(selectedOrder.order_type)} {getOrderTypeLabel(selectedOrder.order_type)}</div>
+                  <div className="font-semibold text-slate-900">{getOrderTypeIcon(selectedOrder.order_type || 'DINE_IN')} {getOrderTypeLabel(selectedOrder.order_type || 'DINE_IN')}</div>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-lg">
                   <div className="text-xs text-slate-500 mb-1">Total</div>
