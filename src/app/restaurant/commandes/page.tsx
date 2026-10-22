@@ -21,6 +21,8 @@ interface MenuItem {
 
 interface CartItem extends MenuItem {
   quantity: number;
+  orderItemId?: string;   // ✅ Ajouté pour le suivi en mode édition
+  menuItemId?: string;    // ✅ Ajouté pour le lien avec le menu
 }
 
 interface OrderItem {
@@ -838,7 +840,7 @@ export default function CommandesPage() {
       <div class="info">
         <div class="info-box"><label>N° Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
-        <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type)} ${getOrderTypeLabel(order.order_type)}</strong></div>
+        <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
       <div class="items">${items.map(i=>`<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>
@@ -878,7 +880,7 @@ export default function CommandesPage() {
       <div class="info">
         <div class="info-box"><label>N° Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</strong></div>
-        <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type)} ${getOrderTypeLabel(order.order_type)}</strong></div>
+        <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
       <div class="items">${items.map(i=>`<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>

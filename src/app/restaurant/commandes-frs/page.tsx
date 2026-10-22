@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   ShoppingCart, Search, Plus, Edit2, Trash2, X, CheckCircle, 
   AlertCircle, Truck, Package, Eye, FileText, Save, Clock,
-  Calendar, DollarSign, Box, ClipboardList, History, User
+  Calendar, DollarSign, Box, ClipboardList, History
 } from 'lucide-react';
 
 interface Supplier { id: string; name: string; }
@@ -52,8 +52,6 @@ export default function SupplierOrdersPage() {
   const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
   const [receiveItems, setReceiveItems] = useState<{ itemId: string; qty: number }[]>([]);
   const [isReceiving, setIsReceiving] = useState(false);
-
-  // ✅ NOUVEAU : État pour l'historique des réceptions partielles
   const [receptionHistory, setReceptionHistory] = useState<any[]>([]);
 
   useEffect(() => {
@@ -71,7 +69,6 @@ export default function SupplierOrdersPage() {
     init();
   }, []);
 
-  // ✅ NOUVEAU : Charger l'historique quand on ouvre le détail d'une commande
   useEffect(() => {
     if (viewingOrder) {
       loadReceptionHistory(viewingOrder.order_number);
@@ -143,12 +140,10 @@ export default function SupplierOrdersPage() {
   };
 
   const removeItemFromOrder = (index: number) => setOrderItems(orderItems.filter((_, i) => i !== index));
-
   const updateItemQuantity = (index: number, qty: number) => {
     const updated = [...orderItems]; updated[index].quantity = qty; updated[index].total_price = qty * updated[index].unit_price;
     setOrderItems(updated);
   };
-
   const updateItemPrice = (index: number, price: number) => {
     const updated = [...orderItems]; updated[index].unit_price = price; updated[index].total_price = updated[index].quantity * price;
     setOrderItems(updated);
@@ -173,7 +168,14 @@ export default function SupplierOrdersPage() {
         await supabase.from('supplier_orders').update(orderData).eq('id', editingOrder.id);
         await supabase.from('supplier_order_items').delete().eq('order_id', editingOrder.id);
       } else {
-        const { data: order } = await supabase.from('supplier_orders').insert({ ...orderData, order_number: `CMD-FRS-${Date.now().toString().slice(-6)}`, created_by: userId }).select('id').single();
+        // ✅ CORRECTION : Vérification stricte pour éviter l'erreur "order is possibly null"
+        const { data: order, error: insertError } = await supabase
+          .from('supplier_orders')
+          .insert({ ...orderData, order_number: `CMD-FRS-${Date.now().toString().slice(-6)}`, created_by: userId })
+          .select('id')
+          .single();
+        
+        if (insertError || !order) throw insertError || new Error("Échec de la création de la commande");
         orderId = order.id;
       }
 
@@ -204,7 +206,6 @@ export default function SupplierOrdersPage() {
     setIsReceiving(true);
     try {
       let allFullyReceived = true;
-
       for (const item of viewingOrder.supplier_order_items || []) {
         const receiveItem = receiveItems.find(r => r.itemId === item.id);
         const qtyToAddToOrder = receiveItem ? receiveItem.qty : 0; 
@@ -216,12 +217,10 @@ export default function SupplierOrdersPage() {
         if (qtyToAddToOrder > 0 && item.stock_item_id) {
           const conversionFactor = item.conversion_factor || 1;
           const actualStockQtyToAdd = qtyToAddToOrder * conversionFactor;
-
           const { data: stockItem } = await supabase.from('stock_items').select('quantity').eq('id', item.stock_item_id).single();
           if (stockItem) {
             const newStockQty = stockItem.quantity + actualStockQtyToAdd;
             await supabase.from('stock_items').update({ quantity: newStockQty }).eq('id', item.stock_item_id);
-            
             await supabase.from('stock_movements').insert({
               site_id: siteId, stock_item_id: item.stock_item_id, movement_type: 'IN',
               quantity: actualStockQtyToAdd,
@@ -230,7 +229,6 @@ export default function SupplierOrdersPage() {
             });
           }
         }
-
         if (newReceivedQty < item.quantity) allFullyReceived = false;
       }
 
@@ -242,7 +240,6 @@ export default function SupplierOrdersPage() {
 
       await supabase.from('supplier_orders').update(updateData).eq('id', viewingOrder.id);
       await loadOrders();
-      
       setIsReceiveModalOpen(false); setViewingOrder(null);
       alert(allFullyReceived ? '✅ Commande entièrement reçue ! Statut passé à "Reçue".' : '✅ Réception partielle enregistrée !');
     } catch (error) { 
@@ -255,7 +252,6 @@ export default function SupplierOrdersPage() {
 
   const activeOrders = useMemo(() => orders.filter(o => o.status === 'DRAFT' || o.status === 'SENT'), [orders]);
   const historyOrders = useMemo(() => orders.filter(o => o.status === 'RECEIVED' || o.status === 'CANCELLED'), [orders]);
-
   const filteredActive = useMemo(() => activeOrders.filter(o => o.order_number.toLowerCase().includes(search.toLowerCase()) || o.suppliers?.name.toLowerCase().includes(search.toLowerCase())), [activeOrders, search]);
   const filteredHistory = useMemo(() => historyOrders.filter(o => o.order_number.toLowerCase().includes(search.toLowerCase()) || o.suppliers?.name.toLowerCase().includes(search.toLowerCase())), [historyOrders, search]);
 
@@ -346,7 +342,6 @@ export default function SupplierOrdersPage() {
         </div>
       )}
 
-      {/* Modale Création/Édition (inchangée, voir version précédente pour le code complet si besoin) */}
       {isFormOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -404,7 +399,6 @@ export default function SupplierOrdersPage() {
         </div>
       )}
 
-      {/* ✅ Modale Détail AVEC Historique des réceptions partielles */}
       {viewingOrder && !isReceiveModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -419,13 +413,10 @@ export default function SupplierOrdersPage() {
                 <div><div className="text-slate-500 text-xs">Statut</div><div className="font-semibold">{getStatusBadge(viewingOrder.status).label}</div></div>
                 <div><div className="text-slate-500 text-xs">Montant total</div><div className="font-bold text-indigo-600">{Number(viewingOrder.total_amount).toLocaleString('fr-FR')} F</div></div>
               </div>
-              
               {viewingOrder.supplier_order_items && viewingOrder.supplier_order_items.length > 0 && (
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="bg-slate-100">
-                      <tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">Qté cmdée</th><th className="px-4 py-2 text-center">Qté reçue</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr>
-                    </thead>
+                    <thead className="bg-slate-100"><tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">Qté cmdée</th><th className="px-4 py-2 text-center">Qté reçue</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {viewingOrder.supplier_order_items.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50">
@@ -440,30 +431,17 @@ export default function SupplierOrdersPage() {
                   </table>
                 </div>
               )}
-
-              {/* ✅ NOUVEAU : Historique des réceptions partielles */}
               {receptionHistory.length > 0 && (
                 <div className="border border-indigo-200 rounded-lg overflow-hidden bg-indigo-50/30">
                   <div className="bg-indigo-100 px-4 py-2 border-b border-indigo-200">
-                    <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
-                      <History className="w-4 h-4" />
-                      Historique des réceptions partielles
-                    </h4>
+                    <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2"><History className="w-4 h-4" /> Historique des réceptions partielles</h4>
                   </div>
                   <table className="w-full text-sm">
-                    <thead className="bg-white/50">
-                      <tr>
-                        <th className="px-4 py-2 text-left">Date et heure</th>
-                        <th className="px-4 py-2 text-left">Détail de la réception</th>
-                        <th className="px-4 py-2 text-center">Quantité ajoutée au stock</th>
-                      </tr>
-                    </thead>
+                    <thead className="bg-white/50"><tr><th className="px-4 py-2 text-left">Date et heure</th><th className="px-4 py-2 text-left">Détail de la réception</th><th className="px-4 py-2 text-center">Quantité ajoutée au stock</th></tr></thead>
                     <tbody className="divide-y divide-indigo-100">
                       {receptionHistory.map((m, idx) => (
                         <tr key={idx} className="hover:bg-white/70">
-                          <td className="px-4 py-2 text-slate-600 text-xs whitespace-nowrap">
-                            {new Date(m.created_at).toLocaleString('fr-FR')}
-                          </td>
+                          <td className="px-4 py-2 text-slate-600 text-xs whitespace-nowrap">{new Date(m.created_at).toLocaleString('fr-FR')}</td>
                           <td className="px-4 py-2 text-slate-800">{m.reason}</td>
                           <td className="px-4 py-2 text-center font-bold text-emerald-600">+{m.quantity}</td>
                         </tr>
@@ -472,25 +450,15 @@ export default function SupplierOrdersPage() {
                   </table>
                 </div>
               )}
-
-              {viewingOrder.notes && (
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  <div className="text-xs text-slate-500 mb-1">Notes</div>
-                  <div className="text-sm text-slate-700">{viewingOrder.notes}</div>
-                </div>
-              )}
-              
+              {viewingOrder.notes && <div className="bg-slate-50 p-3 rounded-lg border border-slate-200"><div className="text-xs text-slate-500 mb-1">Notes</div><div className="text-sm text-slate-700">{viewingOrder.notes}</div></div>}
               {viewingOrder.status === 'RECEIVED' && viewingOrder.received_at && (
-                <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-sm text-emerald-900 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4" /> Reçue définitivement le {new Date(viewingOrder.received_at).toLocaleString('fr-FR')}
-                </div>
+                <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-200 text-sm text-emerald-900 flex items-center gap-2"><CheckCircle className="w-4 h-4" /> Reçue définitivement le {new Date(viewingOrder.received_at).toLocaleString('fr-FR')}</div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Modale Réception (inchangée, voir version précédente) */}
       {isReceiveModalOpen && viewingOrder && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -499,20 +467,10 @@ export default function SupplierOrdersPage() {
               <button onClick={() => setIsReceiveModalOpen(false)} className="hover:bg-emerald-700 p-1 rounded"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-sm text-emerald-900">
-                <strong>⚠️ Info :</strong> Le stock sera mis à jour en multipliant la quantité reçue par le facteur de conversion de chaque article.
-              </div>
+              <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-sm text-emerald-900"><strong>⚠️ Info :</strong> Le stock sera mis à jour en multipliant la quantité reçue par le facteur de conversion de chaque article.</div>
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-100">
-                    <tr>
-                      <th className="px-4 py-3 text-left">Article</th>
-                      <th className="px-4 py-3 text-center">Commandé</th>
-                      <th className="px-4 py-3 text-center">Déjà reçu</th>
-                      <th className="px-4 py-3 text-center">Reçu maintenant</th>
-                      <th className="px-4 py-3 text-center">Reste</th>
-                    </tr>
-                  </thead>
+                  <thead className="bg-slate-100"><tr><th className="px-4 py-3 text-left">Article</th><th className="px-4 py-3 text-center">Commandé</th><th className="px-4 py-3 text-center">Déjà reçu</th><th className="px-4 py-3 text-center">Reçu maintenant</th><th className="px-4 py-3 text-center">Reste</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {(viewingOrder.supplier_order_items || []).map((item) => {
                       const alreadyReceived = item.received_quantity || 0;
@@ -521,16 +479,9 @@ export default function SupplierOrdersPage() {
                       const currentInput = receiveItem ? receiveItem.qty : (remaining > 0 ? remaining : 0);
                       return (
                         <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-medium text-slate-900">
-                            {item.item_name}
-                            <div className="text-xs text-slate-500 mt-0.5">(1 {item.purchase_unit} = {item.conversion_factor} {item.unit})</div>
-                          </td>
+                          <td className="px-4 py-3 font-medium text-slate-900">{item.item_name}<div className="text-xs text-slate-500 mt-0.5">(1 {item.purchase_unit} = {item.conversion_factor} {item.unit})</div></td>
                           <td className="px-4 py-3 text-center text-slate-600 font-medium">{item.quantity} {item.purchase_unit}</td>
-                          <td className="px-4 py-3 text-center">
-                            {alreadyReceived > 0 ? (
-                              <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded text-sm">{alreadyReceived} {item.purchase_unit}</span>
-                            ) : (<span className="text-slate-400">0</span>)}
-                          </td>
+                          <td className="px-4 py-3 text-center">{alreadyReceived > 0 ? <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-1 rounded text-sm">{alreadyReceived} {item.purchase_unit}</span> : <span className="text-slate-400">0</span>}</td>
                           <td className="px-4 py-3 text-center">
                             <input type="number" min="0" max={remaining} value={currentInput} onChange={(e) => {
                               const val = Math.min(Number(e.target.value), remaining);
@@ -548,14 +499,12 @@ export default function SupplierOrdersPage() {
                 </table>
               </div>
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <div className="text-sm text-slate-700">
-                  <strong>Résumé :</strong> Vous allez réceptionner les quantités indiquées. Le stock sera augmenté de : <span className="font-bold text-emerald-600">
-                    {receiveItems.reduce((sum, r) => {
-                      const item = viewingOrder.supplier_order_items?.find(i => i.id === r.itemId);
-                      return sum + (r.qty * (item?.conversion_factor || 1));
-                    }, 0)}
-                  </span> unités en stock.
-                </div>
+                <div className="text-sm text-slate-700"><strong>Résumé :</strong> Vous allez réceptionner les quantités indiquées. Le stock sera augmenté de : <span className="font-bold text-emerald-600">
+                  {receiveItems.reduce((sum, r) => {
+                    const item = viewingOrder.supplier_order_items?.find(i => i.id === r.itemId);
+                    return sum + (r.qty * (item?.conversion_factor || 1));
+                  }, 0)}
+                </span> unités en stock.</div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setIsReceiveModalOpen(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg">Annuler</button>
