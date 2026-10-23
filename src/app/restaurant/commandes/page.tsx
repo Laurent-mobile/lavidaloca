@@ -343,7 +343,7 @@ const confirmPizzaWithSupplements = () => {
     await supabase.from('restaurant_orders').update(updateData).eq('id', orderId);
     
     // 2. ✅ NOUVEAU : Si la commande est payée, déduire le stock automatiquement
-    if (newStatus === 'PAID') {
+   /* if (newStatus === 'PAID') {
       const { error: stockError } = await supabase.rpc('deduct_order_stock', { p_order_id: orderId });
       if (stockError) {
         console.error('❌ Erreur déduction stock:', stockError);
@@ -351,7 +351,7 @@ const confirmPizzaWithSupplements = () => {
       } else {
         console.log('✅ Stock déduit avec succès');
       }
-    }
+    }*/
 
     loadOrders();
     if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus });
