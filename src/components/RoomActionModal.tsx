@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 import { X, LogIn, LogOut, Sparkles, User, Calendar, AlertTriangle, Bed, AlertCircle, Clock, FileText, Unlock } from 'lucide-react';
 import CheckoutModal from './CheckoutModal';
 import { addToOutbox } from '@/lib/outbox';
+import FolioModal from './FolioModal'; // ✅ AJOUTÉ
 
 interface Props {
   siteId: string;
@@ -24,6 +25,7 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
   const [showCheckout, setShowCheckout] = useState(false);
   const [extendNights, setExtendNights] = useState(1);
   const [extendNote, setExtendNote] = useState('');
+  const [showFolio, setShowFolio] = useState(false); // ✅ AJOUTÉ
 
   useEffect(() => {
     if (isOpen && room) {
@@ -361,10 +363,29 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2"><User className="w-4 h-4 text-blue-700" /><span className="font-semibold text-blue-900">Séjour en cours</span></div>
-                <div className="flex gap-1">
-                  <button onClick={() => setShowExtendForm(!showExtendForm)} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded font-medium"><Clock className="w-3 h-3" /> Prolonger</button>
-                  <button onClick={() => setShowCheckout(true)} className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2 py-1 rounded font-medium"><FileText className="w-3 h-3" /> Check-out</button>
-                </div>
+                <div className="flex gap-1 flex-wrap">
+  {/* ✅ NOUVEAU : Bouton Voir le folio */}
+  <button 
+    onClick={() => setShowFolio(true)} 
+    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-2 py-1 rounded font-medium"
+  >
+    <FileText className="w-3 h-3" /> Voir le folio
+  </button>
+  
+  <button 
+    onClick={() => setShowExtendForm(!showExtendForm)} 
+    className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded font-medium"
+  >
+    <Clock className="w-3 h-3" /> Prolonger
+  </button>
+  
+  <button 
+    onClick={() => setShowCheckout(true)} 
+    className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2 py-1 rounded font-medium"
+  >
+    <FileText className="w-3 h-3" /> Check-out
+  </button>
+</div>
               </div>
               <div className="text-sm space-y-1">
                 <p><strong>Client :</strong> {currentStay.customers?.last_name || 'Inconnu'} {currentStay.customers?.first_name || ''}</p>
@@ -485,6 +506,15 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
           onSuccess={() => { setShowCheckout(false); onSuccess(); onClose(); }}
         />
       )}
+      {/* ✅ NOUVEAU : Modal de visualisation du folio (sans check-out) */}
+{showFolio && currentStay && (
+  <FolioModal
+    siteId={siteId}
+    stay={currentStay}
+    isOpen={showFolio}
+    onClose={() => setShowFolio(false)}
+  />
+)}
     </div>
   );
 }

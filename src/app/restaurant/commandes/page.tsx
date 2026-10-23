@@ -126,6 +126,9 @@ export default function CommandesPage() {
 const [selectedPizza, setSelectedPizza] = useState<MenuItem | null>(null);
 const [selectedSupplements, setSelectedSupplements] = useState<MenuItem[]>([]);
 const [supplements, setSupplements] = useState<MenuItem[]>([]);
+const [activeStays, setActiveStays] = useState<any[]>([]);
+const [selectedStayId, setSelectedStayId] = useState('');
+const [chargeToRoom, setChargeToRoom] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -146,8 +149,9 @@ const [supplements, setSupplements] = useState<MenuItem[]>([]);
       loadMenu();
       loadEmployees();
       loadSupplements();
+      loadActiveStays(); 
     }
-  }, [siteId, editingOrderId]);
+  }, [siteId, editingOrderId, chargeToRoom]);
 
   const loadEmployees = async () => {
     try {
@@ -158,6 +162,40 @@ const [supplements, setSupplements] = useState<MenuItem[]>([]);
       setEmployees([]);
     }
   };
+
+  // Charger les séjours actifs (clients actuellement à l'hôtel)
+const loadActiveStays = async () => {
+  try {
+    const { data: staysData, error: staysError } = await supabase
+      .from('stays')
+      .select(`
+        id, check_in_at, nightly_rate, folio_balance, customer_id, room_id,
+        rooms!room_id(number, room_categories(code, name)),
+        customers(first_name, last_name)
+      `)
+      .eq('status', 'IN_HOUSE') // ✅ .eq('site_id', siteId) a été supprimé ici
+      .order('check_in_at', { ascending: false });
+
+    if (staysError) {
+      console.error('Erreur chargement séjours:', staysError);
+      setActiveStays([]);
+      return;
+    }
+
+    if (staysData && staysData.length > 0) {
+      const formattedStays = staysData.map(stay => ({
+        ...stay,
+        customers: stay.customers || { first_name: 'Client', last_name: 'Inconnu' }
+      }));
+      setActiveStays(formattedStays);
+    } else {
+      setActiveStays([]);
+    }
+  } catch (error) {
+    console.error('Erreur chargement séjours:', error);
+    setActiveStays([]);
+  }
+};
 
   const loadOrders = async () => {
     setLoading(true);
@@ -189,15 +227,21 @@ const [supplements, setSupplements] = useState<MenuItem[]>([]);
   };
 
   const loadTables = async () => {
-    try {
-      let query = supabase.from('restaurant_tables').select('id, number, capacity, status').eq('site_id', siteId).order('number', { ascending: true });
-      if (!editingOrderId) query = query.eq('status', 'AVAILABLE');
-      const { data } = await query;
-      setTables(data || []);
-    } catch (error) {
-      console.error('Erreur tables:', error);
+  try {
+    let query = supabase.from('restaurant_tables').select('id, number, capacity, status').eq('site_id', siteId).order('number', { ascending: true });
+    
+    // ✅ NOUVEAU : Si on est en mode "facturer sur chambre", on charge TOUTES les tables (même les OCCUPIED)
+    // Sinon, on ne charge que les tables disponibles
+    if (!editingOrderId && !chargeToRoom) {
+      query = query.eq('status', 'AVAILABLE');
     }
-  };
+    
+    const { data } = await query;
+    setTables(data || []);
+  } catch (error) {
+    console.error('Erreur tables:', error);
+  }
+};
 
   const loadRooms = async () => {
     try {
@@ -466,8 +510,49 @@ const addToCart = (item: MenuItem) => {
     setActiveTab('new');
     setItemSearch(''); // Reset recherche article
   };
-
-  const handleCommander = async () => {
+const printRoomChargeTicket = (order: any, stay: any, amount: number, table?: any) => {
+  const w = window.open('', '_blank', 'width=400,height=650');
+  if (!w) return;
+  w.document.write(`<!DOCTYPE html><html><head><title>Confirmation chambre</title>
+    <style>
+      body{font-family:'Courier New',monospace;font-size:12px;max-width:300px;margin:0 auto;padding:12px;}
+      h1{font-size:16px;text-align:center;margin:4px 0;} 
+      .c{text-align:center;}
+      .line{border-top:1px dashed #000;margin:10px 0;} 
+      .row{display:flex;justify-content:space-between;}
+      .total{font-size:16px;font-weight:bold;}
+      .badge{background:#7e22ce;color:white;padding:8px 12px;border-radius:4px;text-align:center;margin:10px 0;font-weight:bold;font-size:13px;line-height:1.4;}
+      .warning{background:#fef3c7;border:2px dashed #d97706;padding:8px;border-radius:4px;margin:10px 0;font-size:11px;text-align:center;color:#92400e;}
+    </style></head><body>
+    <div class="c">
+      <img src="/logo.png" style="max-width:120px;margin-bottom:8px;">
+      <h1>HAPPINESS</h1>
+      <p>Hotel • Resto • Lounge<br>Ouaga 2000 — +226 57 40 11 11</p>
+    </div>
+    <div class="badge">
+      🏨 FACTURÉ SUR CHAMBRE ${stay?.rooms?.number}<br>
+      <span style="font-size:11px;font-weight:normal;">Client : ${stay?.customers?.first_name || ''} ${stay?.customers?.last_name || ''}</span>
+    </div>
+    ${table ? `<div class="warning">🍽️ TABLE ${table.number}</div>` : ''}
+    <div class="line"></div>
+    <div class="row"><span>Commande</span><b>${order.order_number}</b></div>
+    <div class="row"><span>Date</span><span>${new Date().toLocaleString('fr-FR')}</span></div>
+    <div class="line"></div>
+    ${cart.map(i => `<div class="row"><span>${i.name} x${i.quantity}</span><span>${Number(i.price * i.quantity).toLocaleString('fr-FR')}</span></div>`).join('')}
+    <div class="line"></div>
+    <div class="row total"><span>TOTAL</span><span>${Number(amount).toLocaleString('fr-FR')} F</span></div>
+    <div class="line"></div>
+    <div class="warning">
+      <b>⚠️ NON PAYÉ</b><br>
+      Montant porté sur la note de votre chambre.<br>
+      À régler lors du check-out.
+    </div>
+    <p class="c" style="margin-top:15px;">Merci de votre visite !<br>Embrace happiness...</p>
+    </body></html>`);
+  w.document.close();
+  setTimeout(() => { w.print(); w.close(); }, 300);
+};
+     const handleCommander = async () => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
     if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sélectionnez une table.'); return; }
     if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sélectionnez une chambre.'); return; }
@@ -476,7 +561,9 @@ const addToCart = (item: MenuItem) => {
     setIsSubmittingOrder(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      
       if (editingOrderId) {
+        // --- LOGIQUE DE MODIFICATION DE COMMANDE EXISTANTE ---
         const newItems: CartItem[] = [];
         const updatedItems: CartItem[] = [];
         cart.forEach(cartItem => {
@@ -520,7 +607,9 @@ const addToCart = (item: MenuItem) => {
         } else {
           alert('✅ Commande mise à jour avec succès !');
         }
+
       } else {
+        // --- LOGIQUE DE NOUVELLE COMMANDE ---
         const orderNumber = `CMD-${Date.now().toString().slice(-6)}`;
         const orderData: any = {
           site_id: siteId, order_type: orderType, order_number: orderNumber, status: 'SENT',
@@ -535,38 +624,126 @@ const addToCart = (item: MenuItem) => {
           if (room) orderData.room_number = room.number;
         }
 
+        // 1. Créer la commande
         const { data: order, error: orderError } = await supabase.from('restaurant_orders').insert(orderData).select('id').single();
         if (orderError) throw orderError;
 
+        // 2. Insérer les articles
         await supabase.from('restaurant_order_items').insert(cart.map(item => ({
           order_id: order.id, menu_item_id: item.menuItemId || item.id || null, item_name: item.name,
           quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price,
           status: 'PENDING', destination: getDestination(item)
         })));
 
+        // 3. Mettre à jour la table si nécessaire
         if (orderType === 'DINE_IN' && selectedTableId) {
           await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
         }
 
-        const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
-        const barItems = cart.filter(i => getDestination(i) === 'BAR');
-        const tempOrder: RestaurantOrder = {
-          id: order.id, order_number: orderNumber, table_id: selectedTableId || null, room_id: selectedRoomId || null,
-          order_type: orderType, status: 'SENT', total_amount: totalAmount, created_at: new Date().toISOString(),
-          restaurant_tables: tables.find(t => t.id === selectedTableId) ? { number: tables.find(t => t.id === selectedTableId)!.number } : null,
-          rooms: rooms.find(r => r.id === selectedRoomId) ? { number: rooms.find(r => r.id === selectedRoomId)!.number } : null,
-          restaurant_order_items: cart.map(item => ({ id: item.id, item_name: item.name, quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price, status: 'PENDING', destination: getDestination(item) }))
-        };
+        // 4. ✅ BRANCHEMENT : Facturation sur chambre OU Flux normal
+        if (chargeToRoom && selectedStayId && order) {
+          const stay = activeStays.find(s => s.id === selectedStayId);
+          const usedTable = selectedTableId ? tables.find(t => t.id === selectedTableId) : null;
+          
+          // Mettre à jour la commande avec le stay_id et le statut ROOM_CHARGE
+          await supabase.from('restaurant_orders')
+            .update({ 
+              status: 'ROOM_CHARGE',
+              stay_id: selectedStayId,
+              table_id: selectedTableId || null,
+              order_type: 'DINE_IN'
+            })
+            .eq('id', order.id);
+          
+          // Créer l'imputation dans room_charges
+          await supabase.from('room_charges').insert({
+            site_id: siteId,
+            stay_id: selectedStayId,
+            order_id: order.id,
+            charge_type: 'RESTAURANT',
+            amount: totalAmount,
+            description: `Commande ${orderNumber} - ${cart.length} article(s)${usedTable ? ` - Table ${usedTable.number}` : ''}`,
+            charge_date: new Date().toISOString(),
+            is_voided: false
+          });
+          
+          // Mettre à jour le folio_balance du stay
+          await supabase.from('stays')
+            .update({ folio_balance: (stay?.folio_balance || 0) + totalAmount })
+            .eq('id', selectedStayId);
+          
+          // Construire l'objet tempOrder pour les bons d'impression
+          const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
+          const barItems = cart.filter(i => getDestination(i) === 'BAR');
+          
+          const tempOrder: RestaurantOrder = {
+            id: order.id, 
+            order_number: orderNumber, 
+            table_id: selectedTableId || null, 
+            room_id: null,
+            order_type: 'DINE_IN', 
+            status: 'ROOM_CHARGE', 
+            total_amount: totalAmount, 
+            created_at: new Date().toISOString(),
+            restaurant_tables: usedTable ? { number: usedTable.number } : null,
+            rooms: null,
+            restaurant_order_items: cart.map(item => ({ 
+              id: item.id, 
+              item_name: item.name, 
+              quantity: item.quantity, 
+              unit_price: item.price, 
+              total_price: item.quantity * item.price, 
+              status: 'PENDING', 
+              destination: getDestination(item) 
+            }))
+          };
+          
+          // IMPRIMER LES BONS CUISINE/BAR
+          if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
+          if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
+          
+          // IMPRIMER LE TICKET DE CONFIRMATION "NON PAYÉ"
+          const printDelay = (kitchenItems.length > 0 ? 600 : 0) + (barItems.length > 0 ? 300 : 0) + 300;
+          setTimeout(() => printRoomChargeTicket(tempOrder, stay, totalAmount, usedTable), printDelay);
+          
+          const tableInfo = usedTable ? ` (Table ${usedTable.number})` : '';
+          alert(`✅ Commande facturée sur la chambre ${stay?.rooms?.number}${tableInfo} !\nLes bons cuisine/bar et le ticket de confirmation ont été imprimés.`);
+          
+        } else {
+          // Flux normal : impression des bons cuisine/bar
+          const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
+          const barItems = cart.filter(i => getDestination(i) === 'BAR');
+          
+          const tempOrder: RestaurantOrder = {
+            id: order.id, order_number: orderNumber, table_id: selectedTableId || null, room_id: selectedRoomId || null,
+            order_type: orderType, status: 'SENT', total_amount: totalAmount, created_at: new Date().toISOString(),
+            restaurant_tables: tables.find(t => t.id === selectedTableId) ? { number: tables.find(t => t.id === selectedTableId)!.number } : null,
+            rooms: rooms.find(r => r.id === selectedRoomId) ? { number: rooms.find(r => r.id === selectedRoomId)!.number } : null,
+            restaurant_order_items: cart.map(item => ({ id: item.id, item_name: item.name, quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price, status: 'PENDING', destination: getDestination(item) }))
+          };
 
-        if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
-        if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-        alert(`✅ Commande ${orderNumber} envoyée et bons imprimés !`);
+          if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
+          if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
+          alert(`✅ Commande ${orderNumber} envoyée et bons imprimés !`);
+        }
       }
 
-      setCart([]); setSelectedTableId(''); setSelectedRoomId(''); setSelectedServerId('');
-      setEditingOrderId(null); setOriginalItems([]); setActiveTab('list');
-      setItemSearch(''); // Reset recherche
-      loadOrders(); loadTables();
+      // 5. Réinitialisation des états
+      setCart([]); 
+      setChargeToRoom(false);
+      setSelectedStayId(''); 
+      setSelectedTableId(''); 
+      setSelectedRoomId(''); 
+      setSelectedServerId('');
+      setEditingOrderId(null); 
+      setOriginalItems([]); 
+      setActiveTab('list');
+      setItemSearch('');
+      
+      loadOrders(); 
+      loadTables();
+      loadActiveStays(); // Rafraîchir les séjours au cas où le folio a changé
+      
     } catch (error: any) {
       console.error('Erreur commande:', error);
       alert('Erreur : ' + error.message);
@@ -871,45 +1048,102 @@ doc.text('Happiness - Hotel • Resto • Lounge', 105, 28, { align: 'center' })
               </div>
 
               {/* ✅ NOUVEAU : Sélection Table/Chambre et Serveur sur la même ligne */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    {orderType === 'DINE_IN' ? 'Table *' : orderType === 'ROOM_SERVICE' ? 'Chambre *' : 'Lieu'}
-                  </label>
-                  {orderType === 'DINE_IN' && (
-                    <select value={selectedTableId} onChange={(e) => setSelectedTableId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
-                      <option value="">-- Table --</option>
-                      {tables.map(t => <option key={t.id} value={t.id}>Table {t.number}</option>)}
-                    </select>
-                  )}
-                  {orderType === 'ROOM_SERVICE' && (
-                    <select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
-                      <option value="">-- Chambre --</option>
-                      {rooms.map(r => <option key={r.id} value={r.id}>Ch. {r.number}</option>)}
-                    </select>
-                  )}
-                  {(orderType === 'TAKEAWAY' || orderType === 'DELIVERY') && (
-                    <div className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-500 text-sm flex items-center gap-2">
-                      {orderType === 'TAKEAWAY' ? '🥡 À emporter' : '🚚 Livraison'}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Serveur *</label>
-                  <select 
-                    value={selectedServerId} 
-                    onChange={(e) => setSelectedServerId(e.target.value)} 
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm"
-                  >
-                    <option value="">-- Serveur --</option>
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.first_name} {emp.last_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              {/* ✅ SÉLECTION TABLE/CHAMBRE/SERVEUR + OPTION FACTURATION */}
+<div className="grid grid-cols-2 gap-3 mt-3">
+  <div>
+    <label className="block text-sm font-medium text-slate-700 mb-1">
+      {orderType === 'DINE_IN' ? 'Table *' : orderType === 'ROOM_SERVICE' ? 'Chambre *' : 'Lieu'}
+    </label>
+    {orderType === 'DINE_IN' && (
+  <select value={selectedTableId} onChange={(e) => setSelectedTableId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
+    <option value="">-- Table --</option>
+    {tables.map(t => (
+      <option key={t.id} value={t.id} disabled={!chargeToRoom && t.status !== 'AVAILABLE'}>
+        Table {t.number} {t.status === 'OCCUPIED' ? '🔴 (Occupée)' : t.status === 'DIRTY' ? '🟡 (À nettoyer)' : '🟢'}
+      </option>
+    ))}
+  </select>
+)}
+{chargeToRoom && selectedTableId && tables.find(t => t.id === selectedTableId)?.status === 'OCCUPIED' && (
+  <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-start gap-2">
+    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+    <div>
+      <strong>Table occupée :</strong> Cette table est actuellement occupée. La commande sera servie à cette table mais facturée sur la chambre du client sélectionné ci-dessus.
+    </div>
+  </div>
+)}
+    {orderType === 'ROOM_SERVICE' && (
+      <select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
+        <option value="">-- Chambre --</option>
+        {rooms.map(r => <option key={r.id} value={r.id}>Ch. {r.number}</option>)}
+      </select>
+    )}
+    {(orderType === 'TAKEAWAY' || orderType === 'DELIVERY') && (
+      <div className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-500 text-sm flex items-center gap-2">
+        {orderType === 'TAKEAWAY' ? '🥡 À emporter' : '🚚 Livraison'}
+      </div>
+    )}
+  </div>
+  <div>
+    <label className="block text-sm font-medium text-slate-700 mb-1">Serveur *</label>
+    <select 
+      value={selectedServerId} 
+      onChange={(e) => setSelectedServerId(e.target.value)} 
+      className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm"
+    >
+      <option value="">-- Serveur --</option>
+      {employees.map(emp => (
+        <option key={emp.id} value={emp.id}>
+          {emp.first_name} {emp.last_name}
+        </option>
+      ))}
+    </select>
+  </div>
+</div>
+
+{/* ✅ NOUVEAU : Option "Facturer sur chambre" */}
+{activeStays.length > 0 && (
+  <div className="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+    <label className="flex items-center gap-2 cursor-pointer">
+      <input 
+        type="checkbox" 
+        checked={chargeToRoom}
+        onChange={(e) => {
+          setChargeToRoom(e.target.checked);
+          if (!e.target.checked) setSelectedStayId('');
+        }}
+        className="w-4 h-4 text-purple-600 rounded border-slate-300 focus:ring-purple-500"
+      />
+      <span className="text-sm font-medium text-purple-900">
+        🏨 Facturer sur la chambre d'un client de l'hôtel
+      </span>
+    </label>
+    
+    {chargeToRoom && (
+      <div className="mt-3">
+        <label className="block text-xs font-medium text-purple-800 mb-1">
+          Sélectionner le séjour du client *
+        </label>
+        <select 
+          value={selectedStayId}
+          onChange={(e) => setSelectedStayId(e.target.value)}
+          className="w-full border border-purple-300 rounded-lg px-3 py-2 bg-white text-sm"
+        >
+          <option value="">-- Choisir un client --</option>
+          {activeStays.map(stay => (
+            <option key={stay.id} value={stay.id}>
+              Ch. {stay.rooms?.number} — {stay.customers?.first_name} {stay.customers?.last_name}
+              ({stay.rooms?.room_categories?.code})
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-purple-700 mt-2">
+          💡 Le montant sera ajouté au folio du client et payé au check-out.
+        </p>
+      </div>
+    )}
+  </div>
+)}
             </div>
 
             {/* ✅ NOUVEAU : Champ de recherche des articles + Catégories */}

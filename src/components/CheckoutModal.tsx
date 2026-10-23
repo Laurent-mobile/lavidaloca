@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { X, Hotel, Calendar, DollarSign, CreditCard, Printer, FileText, AlertCircle, CheckCircle, Bed, Utensils, Coffee, Minus, Plus } from 'lucide-react';
+import { X, Hotel, Calendar, DollarSign, CreditCard, Printer, FileText, AlertCircle, CheckCircle, Bed, Utensils, ArrowRight, ArrowLeft } from 'lucide-react';
 
 interface Props {
   siteId: string;
@@ -15,20 +15,23 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [step, setStep] = useState<'summary' | 'payment'>('summary'); // ✅ NOUVEAU : Gestion des étapes
+  
   const [roomCharges, setRoomCharges] = useState<any[]>([]);
   const [nights, setNights] = useState(0);
   const [nightlyRate, setNightlyRate] = useState(0);
   const [totalNights, setTotalNights] = useState(0);
   const [totalCharges, setTotalCharges] = useState(0);
   const [grandTotal, setGrandTotal] = useState(0);
+  
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'MOBILE_MONEY'>('CASH');
   const [amountReceived, setAmountReceived] = useState(0);
   const [changeAmount, setChangeAmount] = useState(0);
   const [notes, setNotes] = useState('');
-  const [showInvoice, setShowInvoice] = useState(false);
 
   useEffect(() => {
     if (isOpen && stay) {
+      setStep('summary'); // Reset à l'étape 1 à chaque ouverture
       loadCheckoutData();
     }
   }, [isOpen, stay]);
@@ -36,7 +39,6 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
   const loadCheckoutData = async () => {
     setLoading(true);
     setError('');
-    
     try {
       // 1. Calculer le nombre de nuitées
       const checkIn = new Date(stay.check_in_at);
@@ -58,8 +60,8 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
         .order('charge_date', { ascending: false });
 
       if (chargesError) throw chargesError;
-
       setRoomCharges(charges || []);
+      
       const totalChargesAmount = (charges || []).reduce((sum, c) => sum + Number(c.amount), 0);
       setTotalCharges(totalChargesAmount);
 
@@ -67,7 +69,6 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
       const total = (calculatedNights * (Number(stay.nightly_rate) || 0)) + totalChargesAmount;
       setGrandTotal(total);
       setAmountReceived(total);
-
     } catch (err: any) {
       console.error('Erreur chargement données check-out:', err);
       setError(err.message || 'Erreur lors du chargement des données');
@@ -76,75 +77,163 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
     }
   };
 
+  // ✅ NOUVEAU : Fonction pour imprimer le folio détaillé
+  const handlePrintFolio = () => {
+    const printWindow = window.open('', '_blank', 'width=800,height=900');
+    if (!printWindow) return;
+
+    const checkIn = new Date(stay.check_in_at).toLocaleDateString('fr-FR');
+    const checkOut = new Date().toLocaleDateString('fr-FR');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Folio - Chambre ${stay.rooms?.number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; color: #333; font-size: 14px; }
+          .header { text-align: center; border-bottom: 3px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
+          .header h1 { color: #4f46e5; margin: 0; font-size: 24px; }
+          .header .subtitle { color: #666; margin-top: 5px; font-size: 14px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; background: #f9fafb; padding: 20px; border-radius: 8px; }
+          .info-item label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 4px; font-weight: bold; text-transform: uppercase; }
+          .info-item value { font-size: 15px; color: #1f2937; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th { background: #4f46e5; color: white; padding: 12px; text-align: left; font-size: 13px; }
+          td { padding: 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
+          .total-row { background: #f3f4f6; font-weight: bold; }
+          .grand-total { background: #4f46e5; color: white; font-size: 16px; }
+          .grand-total td { border: none; padding: 15px 12px; }
+          .footer { margin-top: 50px; text-align: center; color: #6b7280; font-size: 12px; border-top: 2px solid #e5e7eb; padding-top: 20px; }
+          .category-header { background: #eef2ff; font-weight: bold; color: #4338ca; }
+          @media print { body { margin: 20px; } .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge — Ouagadougou</div>
+          <div class="subtitle" style="font-weight: bold; margin-top: 10px; font-size: 16px;">FOLIO DE SÉJOUR (PROVISOIRE)</div>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-item">
+            <label>Client</label>
+            <value>${stay.customers?.first_name || ''} ${stay.customers?.last_name || 'Client'}</value>
+          </div>
+          <div class="info-item">
+            <label>Chambre</label>
+            <value>N° ${stay.rooms?.number} (${stay.rooms?.room_categories?.code || 'N/A'})</value>
+          </div>
+          <div class="info-item">
+            <label>Date d'arrivée</label>
+            <value>${checkIn}</value>
+          </div>
+          <div class="info-item">
+            <label>Date de départ prévue</label>
+            <value>${checkOut}</value>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th style="text-align: right;">Quantité</th>
+              <th style="text-align: right;">Prix Unit.</th>
+              <th style="text-align: right;">Total (F)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>${checkIn}</td>
+              <td><strong>Hébergement</strong> - Chambre ${stay.rooms?.number}</td>
+              <td style="text-align: right;">${nights}</td>
+              <td style="text-align: right;">${nightlyRate.toLocaleString('fr-FR')}</td>
+              <td style="text-align: right;">${totalNights.toLocaleString('fr-FR')}</td>
+            </tr>
+            
+            ${roomCharges.length > 0 ? roomCharges.map(charge => `
+              <tr>
+                <td>${new Date(charge.charge_date).toLocaleDateString('fr-FR')}</td>
+                <td>${charge.description || 'Consommation'}</td>
+                <td style="text-align: right;">1</td>
+                <td style="text-align: right;">${Number(charge.amount).toLocaleString('fr-FR')}</td>
+                <td style="text-align: right;">${Number(charge.amount).toLocaleString('fr-FR')}</td>
+              </tr>
+            `).join('') : '<tr><td colspan="5" style="text-align:center; color:#666; padding: 20px;">Aucune consommation supplémentaire</td></tr>'}
+          </tbody>
+          <tfoot>
+            <tr class="grand-total">
+              <td colspan="4" style="text-align: right;">TOTAL GÉNÉRAL À PAYER</td>
+              <td style="text-align: right;">${grandTotal.toLocaleString('fr-FR')} F</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div class="footer">
+          <p>Document généré le ${new Date().toLocaleString('fr-FR')}</p>
+          <p>Merci de votre séjour ! À bientôt chez LA VIDA-LOCA 🌴</p>
+        </div>
+        
+        <div class="no-print" style="text-align: center; margin-top: 30px;">
+          <button onclick="window.print()" style="padding: 10px 20px; background: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">🖨️ Imprimer ce folio</button>
+        </div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const handleCheckout = async () => {
     if (amountReceived < grandTotal) {
       setError('Le montant reçu est insuffisant');
       return;
     }
-
     setLoading(true);
     setError('');
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
       // 1. Créer le paiement
-      const { error: paymentError } = await supabase
-        .from('payments')
-        .insert({
-          stay_id: stay.id,
-          amount: grandTotal,
-          method: paymentMethod,
-          paid_at: new Date().toISOString(),
-        });
-
+      const { error: paymentError } = await supabase.from('payments').insert({
+        stay_id: stay.id,
+        amount: grandTotal,
+        method: paymentMethod,
+        paid_at: new Date().toISOString(),
+      });
       if (paymentError) throw paymentError;
 
       // 2. Mettre à jour le séjour
-      const { error: stayError } = await supabase
-        .from('stays')
-        .update({
-          status: 'CHECKED_OUT',
-          check_out_at: new Date().toISOString(),
-          folio_balance: 0,
-        })
-        .eq('id', stay.id);
-
+      const { error: stayError } = await supabase.from('stays').update({
+        status: 'CHECKED_OUT',
+        check_out_at: new Date().toISOString(),
+        folio_balance: 0,
+      }).eq('id', stay.id);
       if (stayError) throw stayError;
 
       // 3. Libérer la chambre
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ status: 'DIRTY' })
-        .eq('id', stay.room_id);
-
+      const { error: roomError } = await supabase.from('rooms').update({ status: 'DIRTY' }).eq('id', stay.room_id);
       if (roomError) throw roomError;
 
       // 4. Créer une transaction dans la caisse hôtel
-      const { error: cashError } = await supabase
-        .from('cash_transactions')
-        .insert({
-          site_id: siteId,
-          type: 'INCOME',
-          category: 'CHECKOUT_PAYMENT',
-          amount: grandTotal,
-          payment_method: paymentMethod,
-          status: 'PAID',
-          provider_name: `Check-out Chambre ${stay.rooms?.number}`,
-          description: `Paiement séjour - ${nights} nuit(s) + charges`,
-          reference_id: stay.id,
-          reference_table: 'stays',
-          received_by: user?.id,
-        });
+      await supabase.from('cash_transactions').insert({
+        site_id: siteId,
+        type: 'INCOME',
+        category: 'CHECKOUT_PAYMENT',
+        amount: grandTotal,
+        payment_method: paymentMethod,
+        status: 'PAID',
+        provider_name: `Check-out Chambre ${stay.rooms?.number}`,
+        description: `Paiement séjour - ${nights} nuit(s) + charges`,
+        reference_id: stay.id,
+        reference_table: 'stays',
+        received_by: user?.id,
+      }).catch(err => console.warn('Erreur caisse (non bloquant):', err));
 
-      if (cashError) {
-        console.warn('Erreur création transaction caisse:', cashError);
-      }
-
-      setShowInvoice(true);
       setLoading(false);
       onSuccess();
-      
     } catch (err: any) {
       console.error('Erreur check-out:', err);
       setError(err.message || 'Erreur lors du check-out');
@@ -152,159 +241,21 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
     }
   };
 
-  const printInvoice = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const chargesByCategory = roomCharges.reduce((acc, charge) => {
-      const category = charge.charge_type || 'AUTRE';
-      if (!acc[category]) acc[category] = [];
-      acc[category].push(charge);
-      return acc;
-    }, {} as Record<string, any[]>);
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Facture - Chambre ${stay.rooms?.number}</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 40px; color: #333; }
-          .header { text-align: center; border-bottom: 3px solid #1e3a8a; padding-bottom: 20px; margin-bottom: 30px; }
-          .header h1 { color: #1e3a8a; margin: 0; }
-          .header .subtitle { color: #666; margin-top: 10px; }
-          .section { margin-bottom: 30px; }
-          .section h2 { color: #1e3a8a; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }
-          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-          .info-item { background: #f9fafb; padding: 15px; border-radius: 8px; }
-          .info-item label { font-size: 12px; color: #6b7280; display: block; margin-bottom: 5px; }
-          .info-item value { font-size: 16px; font-weight: bold; color: #1f2937; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th { background: #1e3a8a; color: white; padding: 12px; text-align: left; }
-          td { padding: 12px; border-bottom: 1px solid #e5e7eb; }
-          .total-row { background: #f3f4f6; font-weight: bold; }
-          .grand-total { background: #1e3a8a; color: white; font-size: 18px; }
-          .footer { margin-top: 50px; text-align: center; color: #6b7280; font-size: 12px; border-top: 2px solid #e5e7eb; padding-top: 20px; }
-          @media print { body { margin: 20px; } }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>LA VIDA-LOCA</h1>
-          <div class="subtitle">Hôtel & Restaurant - Ouagadougou</div>
-          <div class="subtitle">FACTURE DE SÉJOUR</div>
-        </div>
-
-        <div class="section">
-          <h2>Informations Client</h2>
-          <div class="info-grid">
-            <div class="info-item">
-              <label>Client</label>
-              <value>${stay.customers?.first_name} ${stay.customers?.last_name}</value>
-            </div>
-            <div class="info-item">
-              <label>Chambre</label>
-              <value>${stay.rooms?.number} - ${stay.rooms?.room_categories?.code}</value>
-            </div>
-            <div class="info-item">
-              <label>Arrivée</label>
-              <value>${new Date(stay.check_in_at).toLocaleDateString('fr-FR')}</value>
-            </div>
-            <div class="info-item">
-              <label>Départ</label>
-              <value>${new Date().toLocaleDateString('fr-FR')}</value>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <h2>Détail du Séjour</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th>Qté</th>
-                <th>Prix Unitaire</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Nuitées - Chambre ${stay.rooms?.number}</td>
-                <td>${nights}</td>
-                <td>${nightlyRate.toLocaleString('fr-FR')} F</td>
-                <td>${totalNights.toLocaleString('fr-FR')} F</td>
-              </tr>
-              ${Object.entries(chargesByCategory).map(([category, charges]) => `
-                <tr class="total-row">
-                  <td colspan="3"><strong>${category === 'RESTAURANT' ? '🍽️ Restaurant' : category === 'BAR' ? '🍹 Bar' : category}</strong></td>
-                  <td></td>
-                </tr>
-                ${(charges as any[]).map(charge => `
-                  <tr>
-                    <td style="padding-left: 30px;">${charge.description}</td>
-                    <td>${charge.quantity || 1}</td>
-                    <td>${Number(charge.amount).toLocaleString('fr-FR')} F</td>
-                    <td>${Number(charge.amount).toLocaleString('fr-FR')} F</td>
-                  </tr>
-                `).join('')}
-              `).join('')}
-            </tbody>
-            <tfoot>
-              <tr class="grand-total">
-                <td colspan="3">TOTAL GÉNÉRAL</td>
-                <td>${grandTotal.toLocaleString('fr-FR')} F</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        <div class="section">
-          <h2>Paiement</h2>
-          <div class="info-grid">
-            <div class="info-item">
-              <label>Mode de paiement</label>
-              <value>${paymentMethod === 'CASH' ? '💵 Espèces' : paymentMethod === 'CARD' ? ' Carte' : '📱 Mobile Money'}</value>
-            </div>
-            <div class="info-item">
-              <label>Montant payé</label>
-              <value>${amountReceived.toLocaleString('fr-FR')} F</value>
-            </div>
-            <div class="info-item">
-              <label>Monnaie rendue</label>
-              <value>${changeAmount.toLocaleString('fr-FR')} F</value>
-            </div>
-            <div class="info-item">
-              <label>Date de paiement</label>
-              <value>${new Date().toLocaleString('fr-FR')}</value>
-            </div>
-          </div>
-        </div>
-
-        <div class="footer">
-          <p>Merci de votre séjour ! À bientôt chez LA VIDA-LOCA</p>
-          <p>Facture générée le ${new Date().toLocaleString('fr-FR')}</p>
-        </div>
-      </body>
-      </html>
-    `);
-    printWindow.document.close();
-    setTimeout(() => printWindow.print(), 500);
-  };
-
   if (!isOpen || !stay) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] overflow-y-auto">
         {/* En-tête */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-700 text-white px-6 py-4 flex items-center justify-between rounded-t-xl sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <Hotel className="w-6 h-6" />
             <div>
-              <h2 className="text-xl font-bold">Check-out - Chambre {stay.rooms?.number}</h2>
+              <h2 className="text-xl font-bold">
+                {step === 'summary' ? 'Récapitulatif du Séjour (Folio)' : 'Paiement et Check-out'}
+              </h2>
               <p className="text-xs text-indigo-100">
-                {stay.customers?.first_name} {stay.customers?.last_name} • Arrivée: {new Date(stay.check_in_at).toLocaleDateString('fr-FR')}
+                {stay.customers?.first_name} {stay.customers?.last_name} • Chambre {stay.rooms?.number}
               </p>
             </div>
           </div>
@@ -321,168 +272,173 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
             </div>
           )}
 
-          {showInvoice ? (
+          {/* ================= ÉTAPE 1 : RÉCAPITULATIF (FOLIO) ================= */}
+          {step === 'summary' && (
             <div className="space-y-4">
-              <div className="bg-emerald-50 border-2 border-emerald-300 p-4 rounded-lg flex items-center gap-3">
-                <CheckCircle className="w-8 h-8 text-emerald-700" />
-                <div className="flex-1">
-                  <div className="font-bold text-emerald-900 text-lg">Check-out effectué avec succès !</div>
-                  <div className="text-sm text-emerald-700">
-                    Chambre {stay.rooms?.number} libérée • Facture générée
-                  </div>
+              {/* Résumé rapide */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-center">
+                  <div className="text-xs text-slate-600 mb-1">Nuitées</div>
+                  <div className="text-2xl font-bold text-indigo-900">{nights}</div>
+                  <div className="text-xs text-slate-500">× {nightlyRate.toLocaleString('fr-FR')} F</div>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-center">
+                  <div className="text-xs text-slate-600 mb-1">Consommations</div>
+                  <div className="text-2xl font-bold text-amber-900">{totalCharges.toLocaleString('fr-FR')} F</div>
+                  <div className="text-xs text-slate-500">{roomCharges.length} opération(s)</div>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center">
+                  <div className="text-xs text-slate-600 mb-1">Total à payer</div>
+                  <div className="text-3xl font-bold text-emerald-900">{grandTotal.toLocaleString('fr-FR')} F</div>
                 </div>
               </div>
-              <div className="flex gap-3">
+
+              {/* Tableau détaillé des charges */}
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-slate-600" />
+                  <h3 className="font-semibold text-slate-900 text-sm">Détail des prestations</h3>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-100 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Date</th>
+                      <th className="px-4 py-2 text-left">Description</th>
+                      <th className="px-4 py-2 text-right">Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    <tr className="bg-indigo-50/50">
+                      <td className="px-4 py-3 text-slate-600">{new Date(stay.check_in_at).toLocaleDateString('fr-FR')}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900 flex items-center gap-2">
+                        <Bed className="w-4 h-4 text-indigo-600" />
+                        Hébergement - Chambre {stay.rooms?.number} ({nights} nuit(s))
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-indigo-900">{totalNights.toLocaleString('fr-FR')} F</td>
+                    </tr>
+                    {roomCharges.length > 0 ? (
+                      roomCharges.map((charge, idx) => (
+                        <tr key={charge.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 text-slate-600">{new Date(charge.charge_date).toLocaleDateString('fr-FR')}</td>
+                          <td className="px-4 py-3 text-slate-700 flex items-center gap-2">
+                            <Utensils className="w-4 h-4 text-amber-600" />
+                            {charge.description || 'Consommation Restaurant/Bar'}
+                            {charge.order_id && <span className="text-xs text-slate-400">(Cmd: {charge.order_id.slice(0, 8)})</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium text-amber-900">{Number(charge.amount).toLocaleString('fr-FR')} F</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-6 text-center text-slate-400 italic">
+                          Aucune consommation supplémentaire enregistrée.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Actions de l'étape 1 */}
+              <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button
-                  onClick={printInvoice}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
+                  onClick={handlePrintFolio}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
                 >
                   <Printer className="w-5 h-5" />
-                  Imprimer la facture
+                  Imprimer le folio
                 </button>
                 <button
-                  onClick={() => { setShowInvoice(false); onClose(); }}
-                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg"
+                  onClick={() => setStep('payment')}
+                  className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
                 >
-                  Fermer
+                  Passer au paiement
+                  <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
             </div>
-          ) : (
-            <>
-              {/* Résumé du séjour */}
-              <div className="bg-indigo-50 border-2 border-indigo-200 rounded-lg p-4">
-                <h3 className="font-semibold text-indigo-900 mb-3 flex items-center gap-2">
-                  <Bed className="w-5 h-5" />
-                  Hébergement
+          )}
+
+          {/* ================= ÉTAPE 2 : PAIEMENT ================= */}
+          {step === 'payment' && (
+            <div className="space-y-4">
+              {/* Rappel du total */}
+              <div className="bg-emerald-50 border-2 border-emerald-300 rounded-lg p-4 flex justify-between items-center">
+                <span className="text-lg font-bold text-emerald-900">TOTAL À PAYER</span>
+                <span className="text-3xl font-bold text-emerald-900">{grandTotal.toLocaleString('fr-FR')} F</span>
+              </div>
+
+              {/* Formulaire de paiement */}
+              <div className="border-2 border-slate-200 rounded-lg p-4 space-y-4">
+                <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                  <CreditCard className="w-5 h-5" /> Mode de paiement
                 </h3>
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-white p-3 rounded border border-indigo-200">
-                    <div className="text-xs text-slate-600">Nuitées</div>
-                    <div className="text-2xl font-bold text-indigo-900">{nights}</div>
-                    <div className="text-xs text-slate-500">× {nightlyRate.toLocaleString('fr-FR')} F</div>
-                  </div>
-                  <div className="bg-white p-3 rounded border border-indigo-200">
-                    <div className="text-xs text-slate-600">Total nuitées</div>
-                    <div className="text-2xl font-bold text-indigo-900">{totalNights.toLocaleString('fr-FR')} F</div>
-                  </div>
-                  <div className="bg-white p-3 rounded border border-indigo-200">
-                    <div className="text-xs text-slate-600">Folio actuel</div>
-                    <div className="text-2xl font-bold text-indigo-900">{Number(stay.folio_balance || 0).toLocaleString('fr-FR')} F</div>
-                  </div>
+                  {(['CASH', 'CARD', 'MOBILE_MONEY'] as const).map(method => (
+                    <button
+                      key={method}
+                      onClick={() => setPaymentMethod(method)}
+                      className={`p-3 rounded-lg border-2 transition text-sm font-medium ${
+                        paymentMethod === method
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      {method === 'CASH' ? '💵 Espèces' : method === 'CARD' ? '💳 Carte' : '📱 Mobile Money'}
+                    </button>
+                  ))}
                 </div>
-              </div>
 
-              {/* Charges supplémentaires */}
-              {roomCharges.length > 0 && (
-                <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-4">
-                  <h3 className="font-semibold text-amber-900 mb-3 flex items-center gap-2">
-                    <Utensils className="w-5 h-5" />
-                    Charges Supplémentaires ({roomCharges.length})
-                  </h3>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {roomCharges.map(charge => (
-                      <div key={charge.id} className="flex items-center justify-between bg-white p-2 rounded border border-slate-200">
-                        <div className="flex-1">
-                          <div className="font-medium text-sm">{charge.description}</div>
-                          <div className="text-xs text-slate-500">
-                            {new Date(charge.charge_date).toLocaleDateString('fr-FR')}
-                            {charge.order_id && ` • Cmd: ${charge.order_id.slice(0, 8)}`}
-                          </div>
-                        </div>
-                        <div className="font-bold text-sm text-amber-900">
-                          {Number(charge.amount).toLocaleString('fr-FR')} F
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 pt-3 border-t-2 border-amber-300 flex justify-between items-center">
-                    <span className="text-sm font-bold text-amber-900">Total charges</span>
-                    <span className="text-lg font-bold text-amber-900">{totalCharges.toLocaleString('fr-FR')} F</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Total */}
-              <div className="bg-emerald-50 border-2 border-emerald-300 rounded-lg p-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-xl font-bold text-emerald-900">TOTAL À PAYER</span>
-                  <span className="text-3xl font-bold text-emerald-900">{grandTotal.toLocaleString('fr-FR')} F</span>
-                </div>
-              </div>
-
-              {/* Paiement */}
-              <div className="border-2 border-slate-200 rounded-lg p-4">
-                <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <CreditCard className="w-5 h-5" />
-                  Paiement
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Mode de paiement</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(['CASH', 'CARD', 'MOBILE_MONEY'] as const).map(method => (
-                        <button
-                          key={method}
-                          onClick={() => setPaymentMethod(method)}
-                          className={`p-3 rounded-lg border-2 transition ${
-                            paymentMethod === method
-                              ? 'border-emerald-500 bg-emerald-50 text-emerald-900'
-                              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                          }`}
-                        >
-                          {method === 'CASH' ? '💵 Espèces' : method === 'CARD' ? '💳 Carte' : '📱 Mobile'}
-                        </button>
-                      ))}
+                {paymentMethod === 'CASH' && (
+                  <div className="space-y-3 pt-2">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Montant reçu (F)</label>
+                      <input
+                        type="number"
+                        value={amountReceived}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setAmountReceived(val);
+                          setChangeAmount(Math.max(0, val - grandTotal));
+                        }}
+                        className="w-full border-2 border-slate-300 rounded-lg px-3 py-3 text-xl font-bold text-center focus:ring-2 focus:ring-emerald-500 outline-none"
+                      />
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Montant reçu (F)</label>
-                    <input
-                      type="number"
-                      value={amountReceived}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setAmountReceived(val);
-                        setChangeAmount(Math.max(0, val - grandTotal));
-                      }}
-                      className="w-full border-2 border-slate-300 rounded-lg px-3 py-2 text-lg font-bold"
-                    />
-                  </div>
-                  {changeAmount > 0 && (
-                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                      <div className="flex justify-between items-center">
+                    {changeAmount > 0 && (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex justify-between items-center">
                         <span className="text-sm font-medium text-emerald-900">Monnaie à rendre</span>
                         <span className="text-xl font-bold text-emerald-900">{changeAmount.toLocaleString('fr-FR')} F</span>
                       </div>
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Notes (optionnel)</label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      rows={2}
-                      className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm"
-                      placeholder="Observations..."
-                    />
+                    )}
                   </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Notes (optionnel)</label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={2}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                    placeholder="Observations sur le séjour..."
+                  />
                 </div>
               </div>
 
-              {/* Boutons d'action */}
-              <div className="flex gap-3">
+              {/* Actions de l'étape 2 */}
+              <div className="flex gap-3 pt-2">
                 <button
-                  onClick={onClose}
+                  onClick={() => setStep('summary')}
                   disabled={loading}
-                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg disabled:opacity-50"
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  Annuler
+                  <ArrowLeft className="w-5 h-5" />
+                  Retour au récapitulatif
                 </button>
                 <button
                   onClick={handleCheckout}
-                  disabled={loading || amountReceived < grandTotal}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                  disabled={loading || (paymentMethod === 'CASH' && amountReceived < grandTotal)}
+                  className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>
@@ -497,7 +453,7 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
                   )}
                 </button>
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>
