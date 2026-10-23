@@ -16,6 +16,7 @@ import {
   Receipt,
   TrendingDown,
   X,
+  BookOpen, // ✅ Ajout de l'icône pour le menu
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -42,6 +43,7 @@ const MENU_ITEMS = [
       { label: 'Caisse', href: '/restaurant/caisse', icon: DollarSign, badgeKey: 'pending', roles: ['ADMIN', 'MANAGER', 'CASHIER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
       { label: 'Commandes', href: '/restaurant/commandes', icon: ClipboardList, roles: ['ADMIN', 'MANAGER', 'SERVER', 'CHEF', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
       { label: 'Cuisine / Bar', href: '/restaurant/cuisine', icon: ChefHat, badgeKey: 'kitchen', roles: ['ADMIN', 'MANAGER', 'CHEF', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
+      { label: 'Gestion du Menu', href: '/restaurant/menu', icon: BookOpen, roles: ['ADMIN', 'MANAGER', 'CHEF', 'DIRECTOR', 'RESTAURANT_MANAGER'] }, // ✅ NOUVEAU LIEN
     ],
   },
   {
@@ -96,12 +98,12 @@ export default function Sidebar({ userRole, userName, isOpen, onClose, pendingOr
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-800 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center font-bold text-white text-lg shadow-lg">
-              VL
+            <div className="w-12 h-12 flex items-center justify-center bg-white rounded-lg p-1 shadow-sm">
+              <img src="/logo.png" alt="La Vida Loca" className="w-full h-full object-contain" />
             </div>
             <div>
-              <div className="font-bold text-sm">LA VIDA-LOCA</div>
-              <div className="text-xs text-slate-400">Gestion Restaurant</div>
+              <h2 className="text-white font-bold text-lg leading-tight">LA VIDA LOCA</h2>
+              <p className="text-slate-400 text-xs">Hotel • Resto • Lounge</p>
             </div>
           </div>
           <button

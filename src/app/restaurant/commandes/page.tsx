@@ -2,11 +2,11 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import {
-  ClipboardList, Search, Eye, X, Clock, ChefHat,
+import { 
+  ClipboardList, Search, Eye, X, Clock, ChefHat, 
   CheckCircle, Truck, DollarSign, Users, AlertCircle,
-  TrendingUp, Calendar, Printer, FileDown, Ban, Plus, Minus,
-  ShoppingCart, Wine, LayoutGrid, List, Bed, Edit, Send, CreditCard
+  TrendingUp, Calendar, Printer, FileDown, Ban, Plus, Minus, 
+  ShoppingCart, Wine, LayoutGrid, List, Bed, Edit, Send, CreditCard, Box
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -101,7 +101,8 @@ export default function CommandesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(''); // Recherche globale des commandes
+  const [itemSearch, setItemSearch] = useState(''); // ✅ NOUVEAU : Recherche des articles
   const [selectedOrder, setSelectedOrder] = useState<RestaurantOrder | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -121,6 +122,10 @@ export default function CommandesPage() {
 
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [originalItems, setOriginalItems] = useState<OrderItem[]>([]);
+  const [showSupplementsModal, setShowSupplementsModal] = useState(false);
+const [selectedPizza, setSelectedPizza] = useState<MenuItem | null>(null);
+const [selectedSupplements, setSelectedSupplements] = useState<MenuItem[]>([]);
+const [supplements, setSupplements] = useState<MenuItem[]>([]);
 
   useEffect(() => {
     const init = async () => {
@@ -140,6 +145,7 @@ export default function CommandesPage() {
       loadRooms();
       loadMenu();
       loadEmployees();
+      loadSupplements();
     }
   }, [siteId, editingOrderId]);
 
@@ -202,9 +208,15 @@ export default function CommandesPage() {
     }
   };
 
-  const loadMenu = async () => {
+    const loadMenu = async () => {
     try {
-      const { data } = await supabase.from('restaurant_items').select(`id, name, restaurant_categories(name), price, destination, is_available`).eq('site_id', siteId).eq('is_available', true).order('name');
+      const { data } = await supabase
+        .from('restaurant_items')
+        .select(`id, name, restaurant_categories(name), price, destination, is_available`)
+        .eq('site_id', siteId)
+        .eq('is_available', true)
+        .order('name');
+      
       if (data && data.length > 0) {
         const formatted = data.map(item => ({
           id: item.id,
@@ -229,6 +241,60 @@ export default function CommandesPage() {
     }
   };
 
+  const loadSupplements = async () => {
+    try {
+      const { data } = await supabase
+        .from('restaurant_items')
+        .select('id, name, category:restaurant_categories(name), price, destination')
+        .eq('site_id', siteId)
+        .eq('is_available', true)
+        .eq('restaurant_categories.name', 'SUPPLÉMENTS');
+      
+      if (data && data.length > 0) {
+        setSupplements(data.map(item => ({
+          id: item.id,
+          name: item.name,
+          category: (item as any).category?.name || 'Suppléments',
+          price: item.price,
+          destination: 'KITCHEN'
+        })));
+      }
+    } catch (error) {
+      console.error('Erreur chargement suppléments:', error);
+    }
+  };
+const openPizzaWithSupplements = (item: MenuItem) => {
+  setSelectedPizza(item);
+  setSelectedSupplements([]);
+  setShowSupplementsModal(true);
+};
+
+const toggleSupplement = (supplement: MenuItem) => {
+  setSelectedSupplements(prev => {
+    const exists = prev.find(s => s.id === supplement.id);
+    if (exists) {
+      return prev.filter(s => s.id !== supplement.id);
+    }
+    return [...prev, supplement];
+  });
+};
+
+const confirmPizzaWithSupplements = () => {
+  if (!selectedPizza) return;
+  
+  // Ajouter la pizza au panier
+  addToCart(selectedPizza);
+  
+  // Ajouter chaque supplément comme ligne séparée
+  selectedSupplements.forEach(sup => {
+    addToCart(sup);
+  });
+  
+  setShowSupplementsModal(false);
+  setSelectedPizza(null);
+  setSelectedSupplements([]);
+};
+
   const getStatusConfig = (status: string) => {
     switch (status) {
       case 'DRAFT': return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
@@ -242,7 +308,6 @@ export default function CommandesPage() {
     }
   };
 
-  // ✅ SIGNATURE CORRIGÉE : accepte explicitement undefined
   const getOrderTypeLabel = (type?: string) => {
     const t = type || 'DINE_IN';
     switch (t) {
@@ -254,7 +319,6 @@ export default function CommandesPage() {
     }
   };
 
-  // ✅ SIGNATURE CORRIGÉE : accepte explicitement undefined
   const getOrderTypeIcon = (type?: string) => {
     const t = type || 'DINE_IN';
     switch (t) {
@@ -267,22 +331,36 @@ export default function CommandesPage() {
   };
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
-    if (!confirm(`Changer le statut vers "${getStatusConfig(newStatus).label}" ?`)) return;
-    setIsUpdating(true);
-    try {
-      const updateData: any = { status: newStatus };
-      if (newStatus === 'PAID') updateData.paid_at = new Date().toISOString();
-      if (newStatus === 'SENT') updateData.sent_at = new Date().toISOString();
-      if (['PAID', 'CANCELLED'].includes(newStatus)) updateData.completed_at = new Date().toISOString();
-      await supabase.from('restaurant_orders').update(updateData).eq('id', orderId);
-      loadOrders();
-      if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus });
-    } catch (error) {
-      alert('Erreur lors du changement de statut.');
-    } finally {
-      setIsUpdating(false);
+  if (!confirm(`Changer le statut vers "${getStatusConfig(newStatus).label}" ?`)) return;
+  setIsUpdating(true);
+  try {
+    const updateData: any = { status: newStatus };
+    if (newStatus === 'PAID') updateData.paid_at = new Date().toISOString();
+    if (newStatus === 'SENT') updateData.sent_at = new Date().toISOString();
+    if (['PAID', 'CANCELLED'].includes(newStatus)) updateData.completed_at = new Date().toISOString();
+    
+    // 1. Mettre à jour le statut de la commande
+    await supabase.from('restaurant_orders').update(updateData).eq('id', orderId);
+    
+    // 2. ✅ NOUVEAU : Si la commande est payée, déduire le stock automatiquement
+    if (newStatus === 'PAID') {
+      const { error: stockError } = await supabase.rpc('deduct_order_stock', { p_order_id: orderId });
+      if (stockError) {
+        console.error('❌ Erreur déduction stock:', stockError);
+        alert('⚠️ Commande payée, mais erreur lors de la mise à jour du stock.');
+      } else {
+        console.log('✅ Stock déduit avec succès');
+      }
     }
-  };
+
+    loadOrders();
+    if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus });
+  } catch (error) {
+    alert('Erreur lors du changement de statut.');
+  } finally {
+    setIsUpdating(false);
+  }
+};
 
   const openCancelModal = (order: RestaurantOrder) => {
     setSelectedOrder(order);
@@ -313,21 +391,34 @@ export default function CommandesPage() {
     }
   };
 
-  const addToCart = (item: MenuItem) => {
-    setCart(prev => {
-      const existingIndex = prev.findIndex(i => {
-        if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
-        if (item.id && i.id === item.id) return true;
-        return i.name.toLowerCase() === item.name.toLowerCase();
-      });
-      if (existingIndex >= 0) {
-        const newCart = [...prev];
-        newCart[existingIndex] = { ...newCart[existingIndex], quantity: newCart[existingIndex].quantity + 1 };
-        return newCart;
-      }
-      return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
+  const PIZZA_CATEGORIES = ['NOS PIZZAS'];
+
+const addToCart = (item: MenuItem) => {
+  // Si c'est une pizza, ouvrir le modal de suppléments
+  if (PIZZA_CATEGORIES.includes(item.category)) {
+    openPizzaWithSupplements(item);
+    return;
+  }
+  
+  // Sinon, ajout normal
+  setCart(prev => {
+    const existingIndex = prev.findIndex(i => {
+      if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
+      if (item.id && i.id === item.id) return true;
+      return i.name.toLowerCase() === item.name.toLowerCase();
     });
-  };
+    
+    if (existingIndex >= 0) {
+      const newCart = [...prev];
+      newCart[existingIndex] = { 
+        ...newCart[existingIndex], 
+        quantity: newCart[existingIndex].quantity + 1 
+      };
+      return newCart;
+    }
+    return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
+  });
+};
 
   const removeFromCart = (itemId: string) => {
     setCart(prev => {
@@ -339,7 +430,16 @@ export default function CommandesPage() {
 
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const categories = ['ALL', ...Array.from(new Set(menuItems.map(i => i.category)))];
-  const filteredItems = activeCategory === 'ALL' ? menuItems : menuItems.filter(i => i.category === activeCategory);
+  
+  // ✅ NOUVEAU : Filtrage des articles par catégorie ET par recherche textuelle
+  const filteredItems = useMemo(() => {
+    let items = activeCategory === 'ALL' ? menuItems : menuItems.filter(i => i.category === activeCategory);
+    if (itemSearch.trim()) {
+      const lowerSearch = itemSearch.toLowerCase();
+      items = items.filter(i => i.name.toLowerCase().includes(lowerSearch) || i.category.toLowerCase().includes(lowerSearch));
+    }
+    return items;
+  }, [menuItems, activeCategory, itemSearch]);
 
   const openEditOrder = (order: RestaurantOrder) => {
     if (['PAID', 'CANCELLED'].includes(order.status)) {
@@ -364,6 +464,7 @@ export default function CommandesPage() {
     setCart(cartItems);
     setOriginalItems(order.restaurant_order_items || []);
     setActiveTab('new');
+    setItemSearch(''); // Reset recherche article
   };
 
   const handleCommander = async () => {
@@ -464,6 +565,7 @@ export default function CommandesPage() {
 
       setCart([]); setSelectedTableId(''); setSelectedRoomId(''); setSelectedServerId('');
       setEditingOrderId(null); setOriginalItems([]); setActiveTab('list');
+      setItemSearch(''); // Reset recherche
       loadOrders(); loadTables();
     } catch (error: any) {
       console.error('Erreur commande:', error);
@@ -528,6 +630,7 @@ export default function CommandesPage() {
       }
       setCart([]); setSelectedTableId(''); setSelectedRoomId(''); setSelectedServerId('');
       setEditingOrderId(null); setOriginalItems([]); setActiveTab('list');
+      setItemSearch(''); // Reset recherche
       loadOrders(); loadTables();
     } catch (error: any) {
       alert('Erreur : ' + error.message);
@@ -558,7 +661,8 @@ export default function CommandesPage() {
       .item{display:flex;justify-content:space-between;margin:4px 0;}
       .total{display:flex;justify-content:space-between;font-weight:bold;font-size:14px;margin-top:10px;}
       .footer{text-align:center;margin-top:20px;font-size:10px;}</style></head><body>
-      <div class="header"><h1>LA VIDA-LOCA</h1><p>Restaurant</p>
+      <div class="logo"><img src="/logo.png" alt="La Vida Loca" style="max-width:120px;margin-bottom:10px;"></div>
+<div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p>
       <p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div>
       <div class="info">
         <div><span>N°:</span><span>${order.order_number}</span></div>
@@ -580,9 +684,9 @@ export default function CommandesPage() {
     if (!printWindow) { alert('Autorisez les popups.'); return; }
     const location = getLocationLabel(order).toUpperCase();
     printWindow.document.write(`
-      <!DOCTYPE html><html><head><title>Bon Cuisine ${order.order_number}</title>
-      <style>body{font-family:'Arial',sans-serif;padding:20px;max-width:500px;margin:0 auto;}
-      .header{background:#1e40af;color:white;padding:15px;text-align:center;border-radius:8px;margin-bottom:20px;}
+  <!DOCTYPE html><html><head><title>Bon Cuisine ${order.order_number}</title>
+  <style>body{font-family:'Arial',sans-serif;padding:20px;max-width:500px;margin:0 auto;}
+  .header{background:#1e40af;color:white;padding:15px;text-align:center;border-radius:8px;margin-bottom:20px;}
       .header h1{margin:0;font-size:24px;}.header p{margin:5px 0 0;font-size:14px;opacity:0.9;}
       .info{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;}
       .info-box{background:#f3f4f6;padding:10px;border-radius:6px;}
@@ -598,7 +702,7 @@ export default function CommandesPage() {
       .footer{text-align:center;color:#6b7280;font-size:12px;margin-top:20px;}
       .timestamp{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;}
       @media print{body{padding:10px;}}</style></head><body>
-      <div class="header"><h1>👨‍🍳 BON DE CUISINE</h1><p>LA VIDA-LOCA Restaurant</p></div>
+      <div class="header"><h1>👨‍ BON DE CUISINE</h1><p>LA VIDA-LOCA Restaurant</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
         <div class="info-box"><label>N° Commande</label><strong>${order.order_number}</strong></div>
@@ -638,7 +742,7 @@ export default function CommandesPage() {
       .footer{text-align:center;color:#6b7280;font-size:12px;margin-top:20px;}
       .timestamp{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;}
       @media print{body{padding:10px;}}</style></head><body>
-      <div class="header"><h1>🍹 BON DE BAR</h1><p>LA VIDA-LOCA Restaurant</p></div>
+      <div class="header"><h1>🍹 BON DE BAR</h1><p>Gentlemen Lounge</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
         <div class="info-box"><label>N° Commande</label><strong>${order.order_number}</strong></div>
@@ -657,9 +761,9 @@ export default function CommandesPage() {
     const doc = new jsPDF();
     const items = order.restaurant_order_items || [];
     doc.setFontSize(20); doc.setTextColor(79, 70, 229);
-    doc.text('LA VIDA-LOCA', 105, 20, { align: 'center' });
-    doc.setFontSize(12); doc.setTextColor(100, 100, 100);
-    doc.text('Restaurant - Facture', 105, 28, { align: 'center' });
+doc.text('LA VIDA LOCA', 105, 20, { align: 'center' });
+doc.setFontSize(12); doc.setTextColor(100, 100, 100);
+doc.text('Happiness - Hotel • Resto • Lounge', 105, 28, { align: 'center' });
     doc.setDrawColor(200, 200, 200); doc.line(20, 35, 190, 35);
     doc.setFontSize(10); doc.setTextColor(50, 50, 50);
     doc.text(`N°: ${order.order_number}`, 20, 45);
@@ -728,7 +832,7 @@ export default function CommandesPage() {
       </div>
 
       <div className="flex gap-2 border-b border-slate-200">
-        <button onClick={() => { setActiveTab('new'); setEditingOrderId(null); setCart([]); setSelectedServerId(''); }} className={`flex items-center gap-2 px-4 py-3 font-medium text-sm transition-colors ${activeTab === 'new' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
+        <button onClick={() => { setActiveTab('new'); setEditingOrderId(null); setCart([]); setSelectedServerId(''); setItemSearch(''); }} className={`flex items-center gap-2 px-4 py-3 font-medium text-sm transition-colors ${activeTab === 'new' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
           <Plus className="w-4 h-4" /> Nouvelle Commande
         </button>
         <button onClick={() => setActiveTab('list')} className={`flex items-center gap-2 px-4 py-3 font-medium text-sm transition-colors ${activeTab === 'list' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
@@ -751,7 +855,7 @@ export default function CommandesPage() {
           <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
             <div className="p-4 border-b border-slate-200">
               <label className="block text-sm font-medium text-slate-700 mb-2">Type de commande *</label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
                 <button onClick={() => setOrderType('DINE_IN')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'DINE_IN' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
                   🍽️ Sur place
                 </button>
@@ -766,53 +870,69 @@ export default function CommandesPage() {
                 </button>
               </div>
 
-              {orderType === 'DINE_IN' && (
-                <select value={selectedTableId} onChange={(e) => setSelectedTableId(e.target.value)} className="mt-3 w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
-                  <option value="">-- Sélectionner une table --</option>
-                  {tables.map(t => <option key={t.id} value={t.id}>Table {t.number} ({t.capacity} places)</option>)}
-                </select>
-              )}
-
-              {orderType === 'ROOM_SERVICE' && (
-                <select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)} className="mt-3 w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
-                  <option value="">-- Sélectionner une chambre --</option>
-                  {rooms.length === 0 ? (
-                    <option value="" disabled>Aucune chambre disponible</option>
-                  ) : (
-                    rooms.map(r => <option key={r.id} value={r.id}>Chambre {r.number} ({r.floor ? `Étage ${r.floor}, ` : ''}{r.status})</option>)
+              {/* ✅ NOUVEAU : Sélection Table/Chambre et Serveur sur la même ligne */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    {orderType === 'DINE_IN' ? 'Table *' : orderType === 'ROOM_SERVICE' ? 'Chambre *' : 'Lieu'}
+                  </label>
+                  {orderType === 'DINE_IN' && (
+                    <select value={selectedTableId} onChange={(e) => setSelectedTableId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
+                      <option value="">-- Table --</option>
+                      {tables.map(t => <option key={t.id} value={t.id}>Table {t.number}</option>)}
+                    </select>
                   )}
-                </select>
-              )}
-
-              <div className="mt-3">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Serveur *</label>
-                <select
-                  value={selectedServerId}
-                  onChange={(e) => setSelectedServerId(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
-                >
-                  <option value="">-- Sélectionner un serveur --</option>
-                  {employees.length === 0 ? (
-                    <option value="" disabled>Aucun employé disponible</option>
-                  ) : (
-                    employees.map(emp => (
+                  {orderType === 'ROOM_SERVICE' && (
+                    <select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
+                      <option value="">-- Chambre --</option>
+                      {rooms.map(r => <option key={r.id} value={r.id}>Ch. {r.number}</option>)}
+                    </select>
+                  )}
+                  {(orderType === 'TAKEAWAY' || orderType === 'DELIVERY') && (
+                    <div className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-500 text-sm flex items-center gap-2">
+                      {orderType === 'TAKEAWAY' ? '🥡 À emporter' : '🚚 Livraison'}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Serveur *</label>
+                  <select 
+                    value={selectedServerId} 
+                    onChange={(e) => setSelectedServerId(e.target.value)} 
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm"
+                  >
+                    <option value="">-- Serveur --</option>
+                    {employees.map(emp => (
                       <option key={emp.id} value={emp.id}>
-                        {emp.first_name} {emp.last_name} ({emp.role})
+                        {emp.first_name} {emp.last_name}
                       </option>
-                    ))
-                  )}
-                </select>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div className="p-4 border-b border-slate-200 flex gap-2 overflow-x-auto">
-              {categories.map(cat => (
-                <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  {cat === 'ALL' ? 'Tout' : cat}
-                </button>
-              ))}
+            {/* ✅ NOUVEAU : Champ de recherche des articles + Catégories */}
+            <div className="p-4 border-b border-slate-200 flex flex-col gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Rechercher un article..." 
+                  value={itemSearch}
+                  onChange={(e) => setItemSearch(e.target.value)} 
+                  className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm" 
+                />
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                {categories.map(cat => (
+                  <button key={cat} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${activeCategory === cat ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+                    {cat === 'ALL' ? 'Tout' : cat}
+                  </button>
+                ))}
+              </div>
             </div>
-
+            
             <div className="flex-1 overflow-y-auto p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredItems.map(item => (
@@ -823,14 +943,26 @@ export default function CommandesPage() {
                   </button>
                 ))}
               </div>
+              {filteredItems.length === 0 && (
+                <div className="text-center py-8 text-slate-400">
+                  <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>Aucun article ne correspond à votre recherche.</p>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="w-full lg:w-96 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col">
             <div className="p-4 border-b border-slate-200 bg-indigo-50">
-              <h4 className="font-bold text-slate-900 flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-indigo-600" />
-                Panier ({cart.reduce((sum, i) => sum + i.quantity, 0)})
+              {/* ✅ NOUVEAU : Distinction claire entre types d'articles et quantité totale */}
+              <h4 className="font-bold text-slate-900 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-indigo-600" />
+                  Panier
+                </span>
+                <span className="text-xs font-medium text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-sm">
+                  {cart.length} type(s) • {cart.reduce((sum, i) => sum + i.quantity, 0)} qté
+                </span>
               </h4>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -864,19 +996,19 @@ export default function CommandesPage() {
                 <span>Total</span>
                 <span className="text-indigo-600">{Number(totalAmount).toLocaleString('fr-FR')} F</span>
               </div>
-
+              
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleCommander}
-                  disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId}
+                <button 
+                  onClick={handleCommander} 
+                  disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
                   title="Émet les bons de cuisine et de bar"
                 >
                   {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Send className="w-5 h-5" />Commander</>}
                 </button>
-                <button
-                  onClick={handleValiderPourCaisse}
-                  disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId}
+                <button 
+                  onClick={handleValiderPourCaisse} 
+                  disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
                   title="Valide et envoie à la caisse pour paiement"
                 >
@@ -961,7 +1093,8 @@ export default function CommandesPage() {
                   {sortedOrders.map((order) => {
                     const statusConfig = getStatusConfig(order.status);
                     const StatusIcon = statusConfig.icon;
-                    const itemsCount = order.restaurant_order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
+                    const itemsCount = order.restaurant_order_items?.length || 0; // Nombre de lignes/types
+                    const itemsQty = order.restaurant_order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0; // Somme des quantités
                     const canAdvance = statusConfig.nextStatus !== null;
                     const isFinished = ['PAID', 'CANCELLED'].includes(order.status);
                     const canEdit = !['PAID', 'CANCELLED'].includes(order.status);
@@ -995,9 +1128,16 @@ export default function CommandesPage() {
                                 <ShoppingCart className="w-4 h-4 text-slate-400" />}
                             <span className="font-medium">{getLocationLabel(order)}</span>
                           </div>
-                          <div className="flex items-center gap-2 text-sm text-slate-700">
-                            <ClipboardList className="w-4 h-4 text-slate-400" />
-                            <span>{itemsCount} article{itemsCount > 1 ? 's' : ''}</span>
+                          {/* ✅ NOUVEAU : Affichage clair de la distinction Type/Quantité */}
+                          <div className="flex items-center gap-3 text-xs text-slate-600">
+                            <span className="flex items-center gap-1">
+                              <ClipboardList className="w-3.5 h-3.5 text-slate-400" />
+                              {itemsCount} type(s)
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Box className="w-3.5 h-3.5 text-slate-400" />
+                              Qté: {itemsQty}
+                            </span>
                           </div>
                           {order.restaurant_employees && (
                             <div className="flex items-center gap-2 text-sm text-slate-700">
@@ -1091,7 +1231,10 @@ export default function CommandesPage() {
                               <td className="px-6 py-4 text-sm text-slate-700">
                                 {getOrderTypeIcon(order.order_type || 'DINE_IN')} {getOrderTypeLabel(order.order_type || 'DINE_IN')}
                               </td>
-                              <td className="px-6 py-4 text-center text-sm text-slate-700"><span className="font-medium">{itemsQty}</span><span className="text-xs text-slate-500 ml-1">({itemsCount})</span></td>
+                              <td className="px-6 py-4 text-center text-sm text-slate-700">
+                                <span className="font-medium">{itemsQty}</span>
+                                <span className="text-xs text-slate-500 ml-1">({itemsCount} type(s))</span>
+                              </td>
                               <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} F</td>
                               <td className="px-6 py-4 text-sm text-slate-600">
                                 <div className="flex items-center gap-1">
@@ -1292,6 +1435,100 @@ export default function CommandesPage() {
           </div>
         </div>
       )}
+
+      {/* Modal Suppléments Pizza */}
+{showSupplementsModal && selectedPizza && (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-amber-600 text-white px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+        <div>
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            🍕 Personnaliser votre pizza
+          </h3>
+          <p className="text-sm opacity-90 mt-1">
+            {selectedPizza.name} - {Number(selectedPizza.price).toLocaleString('fr-FR')} F
+          </p>
+        </div>
+        <button 
+          onClick={() => setShowSupplementsModal(false)} 
+          className="hover:bg-amber-700 p-1 rounded"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+      
+      <div className="p-6 space-y-4">
+        <div>
+          <h4 className="font-semibold text-slate-900 mb-3">
+            ➕ Choisissez vos suppléments (optionnel)
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            {supplements.map(sup => {
+              const isSelected = selectedSupplements.some(s => s.id === sup.id);
+              return (
+                <button
+                  key={sup.id}
+                  onClick={() => toggleSupplement(sup)}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    isSelected 
+                      ? 'border-amber-500 bg-amber-50' 
+                      : 'border-slate-200 hover:border-amber-300'
+                  }`}
+                >
+                  <div className="font-medium text-slate-900">{sup.name}</div>
+                  <div className="text-sm text-amber-600 font-bold">
+                    +{Number(sup.price).toLocaleString('fr-FR')} F
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        
+        {selectedSupplements.length > 0 && (
+          <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+            <div className="font-semibold text-amber-900 mb-2">
+              Suppléments sélectionnés ({selectedSupplements.length})
+            </div>
+            <div className="space-y-1">
+              {selectedSupplements.map(sup => (
+                <div key={sup.id} className="flex justify-between text-sm text-amber-800">
+                  <span>{sup.name}</span>
+                  <span>+{Number(sup.price).toLocaleString('fr-FR')} F</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 pt-3 border-t border-amber-200 flex justify-between font-bold text-amber-900">
+              <span>Total avec suppléments :</span>
+              <span>
+                {Number(
+                  selectedPizza.price + 
+                  selectedSupplements.reduce((sum, s) => sum + s.price, 0)
+                ).toLocaleString('fr-FR')} F
+              </span>
+            </div>
+          </div>
+        )}
+        
+        <div className="flex gap-3 pt-2">
+          <button 
+            onClick={() => setShowSupplementsModal(false)} 
+            className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg"
+          >
+            Annuler
+          </button>
+          <button 
+            onClick={confirmPizzaWithSupplements}
+            className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 rounded-lg flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Ajouter au panier
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }
