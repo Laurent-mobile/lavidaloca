@@ -218,7 +218,7 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
       if (roomError) throw roomError;
 
       // 4. Créer une transaction dans la caisse hôtel
-      await supabase.from('cash_transactions').insert({
+      const { error: cashError } = await supabase.from('cash_transactions').insert({
         site_id: siteId,
         type: 'INCOME',
         category: 'CHECKOUT_PAYMENT',
@@ -230,7 +230,11 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
         reference_id: stay.id,
         reference_table: 'stays',
         received_by: user?.id,
-      }).catch(err => console.warn('Erreur caisse (non bloquant):', err));
+      });
+
+      if (cashError) {
+        console.warn('Erreur création transaction caisse (non bloquant):', cashError);
+      }
 
       setLoading(false);
       onSuccess();
