@@ -23,6 +23,8 @@ interface OrderItem {
   stock_item_id: string;
   item_name: string;
   unit: string;
+  purchase_unit: string;        // ✅ AJOUTÉ
+  conversion_factor: number; 
   quantity: number;
   unit_price: number;
   total_price: number;

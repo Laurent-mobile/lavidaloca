@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   RefreshCw, Filter, Settings, Plus, Calendar, DollarSign,
   ShoppingCart, Wallet, Users, TrendingUp, TrendingDown,
-  Edit2, Trash2, X, Search, ChevronDown, Receipt, Lock
+  Edit2, Trash2, X, Search, ChevronDown, Receipt, Lock, AlertTriangle
 } from 'lucide-react';
 
 interface Expense {
@@ -14,9 +14,12 @@ interface Expense {
   category: string;
   description: string;
   type: 'COURANTE' | 'FIXE' | 'FOURNISSEUR' | 'SALAIRE';
+  subtype?: string;          // ✅ AJOUTÉ
   reference?: string;
   amount: number;
   payment_method: string;
+  notes?: string;            // ✅ AJOUTÉ
+  is_recurring?: boolean;    // ✅ AJOUTÉ
   created_by?: string;
   created_at: string;
 }
@@ -1346,7 +1349,7 @@ const getSystemBadge = (isSystem: boolean) => {
                     <tr key={cat.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-base">{getCategoryIcon(cat.name)}</span>
+                          <span className="text-base">{getCategoryEmoji(cat.name)}</span>
                           <span className="font-medium text-slate-900">{cat.name}</span>
                         </div>
                       </td>

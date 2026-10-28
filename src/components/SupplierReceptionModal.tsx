@@ -7,6 +7,8 @@ interface OrderItem {
   id: string;
   item_name: string;
   unit: string;
+  purchase_unit?: string;       // ✅ AJOUTÉ
+  conversion_factor?: number;
   quantity: number;
   received_quantity: number;
   unit_price: number;
@@ -93,7 +95,7 @@ export default function SupplierReceptionModal({ siteId, orderId, isOpen, onClos
           reception_date: r.reception_date,
           received_by: r.received_by,
           notes: r.notes,
-          items: (r.supplier_reception_items || []).map(ri => ({
+          items: (r.supplier_reception_items || []).map((ri: any) => ({
             id: ri.id,
             item_name: ri.supplier_order_items?.item_name || 'Article',
             quantity_received: ri.quantity_received,

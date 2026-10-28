@@ -273,43 +273,35 @@ export default function CommandesPage() {
         stock: item.stock || 0 // ✅ AJOUTÉ
       }));
       setMenuItems(formatted);
-    } else {
-        setMenuItems([
-          { id: '1', name: 'Coca-Cola 33cl', category: 'Boissons', price: 1500, destination: 'BAR' },
-          { id: '2', name: 'Jus de bissap', category: 'Boissons', price: 1000, destination: 'BAR' },
-          { id: '3', name: 'SOBBRA', category: 'Boissons', price: 1000, destination: 'BAR' },
-          { id: '4', name: 'Poulet Braisé', category: 'Plats principaux', price: 5000, destination: 'KITCHEN' },
-          { id: '5', name: 'RIZ', category: 'Plats principaux', price: 1500, destination: 'KITCHEN' },
-          { id: '6', name: 'SALADE', category: 'Entrées', price: 2500, destination: 'KITCHEN' },
-        ]);
-      }
+    } 
     } catch (error) {
       console.error('Erreur menu:', error);
     }
   };
 
   const loadSupplements = async () => {
-    try {
-      const { data } = await supabase
-        .from('restaurant_items')
-        .select('id, name, category:restaurant_categories(name), price, destination')
-        .eq('site_id', siteId)
-        .eq('is_available', true)
-        .eq('restaurant_categories.name', 'SUPPLÉMENTS');
-      
-      if (data && data.length > 0) {
-        setSupplements(data.map(item => ({
-          id: item.id,
-          name: item.name,
-          category: (item as any).category?.name || 'Suppléments',
-          price: item.price,
-          destination: 'KITCHEN'
-        })));
-      }
-    } catch (error) {
-      console.error('Erreur chargement suppléments:', error);
+  try {
+    const { data } = await supabase
+      .from('restaurant_items')
+      .select('id, name, category:restaurant_categories(name), price, destination, stock') // ✅ AJOUTÉ 'stock'
+      .eq('site_id', siteId)
+      .eq('is_available', true)
+      .eq('restaurant_categories.name', 'SUPPLÉMENTS');
+    
+    if (data && data.length > 0) {
+      setSupplements(data.map(item => ({
+        id: item.id,
+        name: item.name,
+        category: (item as any).category?.name || 'Suppléments',
+        price: item.price,
+        destination: 'KITCHEN',
+        stock: item.stock || 0 // ✅ AJOUTÉ
+      })));
     }
-  };
+  } catch (error) {
+    console.error('Erreur chargement suppléments:', error);
+  }
+};
 
   const openPizzaWithSupplements = (item: MenuItem) => {
     setSelectedPizza(item);
@@ -495,7 +487,7 @@ export default function CommandesPage() {
     setSelectedRoomId(order.room_id || '');
     setSelectedServerId(order.server_id || '');
     
-    const cartItems = order.restaurant_order_items?.map(item => ({
+        const cartItems = order.restaurant_order_items?.map(item => ({
       orderItemId: item.id,
       menuItemId: (item as any).menu_item_id || '',
       id: item.id,
@@ -503,8 +495,10 @@ export default function CommandesPage() {
       category: '',
       price: item.unit_price,
       quantity: item.quantity,
-      destination: item.destination
+      destination: item.destination,
+      stock: 0 // ✅ AJOUTÉ
     })) || [];
+
     setCart(cartItems);
     setOriginalItems(order.restaurant_order_items || []);
     setActiveTab('new');

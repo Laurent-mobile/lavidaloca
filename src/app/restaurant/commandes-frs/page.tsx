@@ -53,7 +53,7 @@ export default function CommandesFournisseursPage() {
   const [selectedOrder, setSelectedOrder] = useState<SupplierOrder | null>(null);
   const [showQuickCreate, setShowQuickCreate] = useState(false);
 const [searchForNew, setSearchForNew] = useState(''); // Pour pré-remplir le nom
-const [stockItems, setStockItems] = useState<MenuItem[]>([]);
+//const [stockItems, setStockItems] = useState<MenuItem[]>([]);
 const [orderItems, setOrderItems] = useState<Record<string, any[]>>({});
 const [receptions, setReceptions] = useState<Record<string, any[]>>({});
   
@@ -97,7 +97,7 @@ const loadStockItems = async () => {
     if (error) throw error;
 
     if (data && data.length > 0) {
-      const formatted = data.map(item => ({
+      const formatted = data.map((item: any) => ({
         id: item.id,
         name: item.name,
         category: item.category || 'Autres',
@@ -106,11 +106,11 @@ const loadStockItems = async () => {
         unit: item.unit || 'unité',
         destination: item.destination || 'KITCHEN'
       }));
-      setStockItems(formatted);
-      setMenuItems(formatted); // Pour compatibilité avec le reste du code
+      
+      
     } else {
-      setMenuItems([]);
-      setStockItems([]);
+      
+     
     }
   } catch (error) {
     console.error('Erreur chargement stock:', error);
@@ -161,7 +161,7 @@ const loadStockItems = async () => {
         if (receptionsData) {
           receptionsMap[order.id] = receptionsData.map(r => ({
             ...r,
-            items: (r.supplier_reception_items || []).map(ri => ({
+            items: (r.supplier_reception_items || []).map((ri: any) => ({
               ...ri,
               item_name: ri.supplier_order_items?.item_name || 'Article'
             }))
@@ -659,7 +659,7 @@ const loadStockItems = async () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {orderItems[selectedOrder.id]?.map(item => {
+                {orderItems[selectedOrder.id]?.map((item: any) => {
                   const remaining = item.quantity - item.received_quantity;
                   const progress = (item.received_quantity / item.quantity) * 100;
                   const isFullyReceived = remaining === 0;
@@ -713,7 +713,7 @@ const loadStockItems = async () => {
                     </span>
                   </div>
                   <div className="ml-7 space-y-1">
-                    {reception.items.map(item => (
+                    {reception.items.map((item: any) => (
                       <div key={item.id} className="flex justify-between text-sm bg-emerald-50 px-3 py-1 rounded">
                         <span className="text-slate-700">{item.item_name}</span>
                         <span className="font-medium text-emerald-700">+{item.quantity_received} reçu(s)</span>
