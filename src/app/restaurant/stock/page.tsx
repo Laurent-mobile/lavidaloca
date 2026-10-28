@@ -87,17 +87,33 @@ export default function StockPage() {
   }, []);
 
   const loadStockItems = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.from('stock_items').select('*').order('name', { ascending: true });
-      if (error) throw error;
-      setItems(data || []);
-    } catch (error) {
-      console.error('Erreur chargement stock:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from('stock_items')
+      .select('*')
+      .order('name', { ascending: true });
+    
+    if (error) throw error;
+
+    // ✅ Mapper current_stock vers quantity pour l'interface
+    const formattedItems = (data || []).map(item => ({
+      ...item,
+      quantity: item.current_stock || 0, // Mapper current_stock vers quantity
+      unit: item.unit || 'unité',
+      purchase_unit: item.purchase_unit || 'unité',
+      conversion_factor: item.conversion_factor || 1,
+      min_threshold: item.min_threshold || 0,
+      unit_cost: item.last_purchase_price || item.unit_cost || 0
+    }));
+    
+    setItems(formattedItems);
+  } catch (error) {
+    console.error('Erreur chargement stock:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const loadMovements = async () => {
     try {
@@ -114,48 +130,90 @@ export default function StockPage() {
   };
 
   const handleAddItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newItem.name || !newItem.category) return;
-    setIsSubmitting(true);
-    try {
-      const { error } = await supabase.from('stock_items').insert({
-        site_id: siteId, ...newItem
-      });
-      if (error) throw error;
-      setNewItem({ name: '', category: '', quantity: 0, unit: 'unités', purchase_unit: 'unité', conversion_factor: 1, min_threshold: 0, unit_cost: 0 });
-      setIsAddModalOpen(false);
-      loadStockItems();
-    } catch (error) {
-      console.error('Erreur ajout:', error);
-      alert('Erreur lors de l\'ajout.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  e.preventDefault();
+  if (!newItem.name || !newItem.category) return;
+  setIsSubmitting(true);
+  try {
+    const { error } = await supabase.from('stock_items').insert({
+      site_id: siteId,
+      name: newItem.name,
+      category: newItem.category,
+      current_stock: newItem.quantity, // ✅ Mapper quantity vers current_stock
+      unit: newItem.unit,
+      purchase_unit: newItem.purchase_unit,
+      conversion_factor: newItem.conversion_factor,
+      min_stock: newItem.min_threshold, // ✅ Mapper min_threshold vers min_stock
+      last_purchase_price: newItem.unit_cost, // ✅ Mapper unit_cost vers last_purchase_price
+      is_active: true
+    });
+    
+    if (error) throw error;
+    
+    setNewItem({ 
+      name: '', 
+      category: '', 
+      quantity: 0, 
+      unit: 'unités', 
+      purchase_unit: 'unité', 
+      conversion_factor: 1, 
+      min_threshold: 0, 
+      unit_cost: 0 
+    });
+    setIsAddModalOpen(false);
+    loadStockItems();
+  } catch (error) {
+    console.error('Erreur ajout:', error);
+    alert('Erreur lors de l\'ajout.');
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const handleAdjustStock = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedItem || adjustQuantity <= 0 || !adjustReason.trim()) return;
-    setIsAdjusting(true);
-    try {
-      const newQuantity = adjustType === 'IN' ? selectedItem.quantity + adjustQuantity : selectedItem.quantity - adjustQuantity;
-      if (newQuantity < 0) { alert('⚠️ Stock insuffisant !'); setIsAdjusting(false); return; }
+  e.preventDefault();
+  if (!selectedItem || adjustQuantity <= 0 || !adjustReason.trim()) return;
+  setIsAdjusting(true);
+  try {
+    const newQuantity = adjustType === 'IN' 
+      ? selectedItem.quantity + adjustQuantity 
+      : selectedItem.quantity - adjustQuantity;
+    
+    if (newQuantity < 0) { 
+      alert('⚠️ Stock insuffisant !'); 
+      setIsAdjusting(false); 
+      return; 
+    }
 
-      await supabase.from('stock_items').update({ quantity: newQuantity }).eq('id', selectedItem.id);
-      await supabase.from('stock_movements').insert({
-        site_id: siteId, stock_item_id: selectedItem.id, movement_type: adjustType,
-        quantity: adjustQuantity, reason: adjustReason, performed_by: userId
+    // ✅ Mettre à jour current_stock au lieu de quantity
+    await supabase
+      .from('stock_items')
+      .update({ current_stock: newQuantity })
+      .eq('id', selectedItem.id);
+      
+    await supabase
+      .from('stock_movements')
+      .insert({
+        site_id: siteId,
+        stock_item_id: selectedItem.id,
+        movement_type: adjustType,
+        quantity: adjustQuantity,
+        reason: adjustReason,
+        performed_by: userId
       });
 
-      setAdjustQuantity(0); setAdjustReason(''); setIsAdjustModalOpen(false); setSelectedItem(null);
-      loadStockItems(); loadMovements();
-    } catch (error) {
-      console.error('Erreur ajustement:', error);
-      alert('Erreur lors de l\'ajustement.');
-    } finally {
-      setIsAdjusting(false);
-    }
-  };
+    setAdjustQuantity(0); 
+    setAdjustReason(''); 
+    setIsAdjustModalOpen(false); 
+    setSelectedItem(null);
+    loadStockItems(); 
+    loadMovements();
+  } catch (error) {
+    console.error('Erreur ajustement:', error);
+    alert('Erreur lors de l\'ajustement.');
+  } finally {
+    setIsAdjusting(false);
+  }
+};
 
   const openAdjustModal = (item: StockItem, type: 'IN' | 'OUT') => {
     setSelectedItem(item); setAdjustType(type); setAdjustQuantity(0); setAdjustReason(''); setIsAdjustModalOpen(true);
@@ -172,25 +230,31 @@ export default function StockPage() {
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingItem) return;
-    setIsEditing(true);
-    try {
-      const { error } = await supabase.from('stock_items').update({
-        name: editForm.name, category: editForm.category, unit: editForm.unit,
-        purchase_unit: editForm.purchase_unit, conversion_factor: editForm.conversion_factor,
-        min_threshold: editForm.min_threshold, unit_cost: editForm.unit_cost
-      }).eq('id', editingItem.id);
+  e.preventDefault();
+  if (!editingItem) return;
+  setIsEditing(true);
+  try {
+    const { error } = await supabase.from('stock_items').update({
+      name: editForm.name,
+      category: editForm.category,
+      unit: editForm.unit,
+      purchase_unit: editForm.purchase_unit,
+      conversion_factor: editForm.conversion_factor,
+      min_stock: editForm.min_threshold, // ✅ Mapper vers min_stock
+      last_purchase_price: editForm.unit_cost // ✅ Mapper vers last_purchase_price
+    }).eq('id', editingItem.id);
 
-      if (error) throw error;
-      setIsEditModalOpen(false); setEditingItem(null); loadStockItems();
-    } catch (error) {
-      console.error('Erreur modification:', error);
-      alert('Erreur lors de la modification.');
-    } finally {
-      setIsEditing(false);
-    }
-  };
+    if (error) throw error;
+    setIsEditModalOpen(false); 
+    setEditingItem(null); 
+    loadStockItems();
+  } catch (error) {
+    console.error('Erreur modification:', error);
+    alert('Erreur lors de la modification.');
+  } finally {
+    setIsEditing(false);
+  }
+};
 
   const openDeleteModal = (item: StockItem) => {
     setItemToDelete(item); setDeleteError('');

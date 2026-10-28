@@ -31,6 +31,7 @@ const paymentMethods = [
   { id: 'MOBILE_MONEY', label: 'Mobile Money', icon: Smartphone, color: 'purple' },
   { id: 'CHECK', label: 'Chèque', icon: FileText, color: 'amber' },
   { id: 'BANK_TRANSFER', label: 'Virement', icon: Banknote, color: 'indigo' },
+  { id: 'ROOM_CHARGE', label: 'Imputer à une chambre', icon: Hotel, color: 'indigo' }
 ];
 
 const expenseCategories = [
@@ -54,96 +55,82 @@ export default function RestaurantCaisseModal({ siteId, isOpen, onClose, onSucce
   const [paymentMethod, setPaymentMethod] = useState('CASH');
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // ✅ NOUVEAU : États pour les petites dépenses
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategory, setExpenseCategory] = useState('OTHER');
   const [expenseDescription, setExpenseDescription] = useState('');
   const [expenseNote, setExpenseNote] = useState('');
+  const [activeStays, setActiveStays] = useState<any[]>([]);
+  const [selectedStayId, setSelectedStayId] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       loadPendingOrders();
       loadRoomCharges();
       loadPaidTransactions();
+      loadActiveStays();
     }
   }, [isOpen, reportDate]);
 
   useEffect(() => {
-  const handleNavigateToPayment = async (event: any) => {
-    const orderId = event.detail?.orderId;
-    console.log(' Commande demandée pour paiement:', orderId);
-    
-    if (orderId) {
-      // ✅ CORRECTION : Forcer un re-fetch avec un petit délai pour laisser Supabase propager
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      await loadPendingOrders();
-      
-      // Attendre que l'état soit mis à jour
-      setTimeout(() => {
-        // ✅ Re-fetch une deuxième fois pour être sûr (Supabase peut être lent)
-        loadPendingOrders().then(() => {
-          const order = pendingOrders.find(o => o.id === orderId);
-          if (order) {
-            setSelectedOrder(order);
-            setActiveTab('pending');
-            setShowPayment(true);
-            setAmountReceived(order.total_amount.toString());
-            console.log('✅ Commande sélectionnée automatiquement:', order.order_number);
-          } else {
-            console.warn('⚠️ Commande non trouvée après re-fetch:', orderId);
-            // ✅ Dernière tentative : chercher directement en base
-            supabase
-              .from('restaurant_orders')
-              .select(`
-                id, order_number, table_id, total_amount, status, created_at, server_id,
-                restaurant_order_items(id, item_name, quantity, unit_price, total_price),
-                restaurant_tables(number),
-                restaurant_employees(first_name, last_name)
-              `)
-              .eq('id', orderId)
-              .maybeSingle()
-                            .then(({ data }) => {
-                if (data) {
-                  const formatted = {
-                    ...data,
-                    // ✅ CORRECTION : Ajout de [0] pour les jointures Supabase
-                    table_number: data.restaurant_tables?.[0]?.number || 'Direct',
-                    server_name: data.restaurant_employees?.[0]
-                      ? `${data.restaurant_employees[0].first_name} ${data.restaurant_employees[0].last_name}`
-                      : 'Inconnu',
-                    items: data.restaurant_order_items || []
-                  };
-                  setSelectedOrder(formatted);
-                  setActiveTab('pending');
-                  setShowPayment(true);
-                  setAmountReceived(formatted.total_amount.toString());
-                  console.log('✅ Commande récupérée directement:', formatted.order_number);
-                }
-              });
-          }
-        });
-      }, 400);
-    }
-  };
+    const handleNavigateToPayment = async (event: any) => {
+      const orderId = event.detail?.orderId;
+      if (orderId) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await loadPendingOrders();
+        setTimeout(() => {
+          loadPendingOrders().then(() => {
+            const order = pendingOrders.find(o => o.id === orderId);
+            if (order) {
+              setSelectedOrder(order);
+              setActiveTab('pending');
+              setShowPayment(true);
+              setAmountReceived(order.total_amount.toString());
+            } else {
+              supabase
+                .from('restaurant_orders')
+                .select(`
+                  id, order_number, table_id, total_amount, status, created_at, server_id,
+                  restaurant_order_items(id, item_name, quantity, unit_price, total_price),
+                  restaurant_tables(number),
+                  restaurant_employees(first_name, last_name)
+                `)
+                .eq('id', orderId)
+                .maybeSingle()
+                .then(({ data }) => {
+                  if (data) {
+                    const formatted = {
+                      ...data,
+                      table_number: data.restaurant_tables?.[0]?.number || 'Direct',
+                      server_name: data.restaurant_employees?.[0]
+                        ? `${data.restaurant_employees[0].first_name} ${data.restaurant_employees[0].last_name}`
+                        : 'Inconnu',
+                      items: data.restaurant_order_items || []
+                    };
+                    setSelectedOrder(formatted);
+                    setActiveTab('pending');
+                    setShowPayment(true);
+                    setAmountReceived(formatted.total_amount.toString());
+                  }
+                });
+            }
+          });
+        }, 400);
+      }
+    };
 
-  window.addEventListener('navigate-to-payment', handleNavigateToPayment);
-  return () => window.removeEventListener('navigate-to-payment', handleNavigateToPayment);
-}, [pendingOrders]);
+    window.addEventListener('navigate-to-payment', handleNavigateToPayment);
+    return () => window.removeEventListener('navigate-to-payment', handleNavigateToPayment);
+  }, [pendingOrders]);
 
-// ✅ Auto-refresh toutes les 10 secondes quand le modal est ouvert
-useEffect(() => {
-  if (!isOpen) return;
-  
-  const interval = setInterval(() => {
-    console.log('🔄 Auto-refresh caisse...');
-    loadPendingOrders();
-    loadPaidTransactions();
-  }, 10000); // 10 secondes
-  
-  return () => clearInterval(interval);
-}, [isOpen]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const interval = setInterval(() => {
+      loadPendingOrders();
+      loadPaidTransactions();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isOpen]);
 
   const loadPendingOrders = async () => {
     setLoading(true);
@@ -157,24 +144,24 @@ useEffect(() => {
           restaurant_employees(first_name, last_name)
         `)
         .eq('site_id', siteId)
-        .in('status', ['READY', 'ready'])
+        .in('status', ['READY', 'ready', 'SERVED'])
         .order('created_at', { ascending: true });
 
       if (error) throw error;
 
-           const formattedOrders: PendingOrder[] = (orders || []).map(order => ({
-  id: order.id,
-  order_number: order.order_number,
-  table_id: order.table_id,
-  table_number: order.restaurant_tables?.[0]?.number || 'Direct', // ✅ [0] ajouté
-  total_amount: order.total_amount || 0,
-  status: order.status,
-  created_at: order.created_at,
-  server_name: order.restaurant_employees?.[0] // ✅ [0] ajouté
-    ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
-    : 'Inconnu',
-  items: order.restaurant_order_items || []
-}));
+      const formattedOrders: PendingOrder[] = (orders || []).map(order => ({
+        id: order.id,
+        order_number: order.order_number,
+        table_id: order.table_id,
+        table_number: order.restaurant_tables?.[0]?.number || 'Direct',
+        total_amount: order.total_amount || 0,
+        status: order.status,
+        created_at: order.created_at,
+        server_name: order.restaurant_employees?.[0]
+          ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
+          : 'Inconnu',
+        items: order.restaurant_order_items || []
+      }));
 
       setPendingOrders(formattedOrders);
     } catch (error) {
@@ -182,6 +169,30 @@ useEffect(() => {
     } finally {
       setLoading(false);
     }
+  };
+
+    const loadActiveStays = async () => {
+    const { data, error } = await supabase
+      .from('stays')
+      .select(`id, folio_balance, rooms(number), customers(first_name, last_name)`)
+      .eq('site_id', siteId)
+      .eq('status', 'IN_HOUSE')
+      .order('check_in_at', { ascending: false });
+    
+    if (error) {
+      console.error('Erreur chargement séjours actifs:', error);
+      setActiveStays([]);
+      return;
+    }
+    
+    // ✅ CORRECTION : Formater les données car Supabase retourne les jointures en tableaux
+    const formatted = (data || []).map(stay => ({
+      ...stay,
+      rooms: stay.rooms?.[0] || null,
+      customers: stay.customers?.[0] || { first_name: 'Client', last_name: 'Inconnu' }
+    }));
+    
+    setActiveStays(formatted);
   };
 
   const loadRoomCharges = async () => {
@@ -201,28 +212,27 @@ useEffect(() => {
 
       if (error) throw error;
 
-            const formattedCharges: PendingOrder[] = (orders || []).map(order => {
-  const stay = order.stays?.[0]; // ✅ stays est un tableau
-  
-  return {
-    id: order.id,
-    order_number: order.order_number,
-    table_id: order.table_id,
-    table_number: order.restaurant_tables?.[0]?.number || 'Direct', // ✅ [0] ajouté
-    total_amount: order.total_amount || 0,
-    status: order.status,
-    created_at: order.created_at,
-    server_name: order.restaurant_employees?.[0] // ✅ [0] ajouté
-      ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
-      : 'Inconnu',
-    items: order.restaurant_order_items || [],
-    stay_id: order.stay_id,
-    room_number: stay?.rooms?.[0]?.number, // ✅ [0] ajouté
-    guest_name: stay?.customers?.[0] // ✅ [0] ajouté
-      ? `${stay.customers[0].first_name} ${stay.customers[0].last_name}` 
-      : undefined
-  };
-});
+      const formattedCharges: PendingOrder[] = (orders || []).map(order => {
+        const stay = order.stays?.[0];
+        return {
+          id: order.id,
+          order_number: order.order_number,
+          table_id: order.table_id,
+          table_number: order.restaurant_tables?.[0]?.number || 'Direct',
+          total_amount: order.total_amount || 0,
+          status: order.status,
+          created_at: order.created_at,
+          server_name: order.restaurant_employees?.[0]
+            ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}` 
+            : 'Inconnu',
+          items: order.restaurant_order_items || [],
+          stay_id: order.stay_id,
+          room_number: stay?.rooms?.[0]?.number,
+          guest_name: stay?.customers?.[0]
+            ? `${stay.customers[0].first_name} ${stay.customers[0].last_name}` 
+            : undefined
+        };
+      });
 
       setRoomCharges(formattedCharges);
     } catch (error) {
@@ -252,7 +262,6 @@ useEffect(() => {
     }
   };
 
-  // ✅ NOUVEAU : Fonction pour enregistrer une petite dépense
   const handleAddExpense = async () => {
     if (!expenseAmount || parseFloat(expenseAmount) <= 0) {
       alert('Veuillez saisir un montant valide.');
@@ -299,124 +308,125 @@ useEffect(() => {
     }
   };
 
-  // ✅ CORRECTION : Fonction asynchrone qui charge les articles avant d'imprimer
-const handleReprintReceipt = async (transaction: any) => {
-  try {
-    // Charger les articles de la commande associée
-    let orderItems: any[] = [];
-    if (transaction.reference_id && transaction.reference_table === 'restaurant_orders') {
-      const { data: orderData, error: orderError } = await supabase
-        .from('restaurant_orders')
-        .select(`
-          order_number,
-          restaurant_order_items(id, item_name, quantity, unit_price, total_price),
-          restaurant_tables(number),
-          restaurant_employees(first_name, last_name)
-        `)
-        .eq('id', transaction.reference_id)
-        .maybeSingle();
+  const handleReprintReceipt = async (transaction: any) => {
+    try {
+      let orderItems: any[] = [];
+      if (transaction.reference_id && transaction.reference_table === 'restaurant_orders') {
+        const { data: orderData, error: orderError } = await supabase
+          .from('restaurant_orders')
+          .select(`
+            order_number,
+            restaurant_order_items(id, item_name, quantity, unit_price, total_price),
+            restaurant_tables(number),
+            restaurant_employees(first_name, last_name)
+          `)
+          .eq('id', transaction.reference_id)
+          .maybeSingle();
 
-      if (orderError) {
-        console.error('Erreur chargement commande:', orderError);
-      } else if (orderData) {
-        orderItems = orderData.restaurant_order_items || [];
-        
-        // Ajouter les infos de la commande à la transaction pour l'impression
-        transaction.order_number = orderData.order_number;
-        transaction.table_number = orderData.restaurant_tables?.[0]?.number || 'Direct';
-transaction.server_name = orderData.restaurant_employees?.[0]
-  ? `${orderData.restaurant_employees[0].first_name} ${orderData.restaurant_employees[0].last_name}` 
-  : 'Inconnu';
+        if (orderError) {
+          console.error('Erreur chargement commande:', orderError);
+        } else if (orderData) {
+          orderItems = orderData.restaurant_order_items || [];
+          transaction.order_number = orderData.order_number;
+          transaction.table_number = orderData.restaurant_tables?.[0]?.number || 'Direct';
+          transaction.server_name = orderData.restaurant_employees?.[0]
+            ? `${orderData.restaurant_employees[0].first_name} ${orderData.restaurant_employees[0].last_name}` 
+            : 'Inconnu';
+        }
       }
+
+      const printWindow = window.open('', '_blank', 'width=300,height=600');
+      if (!printWindow) return;
+
+      const methodLabels: any = {
+        'CASH': '💵 Espèces',
+        'CARD': '💳 Carte',
+        'MOBILE_MONEY': '📱 Mobile Money',
+        'CHECK': '📝 Chèque',
+        'BANK_TRANSFER': '🏦 Virement'
+      };
+
+      printWindow.document.write(`
+        <html>
+        <head>
+          <title>Duplicata ${transaction.receipt_number}</title>
+          <style>
+            body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 10px; width: 80mm; }
+            .center { text-align: center; }
+            .row { display: flex; justify-content: space-between; margin: 4px 0; }
+            .divider { border-top: 1px dashed #000; margin: 8px 0; }
+            .bold { font-weight: bold; }
+            .duplicate { background: #fbbf24; color: #78350f; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; display: inline-block; margin-bottom: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="center">
+            <div class="bold" style="font-size: 16px;">LA VIDA-LOCA</div>
+            <div>Restaurant & Bar</div>
+            <div class="divider"></div>
+            <div class="duplicate">📄 DUPLICATA</div>
+            <div class="bold">TICKET DE CAISSE</div>
+            <div>N° ${transaction.receipt_number || 'N/A'}</div>
+            <div>${new Date(transaction.transaction_date || transaction.created_at).toLocaleString('fr-FR')}</div>
+            <div>Table: ${transaction.table_number || 'N/A'}</div>
+            <div>Serveur: ${transaction.server_name || 'N/A'}</div>
+            ${transaction.order_number ? `<div>Commande: ${transaction.order_number}</div>` : ''}
+          </div>
+          <div class="divider"></div>
+          ${orderItems.length > 0 ? `
+            ${orderItems.map((item: any) => `
+              <div class="row">
+                <span>${item.quantity}x ${item.item_name}</span>
+                <span>${Number(item.total_price).toLocaleString('fr-FR')} F</span>
+              </div>
+            `).join('')}
+            <div class="divider"></div>
+          ` : ''}
+          <div class="row bold">
+            <span>TOTAL</span>
+            <span>${Number(transaction.amount).toLocaleString('fr-FR')} F</span>
+          </div>
+          <div class="row">
+            <span>Mode</span>
+            <span>${methodLabels[transaction.payment_method] || transaction.payment_method}</span>
+          </div>
+          ${transaction.amount_received ? `
+          <div class="row">
+            <span>Reçu</span>
+            <span>${Number(transaction.amount_received).toLocaleString('fr-FR')} F</span>
+          </div>
+          ` : ''}
+          ${transaction.change_amount > 0 ? `
+          <div class="row bold">
+            <span>Rendu</span>
+            <span>${Number(transaction.change_amount).toLocaleString('fr-FR')} F</span>
+          </div>
+          ` : ''}
+          <div class="divider"></div>
+          <div class="center">Document de vérification</div>
+          <script>
+            window.onload = function() { setTimeout(function() { window.print(); window.close(); }, 300); };
+          </script>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+    } catch (error) {
+      console.error('Erreur réimpression:', error);
+      alert('Erreur lors de la réimpression du ticket');
     }
-
-    const printWindow = window.open('', '_blank', 'width=300,height=600');
-    if (!printWindow) return;
-
-    const methodLabels: any = {
-      'CASH': ' Espèces',
-      'CARD': '💳 Carte',
-      'MOBILE_MONEY': ' Mobile Money',
-      'CHECK': ' Chèque',
-      'BANK_TRANSFER': '🏦 Virement'
-    };
-
-    printWindow.document.write(`
-      <html>
-      <head>
-        <title>Duplicata ${transaction.receipt_number}</title>
-        <style>
-          body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 10px; width: 80mm; }
-          .center { text-align: center; }
-          .row { display: flex; justify-content: space-between; margin: 4px 0; }
-          .divider { border-top: 1px dashed #000; margin: 8px 0; }
-          .bold { font-weight: bold; }
-          .duplicate { background: #fbbf24; color: #78350f; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; display: inline-block; margin-bottom: 8px; }
-        </style>
-      </head>
-      <body>
-        <div class="center">
-          <div class="bold" style="font-size: 16px;">LA VIDA-LOCA</div>
-          <div>Restaurant & Bar</div>
-          <div class="divider"></div>
-          <div class="duplicate">📄 DUPLICATA</div>
-          <div class="bold">TICKET DE CAISSE</div>
-          <div>N° ${transaction.receipt_number || 'N/A'}</div>
-          <div>${new Date(transaction.transaction_date || transaction.created_at).toLocaleString('fr-FR')}</div>
-          <div>Table: ${transaction.table_number || 'N/A'}</div>
-          <div>Serveur: ${transaction.server_name || 'N/A'}</div>
-          ${transaction.order_number ? `<div>Commande: ${transaction.order_number}</div>` : ''}
-        </div>
-        <div class="divider"></div>
-        ${orderItems.length > 0 ? `
-          ${orderItems.map((item: any) => `
-            <div class="row">
-              <span>${item.quantity}x ${item.item_name}</span>
-              <span>${Number(item.total_price).toLocaleString('fr-FR')} F</span>
-            </div>
-          `).join('')}
-          <div class="divider"></div>
-        ` : ''}
-        <div class="row bold">
-          <span>TOTAL</span>
-          <span>${Number(transaction.amount).toLocaleString('fr-FR')} F</span>
-        </div>
-        <div class="row">
-          <span>Mode</span>
-          <span>${methodLabels[transaction.payment_method] || transaction.payment_method}</span>
-        </div>
-        ${transaction.amount_received ? `
-        <div class="row">
-          <span>Reçu</span>
-          <span>${Number(transaction.amount_received).toLocaleString('fr-FR')} F</span>
-        </div>
-        ` : ''}
-        ${transaction.change_amount > 0 ? `
-        <div class="row bold">
-          <span>Rendu</span>
-          <span>${Number(transaction.change_amount).toLocaleString('fr-FR')} F</span>
-        </div>
-        ` : ''}
-        <div class="divider"></div>
-        <div class="center">Document de vérification</div>
-        <script>
-          window.onload = function() { setTimeout(function() { window.print(); window.close(); }, 300); };
-        </script>
-      </body>
-      </html>
-    `);
-    printWindow.document.close();
-  } catch (error) {
-    console.error('Erreur réimpression:', error);
-    alert('Erreur lors de la réimpression du ticket');
-  }
-};
+  };
 
   const handleProcessPayment = async () => {
     if (!selectedOrder) return;
-    
     const received = parseFloat(amountReceived) || 0;
-    if (received < selectedOrder.total_amount) {
+    
+    if (paymentMethod === 'ROOM_CHARGE' && !selectedStayId) {
+      alert('⚠️ Veuillez sélectionner la chambre du client dans la liste.');
+      return;
+    }
+
+    if (paymentMethod === 'CASH' && received < selectedOrder.total_amount) {
       alert('Le montant reçu est insuffisant !');
       return;
     }
@@ -424,56 +434,94 @@ transaction.server_name = orderData.restaurant_employees?.[0]
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const change = received - selectedOrder.total_amount;
+      const change = paymentMethod === 'CASH' ? received - selectedOrder.total_amount : 0;
       const receiptNumber = `REC-${Date.now().toString().slice(-8)}`;
 
-      const { error: orderError } = await supabase
-        .from('restaurant_orders')
-        .update({
+      if (paymentMethod === 'ROOM_CHARGE') {
+        // --- LOGIQUE D'IMPUTATION SUR CHAMBRE ---
+        const selectedStay = activeStays.find(s => s.id === selectedStayId);
+        
+        // 1. Mettre à jour le statut de la commande
+        await supabase.from('restaurant_orders').update({ status: 'ROOM_CHARGE' }).eq('id', selectedOrder.id);
+
+        // 2. Créer l'imputation dans room_charges
+        await supabase.from('room_charges').insert({
+          site_id: siteId,
+          stay_id: selectedStayId,
+          order_id: selectedOrder.id,
+          charge_type: 'RESTAURANT',
+          amount: selectedOrder.total_amount,
+          description: `Commande ${selectedOrder.order_number} - ${selectedOrder.items.length} article(s)`,
+          charge_date: new Date().toISOString(),
+          is_voided: false
+        });
+
+        // 3. Mettre à jour le solde du folio du client
+        await supabase.from('stays').update({
+          folio_balance: (selectedStay?.folio_balance || 0) + selectedOrder.total_amount
+        }).eq('id', selectedStayId);
+
+        // 4. Enregistrer la transaction pour la traçabilité de la caisse
+        await supabase.from('restaurant_cash_transactions').insert({
+          site_id: siteId,
+          type: 'INCOME',
+          category: 'ROOM_CHARGE',
+          amount: selectedOrder.total_amount,
+          payment_method: 'ROOM_CHARGE',
           status: 'PAID',
-          paid_at: new Date().toISOString(),
-        })
-        .eq('id', selectedOrder.id);
+          provider_name: `Chambre ${selectedStay?.rooms?.number}`,
+          description: `Imputation commande ${selectedOrder.order_number}`,
+          reference_id: selectedOrder.id,
+          reference_table: 'restaurant_orders',
+          received_by: user?.id,
+          transaction_date: new Date().toISOString(),
+        });
 
-      if (orderError) throw orderError;
+        // ✅ CORRECTION MAJEURE : Libérer la table après imputation à la chambre
+        if (selectedOrder.table_id) {
+          await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selectedOrder.table_id);
+        }
 
-      const { error: txError } = await supabase.from('restaurant_cash_transactions').insert({
-        site_id: siteId,
-        type: 'INCOME',
-        category: 'FB_PAYMENT',
-        amount: selectedOrder.total_amount,
-        payment_method: paymentMethod,
-        status: 'PAID',
-        provider_name: selectedOrder.table_number ? `Table ${selectedOrder.table_number}` : 'Comptoir',
-        description: `Paiement commande ${selectedOrder.order_number}`,
-        reference_id: selectedOrder.id,
-        reference_table: 'restaurant_orders',
-        received_by: user?.id,
-        amount_received: received,
-        change_amount: change,
-        receipt_number: receiptNumber,
-        transaction_date: new Date().toISOString(),
-      });
+        alert(`✅ Imputé avec succès à la chambre ${selectedStay?.rooms?.number} !\nLe solde du folio a été mis à jour et la table a été libérée.`);
 
-      if (txError) throw txError;
+      } else {
+        // --- LOGIQUE DE PAIEMENT CLASSIQUE (Espèces, Carte, etc.) ---
+        const { error: orderError } = await supabase
+          .from('restaurant_orders')
+          .update({ status: 'PAID', paid_at: new Date().toISOString() })
+          .eq('id', selectedOrder.id);
+        if (orderError) throw orderError;
 
-      if (selectedOrder.table_id) {
-        await supabase.from('restaurant_tables').update({
-          status: 'DIRTY'
-        }).eq('id', selectedOrder.table_id);
+        const { error: txError } = await supabase.from('restaurant_cash_transactions').insert({
+          site_id: siteId, type: 'INCOME', category: 'FB_PAYMENT', amount: selectedOrder.total_amount,
+          payment_method: paymentMethod, status: 'PAID',
+          provider_name: selectedOrder.table_number ? `Table ${selectedOrder.table_number}` : 'Comptoir',
+          description: `Paiement commande ${selectedOrder.order_number}`, reference_id: selectedOrder.id,
+          reference_table: 'restaurant_orders', received_by: user?.id, amount_received: received,
+          change_amount: change, receipt_number: receiptNumber, transaction_date: new Date().toISOString(),
+        });
+        if (txError) throw txError;
+
+        // ✅ CORRECTION : Libérer la table après paiement classique (AVAILABLE au lieu de DIRTY)
+        if (selectedOrder.table_id) {
+          await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selectedOrder.table_id);
+        }
+        
+        printReceipt(selectedOrder, received, change, receiptNumber, paymentMethod);
+        alert(`✅ Paiement réussi !\nMode: ${paymentMethod}\nMonnaie rendue: ${change.toLocaleString('fr-FR')} F\nLa table a été libérée.`);
       }
 
-      printReceipt(selectedOrder, received, change, receiptNumber, paymentMethod);
-
+      // Réinitialisation et rafraîchissement
       setShowPayment(false);
       setSelectedOrder(null);
+      setSelectedStayId('');
       setAmountReceived('');
       setPaymentMethod('CASH');
       await loadPendingOrders();
+      await loadRoomCharges();
       await loadPaidTransactions();
+      await loadActiveStays();
       onSuccess();
-      
-      alert(`✅ Paiement réussi !\nMode: ${paymentMethod}\nMonnaie rendue: ${change.toLocaleString('fr-FR')} F`);
 
     } catch (error: any) {
       console.error('Erreur paiement:', error);
@@ -561,10 +609,10 @@ transaction.server_name = orderData.restaurant_employees?.[0]
 
   if (!isOpen) return null;
 
-    // ✅ Mapping des catégories en français
   const categoryLabels: Record<string, string> = {
     FB_PAYMENT: 'Paiement',
     ROOM_PAYMENT: 'Chambre',
+    ROOM_CHARGE: 'Imputation Chambre',
     SUPPLIES: 'Fournitures',
     FOOD: 'Nourriture',
     TRANSPORT: 'Transport',
@@ -619,7 +667,6 @@ transaction.server_name = orderData.restaurant_employees?.[0]
             </div>
           </div>
 
-          {/* Onglet : À encaisser */}
           {activeTab === 'pending' && (
             <div>
               {loading ? (
@@ -661,7 +708,6 @@ transaction.server_name = orderData.restaurant_employees?.[0]
             </div>
           )}
 
-          {/* Onglet : Charges Chambres */}
           {activeTab === 'room_charges' && (
             <div>
               <div className="bg-indigo-50 border-2 border-indigo-200 rounded-lg p-4 mb-4">
@@ -717,10 +763,8 @@ transaction.server_name = orderData.restaurant_employees?.[0]
             </div>
           )}
 
-          {/* Onglet : Historique avec réimpression et dépenses */}
           {activeTab === 'history' && (
             <div>
-              {/* Résumé financier */}
               <div className="grid grid-cols-3 gap-3 mb-4">
                 <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-4">
                   <div className="text-xs font-medium text-emerald-700 mb-1 flex items-center gap-1"><TrendingUp className="w-4 h-4" /> Encaissé</div>
@@ -740,7 +784,6 @@ transaction.server_name = orderData.restaurant_employees?.[0]
                 </div>
               </div>
 
-              {/* Bouton Ajouter une dépense */}
               <button
                 onClick={() => setShowExpenseForm(true)}
                 className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2 mb-4"
@@ -749,7 +792,6 @@ transaction.server_name = orderData.restaurant_employees?.[0]
                 Enregistrer une petite dépense
               </button>
 
-              {/* Liste des transactions */}
               {paidTransactions.length === 0 ? (
                 <div className="text-center py-8 bg-slate-50 rounded-lg text-sm text-slate-500">Aucune transaction pour cette date</div>
               ) : (
@@ -759,8 +801,8 @@ transaction.server_name = orderData.restaurant_employees?.[0]
                       <div className="flex items-center gap-3 flex-1">
                         <span className="text-xs text-slate-500 w-12">{new Date(t.transaction_date || t.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
                         <span className={`text-xs px-2 py-0.5 rounded ${t.type === 'INCOME' ? 'bg-emerald-200 text-emerald-900' : 'bg-red-200 text-red-900'}`}>
-  {t.type === 'INCOME' ? '📈' : ''} {getCategoryLabel(t.category)}
-</span>
+                          {t.type === 'INCOME' ? '📈' : '📉'} {getCategoryLabel(t.category)}
+                        </span>
                         <span className="text-xs text-slate-700 flex-1">{t.description} {t.provider_name && <span className="text-slate-500">({t.provider_name})</span>}</span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -787,7 +829,6 @@ transaction.server_name = orderData.restaurant_employees?.[0]
         </div>
       </div>
 
-      {/* Modal de Paiement */}
       {showPayment && selectedOrder && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[95vh] overflow-y-auto">
@@ -831,6 +872,42 @@ transaction.server_name = orderData.restaurant_employees?.[0]
                   })}
                 </div>
               </div>
+
+              {paymentMethod === 'ROOM_CHARGE' && (
+                <div className="bg-indigo-50 border-2 border-indigo-200 p-4 rounded-lg space-y-3">
+                  <label className="block text-sm font-bold text-indigo-900 flex items-center gap-2">
+                    <Hotel className="w-4 h-4" /> Sélectionner la chambre du client *
+                  </label>
+                  
+                  {activeStays.length === 0 ? (
+                    <p className="text-sm text-red-600 bg-red-50 p-2 rounded">
+                      ⚠️ Aucune chambre n'est actuellement occupée. Impossible d'imputer la facture.
+                    </p>
+                  ) : (
+                    <select
+                      value={selectedStayId}
+                      onChange={(e) => setSelectedStayId(e.target.value)}
+                      className="w-full border-2 border-indigo-300 rounded-lg px-3 py-3 bg-white text-sm focus:ring-2 focus:ring-indigo-500 font-medium"
+                    >
+                      <option value="">-- Choisir une chambre occupée --</option>
+                      {activeStays.map(stay => (
+                        <option key={stay.id} value={stay.id}>
+                          🚪 Ch. {stay.rooms?.number} — {stay.customers?.first_name} {stay.customers?.last_name} 
+                          (Solde actuel: {Number(stay.folio_balance || 0).toLocaleString('fr-FR')} F)
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  
+                  <p className="text-xs text-indigo-700 bg-indigo-100 p-2 rounded flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Le montant de <b>{Number(selectedOrder.total_amount).toLocaleString('fr-FR')} F</b> sera ajouté au folio de cette chambre. 
+                      Le client règlera le total lors de son check-out.
+                    </span>
+                  </p>
+                </div>
+              )}
 
               {paymentMethod === 'CASH' && (
                 <>
@@ -890,7 +967,6 @@ transaction.server_name = orderData.restaurant_employees?.[0]
         </div>
       )}
 
-      {/* ✅ NOUVEAU : Modal pour ajouter une dépense */}
       {showExpenseForm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">

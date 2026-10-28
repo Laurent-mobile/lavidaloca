@@ -1,3 +1,4 @@
+//src/app/restaurant/caisse/page.tsx
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -63,6 +64,10 @@ export default function CaissePage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [session, setSession] = useState<CashSession | null>(null);
   const [sessionPayments, setSessionPayments] = useState<Payment[]>([]);
+  
+  // ✅ NOUVEAU : États pour les séjours actifs (chambres occupées)
+  const [activeStays, setActiveStays] = useState<any[]>([]);
+  const [selectedStayId, setSelectedStayId] = useState('');
 
   const [search, setSearch] = useState('');
   const [method, setMethod] = useState('CASH');
@@ -98,6 +103,51 @@ export default function CaissePage() {
     } else setSessionPayments([]);
   };
 
+   const loadActiveStays = async () => {
+  try {
+    console.log('🔍 Chargement des séjours actifs...');
+    
+    const { data: staysData, error: staysError } = await supabase
+      .from('stays')
+      .select(`
+        id, folio_balance,
+        rooms!room_id(number),
+        customers(first_name, last_name)
+      `)
+      .eq('status', 'IN_HOUSE')
+      .order('check_in_at', { ascending: false });
+
+    if (staysError) {
+      console.error('❌ Erreur Supabase:', staysError);
+      setActiveStays([]);
+      return;
+    }
+
+    console.log('✅ Séjours trouvés:', staysData?.length || 0);
+    console.log('📦 Données brutes:', staysData);
+
+    if (staysData && staysData.length > 0) {
+      // ✅ CORRECTION CRUCIALE : Extraire correctement les tableaux de jointures
+      const formattedStays = staysData.map(stay => ({
+        ...stay,
+        // rooms est un tableau [{ number: "110" }], on prend le premier élément
+        rooms: stay.rooms?.[0] || null,
+        // customers est un tableau [{ first_name: "VEST", last_name: "TEST" }]
+        customers: stay.customers?.[0] || { first_name: 'Client', last_name: 'Inconnu' }
+      }));
+      
+      console.log('📦 Données formatées:', formattedStays);
+      setActiveStays(formattedStays);
+    } else {
+      console.warn('⚠️ Aucun séjour IN_HOUSE trouvé');
+      setActiveStays([]);
+    }
+  } catch (error) {
+    console.error('❌ Erreur chargement séjours:', error);
+    setActiveStays([]);
+  }
+};
+
   const loadAll = async () => {
     const { data: o } = await supabase.from('restaurant_orders')
       .select(`*, restaurant_tables(number), rooms(number),
@@ -112,6 +162,10 @@ export default function CaissePage() {
       .eq('site_id', siteId)
       .order('paid_at', { ascending: false }).limit(200);
     setPayments(p || []);
+    
+        // ✅ CORRECTION : Utiliser la fonction qui formate correctement les données
+    await loadActiveStays();
+    
     await loadSession();
   };
 
@@ -154,17 +208,33 @@ export default function CaissePage() {
     if (method === 'CASH' && (Number(received) || 0) < total) {
       setError('Le montant reçu est inférieur au total.'); return;
     }
+    // ✅ NOUVEAU : Validation obligatoire pour ROOM_CHARGE
+    if (method === 'ROOM_CHARGE' && !selectedStayId) {
+      setError('Veuillez sélectionner la chambre à facturer.'); return;
+    }
+
     setBusy(true); setError(''); setSuccess('');
     const { data, error: e } = await supabase.rpc('finalize_payment', {
-      p_order_id: selected.id, p_session_id: session.id,
-      p_method: method, p_received: Number(received) || 0, p_notes: notes
+      p_order_id: selected.id, 
+      p_session_id: session.id,
+      p_method: method, 
+      p_received: Number(received) || 0, 
+      p_notes: notes,
+      p_stay_id: method === 'ROOM_CHARGE' ? selectedStayId : null // ✅ Passage du stay_id
     });
+    
     if (e) { setError(e.message); setBusy(false); return; }
 
     setSuccess(`✅ Payé — ${data.order_number} · Rendu monnaie : ${money(data.change)} F`);
-    printTicket(selected, data);
-    setSelected(null); setReceived(''); setNotes('');
-    await loadAll(); setBusy(false);
+printTicket(selected, data);
+
+// ✅ NOUVEAU : Libérer la table après paiement
+if (selected.table_id) {
+  await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selected.table_id);
+}
+
+setSelected(null); setReceived(''); setNotes(''); setSelectedStayId('');
+await loadAll(); setBusy(false);
   };
 
   const printTicket = (order: Order, payData: any) => {
@@ -280,7 +350,7 @@ export default function CaissePage() {
             <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
               {filtered.length === 0 && <p className="p-8 text-center text-sm text-slate-400">Aucune commande à encaisser.</p>}
               {filtered.map(o => (
-                <button key={o.id} onClick={()=>{setSelected(o);setReceived('');setError('');}}
+                <button key={o.id} onClick={()=>{setSelected(o);setReceived('');setError('');setSelectedStayId('');}}
                   className={`w-full text-left p-4 hover:bg-slate-50 flex justify-between items-center ${selected?.id===o.id?'bg-emerald-50 border-l-4 border-emerald-600':''}`}>
                   <div>
                     <div className="font-bold text-slate-900">{o.order_number}</div>
@@ -357,11 +427,50 @@ export default function CaissePage() {
                   </div>
                 )}
 
-                {method === 'ROOM_CHARGE' && (
-                  <p className="text-xs bg-purple-50 text-purple-800 p-3 rounded-lg">
-                    La consommation sera portée sur la note de la chambre.
-                  </p>
-                )}
+                {/* ✅ NOUVEAU : Sélecteur de chambre pour ROOM_CHARGE */}
+{method === 'ROOM_CHARGE' && (
+  <div className="space-y-2">
+    <label className="text-xs font-medium text-slate-600">Sélectionner la chambre *</label>
+        {/* DEBUG */}
+{process.env.NODE_ENV === 'development' && (
+  <div className="text-xs text-slate-500 mb-2">
+    Debug: activeStays.length = {activeStays.length}
+  </div>
+)}
+    {activeStays.length === 0 ? (
+      <div className="space-y-2">
+        <p className="text-sm text-amber-700 bg-amber-50 p-3 rounded-lg flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          Aucune chambre occupée trouvée.
+        </p>
+        <button
+          onClick={() => window.location.href = '/restaurant/salle'}
+          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 rounded-lg"
+        >
+          🏨 Aller au plan de salle pour faire un check-in
+        </button>
+      </div>
+    ) : (
+      <select 
+  value={selectedStayId} 
+  onChange={(e) => setSelectedStayId(e.target.value)}
+  className="w-full border-2 border-purple-300 rounded-lg px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-purple-500"
+>
+  <option value="">-- Choisir une chambre occupée --</option>
+  {activeStays.map(stay => (
+    <option key={stay.id} value={stay.id}>
+       Ch. {stay.rooms?.number} — {stay.customers?.first_name} {stay.customers?.last_name} 
+      (Solde: {money(stay.folio_balance || 0)} F)
+    </option>
+  ))}
+</select>
+    )}
+    <p className="text-xs bg-purple-50 text-purple-800 p-3 rounded-lg flex items-start gap-2">
+      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+      <span>Le montant de <b>{money(total)} F</b> sera ajouté au folio de cette chambre. Le client règlera le total lors de son check-out.</span>
+    </p>
+  </div>
+)}
 
                 <input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Référence / note (optionnel)"
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
