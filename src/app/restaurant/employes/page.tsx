@@ -15,6 +15,7 @@ interface Employee {
   id: string;
   first_name: string;
   last_name: string;
+  matricule?: string;  // ✅ AJOUTÉ
   role?: string;
   position?: string;
   department?: string;
