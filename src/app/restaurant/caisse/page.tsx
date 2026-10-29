@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase/client';
 import {
   DollarSign, Search, CreditCard, Banknote, Smartphone, BedDouble,
   ArrowRightLeft, Printer, X, CheckCircle2, Lock, History,
-  TrendingUp, Download, RefreshCw, ReceiptText, AlertCircle, Play
+  TrendingUp, TrendingDown, Download, RefreshCw, ReceiptText, AlertCircle, Play, Plus, Receipt
 } from 'lucide-react';
+import NewCashExpenseModal from './components/NewCashExpenseModal';
 
 interface OrderItem {
   item_name: string;
@@ -57,7 +58,8 @@ export default function CaissePage() {
   const supabase = createClient();
   const [siteId, setSiteId] = useState('');
   const [userId, setUserId] = useState('');
-  const [tab, setTab] = useState<'vente' | 'historique' | 'cloture'>('vente');
+  const [tab, setTab] = useState<'vente' | 'session' | 'historique' | 'cloture'>('vente');
+  const [showNewExpenseModal, setShowNewExpenseModal] = useState(false);
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [selected, setSelected] = useState<Order | null>(null);
@@ -68,6 +70,11 @@ export default function CaissePage() {
   // ✅ NOUVEAU : États pour les séjours actifs (chambres occupées)
   const [activeStays, setActiveStays] = useState<any[]>([]);
   const [selectedStayId, setSelectedStayId] = useState('');
+
+  const [cashExpenses, setCashExpenses] = useState<any[]>([]);
+const [loadingExpenses, setLoadingExpenses] = useState(false);
+  
+
 
   const [search, setSearch] = useState('');
   const [method, setMethod] = useState('CASH');
@@ -89,19 +96,36 @@ export default function CaissePage() {
     })();
   }, []);
 
-  useEffect(() => { if (siteId) loadAll(); }, [siteId]);
+  // Remplacez votre useEffect actuel par celui-ci
+useEffect(() => { 
+  if (siteId) {
+    loadAll();
+  }
+}, [siteId]);
+
+// ✅ NOUVEAU : Charger les dépenses quand on active l'onglet Session
+useEffect(() => {
+  if (tab === 'session' && session) {
+    loadSessionExpenses();
+  }
+}, [tab, session]);
 
   const loadSession = async () => {
-    const { data } = await supabase.from('cash_sessions')
-      .select('*').eq('site_id', siteId).eq('status', 'OPEN')
-      .order('opened_at', { ascending: false }).limit(1).maybeSingle();
-    setSession(data || null);
-    if (data) {
-      const { data: p } = await supabase.from('restaurant_payments')
-        .select('*').eq('session_id', data.id);
-      setSessionPayments(p || []);
-    } else setSessionPayments([]);
-  };
+  const { data } = await supabase.from('cash_sessions')
+    .select('*').eq('site_id', siteId).eq('status', 'OPEN')
+    .order('opened_at', { ascending: false }).limit(1).maybeSingle();
+  setSession(data || null);
+  if (data) {
+    // ✅ CORRECTION : Charger les relations restaurant_orders et restaurant_tables
+    const { data: p } = await supabase.from('restaurant_payments')
+      .select(`
+        *,
+        restaurant_orders(order_number, table_id, room_id, restaurant_tables(number), rooms(number))
+      `)
+      .eq('session_id', data.id);
+    setSessionPayments(p || []);
+  } else setSessionPayments([]);
+};
 
    const loadActiveStays = async () => {
   try {
@@ -147,7 +171,26 @@ export default function CaissePage() {
     setActiveStays([]);
   }
 };
-
+const loadSessionExpenses = async () => {
+  if (!session) return;
+  setLoadingExpenses(true);
+  try {
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('site_id', siteId)
+      .eq('subtype', 'CAISSE')
+      .gte('created_at', session.opened_at)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    setCashExpenses(data || []);
+  } catch (error) {
+    console.error('Erreur chargement dépenses:', error);
+  } finally {
+    setLoadingExpenses(false);
+  }
+};
   const loadAll = async () => {
     const { data: o } = await supabase.from('restaurant_orders')
       .select(`*, restaurant_tables(number), rooms(number),
@@ -167,6 +210,7 @@ export default function CaissePage() {
     await loadActiveStays();
     
     await loadSession();
+  await loadSessionExpenses();
   };
 
   const openSession = async () => {
@@ -180,10 +224,11 @@ export default function CaissePage() {
   };
 
   const expectedCash = useMemo(() => {
-    const float = Number(session?.opening_float || 0);
-    const inCash = sessionPayments.filter(p => p.method === 'CASH').reduce((s,p) => s + Number(p.amount), 0);
-    return float + inCash;
-  }, [session, sessionPayments]);
+  const float = Number(session?.opening_float || 0);
+  const inCash = sessionPayments.filter(p => p.method === 'CASH').reduce((s,p) => s + Number(p.amount), 0);
+  const expenses = cashExpenses.reduce((sum, e) => sum + (e.amount || 0), 0); // ✅ Soustraire les dépenses
+  return float + inCash - expenses;
+}, [session, sessionPayments, cashExpenses]);
 
   const closeSession = async () => {
     if (!session) return;
@@ -318,9 +363,9 @@ await loadAll(); setBusy(false);
         </div>
       </div>
 
-      {/* Tabs */}
+         {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200">
-        {([['vente','Ventes',ReceiptText],['historique','Historique',History],['cloture','Clôture',Lock]] as const).map(([k,l,Icon]) => (
+        {([['vente','Ventes',ReceiptText], ['session','Session',DollarSign], ['historique','Historique',History], ['cloture','Clôture',Lock]] as const).map(([k,l,Icon]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium ${tab===k?'border-b-2 border-emerald-600 text-emerald-700':'text-slate-500'}`}>
             <Icon className="w-4 h-4" /> {l}
@@ -486,6 +531,297 @@ await loadAll(); setBusy(false);
         </div>
       )}
 
+       
+{tab === 'session' && session && (
+  <div className="space-y-6">
+    {/* Header de la session */}
+    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
+      <div>
+        <h3 className="text-lg font-bold text-slate-900">Session de Caisse</h3>
+        <p className="text-sm text-slate-500">
+          Ouverte le {new Date(session.opened_at).toLocaleString('fr-FR')}
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={loadSession}
+          className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Rafraîchir
+        </button>
+        <button
+          onClick={() => setShowNewExpenseModal(true)}
+          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+        >
+          <Plus className="w-4 h-4" />
+          Nouvelle Dépense
+        </button>
+      </div>
+    </div>
+
+    {/* Cartes de statistiques */}
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      {/* Ventes Totales */}
+      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+        <div className="text-sm text-emerald-700 mb-2">Ventes Totales</div>
+        <div className="text-2xl font-bold text-emerald-900">
+          {sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
+        </div>
+        <div className="text-xs text-emerald-700 mt-2">
+          {sessionPayments.length} transaction(s)
+        </div>
+        <div className="mt-2 space-y-1 text-xs">
+          <div className="flex justify-between text-emerald-700">
+            <span>Espèces:</span>
+            <span className="font-medium">
+              {((sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0) / 
+                (sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0) || 1)) * 100).toFixed(1)}%
+            </span>
+          </div>
+          <div className="flex justify-between text-emerald-700">
+            <span>Mobile:</span>
+            <span className="font-medium">
+              {((sessionPayments.filter(p => p.method === 'MOBILE_MONEY').reduce((sum, p) => sum + Number(p.amount), 0) / 
+                (sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0) || 1)) * 100).toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Ventes Espèces */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="text-sm text-blue-700 mb-2 flex items-center gap-1">
+          <Banknote className="w-3 h-3" />
+          Ventes Espèces
+        </div>
+        <div className="text-2xl font-bold text-blue-900">
+          {sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
+        </div>
+        <div className="text-xs text-blue-700 mt-2">
+          {sessionPayments.filter(p => p.method === 'CASH').length} transaction(s)
+        </div>
+        <div className="text-xs text-blue-600 mt-1">
+          Moyenne: {(sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0) / 
+            (sessionPayments.filter(p => p.method === 'CASH').length || 1)).toLocaleString('fr-FR')} f CFA/trx
+        </div>
+      </div>
+
+      {/* Mobile Money */}
+      <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+        <div className="text-sm text-purple-700 mb-2 flex items-center gap-1">
+          <Smartphone className="w-3 h-3" />
+          Mobile Money
+        </div>
+        <div className="text-2xl font-bold text-purple-900">
+          {sessionPayments.filter(p => p.method === 'MOBILE_MONEY').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
+        </div>
+        <div className="text-xs text-purple-700 mt-2">
+          {sessionPayments.filter(p => p.method === 'MOBILE_MONEY').length} transaction(s)
+        </div>
+        <div className="text-xs text-purple-600 mt-1">
+          Moyenne: {(sessionPayments.filter(p => p.method === 'MOBILE_MONEY').reduce((sum, p) => sum + Number(p.amount), 0) / 
+            (sessionPayments.filter(p => p.method === 'MOBILE_MONEY').length || 1)).toLocaleString('fr-FR')} f CFA/trx
+        </div>
+      </div>
+
+      {/* Dépenses Caisse */}
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+        <div className="text-sm text-red-700 mb-2 flex items-center gap-1">
+          <TrendingDown className="w-3 h-3" />
+          Dépenses Caisse
+        </div>
+        <div className="text-2xl font-bold text-red-900">
+          {cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA
+        </div>
+        <div className="text-xs text-red-700 mt-2">
+          {cashExpenses.length} dépense(s)
+        </div>
+        <div className="text-xs text-red-600 mt-1">
+          Moyenne: {(cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0) / (cashExpenses.length || 1)).toLocaleString('fr-FR')} f CFA/dépense
+        </div>
+      </div>
+
+      {/* Solde Théorique */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div className="text-sm text-amber-700 mb-2 flex items-center gap-1">
+          <DollarSign className="w-3 h-3" />
+          Solde Théorique
+        </div>
+        <div className="text-2xl font-bold text-amber-900">
+          {expectedCash.toLocaleString('fr-FR')} f CFA
+        </div>
+        <div className="inline-flex items-center gap-1 text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded mt-2">
+          Calculé
+        </div>
+        <div className="mt-2 space-y-1 text-xs">
+          <div className="flex justify-between text-amber-700">
+            <span>Ouverture:</span>
+            <span>{Number(session.opening_float).toLocaleString('fr-FR')} f CFA</span>
+          </div>
+          <div className="flex justify-between text-amber-700">
+            <span>+ Espèces:</span>
+            <span>+{sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA</span>
+          </div>
+                    <div className="flex justify-between text-amber-700">
+            <span>- Dépenses:</span>
+            <span>-{cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Tableau des ventes */}
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="p-4 border-b border-slate-200">
+        <h4 className="font-semibold text-slate-900 flex items-center gap-2">
+          <Receipt className="w-4 h-4 text-blue-600" />
+          Ventes ({sessionPayments.length})
+        </h4>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
+            <tr>
+              <th className="px-4 py-3 text-left">HEURE</th>
+              <th className="px-4 py-3 text-left">COMMANDE</th>
+              <th className="px-4 py-3 text-left">TABLE</th>
+              <th className="px-4 py-3 text-left">MÉTHODE</th>
+              <th className="px-4 py-3 text-right">MONTANT</th>
+              <th className="px-4 py-3 text-right">MONNAIE</th>
+              <th className="px-4 py-3 text-right">NET</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {sessionPayments.map((payment) => (
+              <tr key={payment.id} className="hover:bg-slate-50">
+                <td className="px-4 py-3 text-slate-600">
+                  {new Date(payment.paid_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </td>
+                <td className="px-4 py-3 font-medium text-slate-900">
+                  {payment.restaurant_orders?.order_number || 'N/A'}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  {payment.restaurant_orders?.restaurant_tables?.number || 
+                   payment.restaurant_orders?.rooms?.number || 
+                   'TEST'}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                    payment.method === 'CASH' 
+                      ? 'bg-emerald-100 text-emerald-800' 
+                      : payment.method === 'MOBILE_MONEY'
+                      ? 'bg-purple-100 text-purple-800'
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {payment.method === 'CASH' && <Banknote className="w-3 h-3" />}
+                    {payment.method === 'MOBILE_MONEY' && <Smartphone className="w-3 h-3" />}
+                    {payment.method === 'CASH' ? 'Espèces' : 
+                     payment.method === 'MOBILE_MONEY' ? 'Mobile' : 
+                     payment.method}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right font-medium text-slate-900">
+                  {Number(payment.amount).toLocaleString('fr-FR')} f CFA
+                </td>
+                <td className="px-4 py-3 text-right text-slate-600">
+                  {Number(payment.change_amount).toLocaleString('fr-FR')} f CFA
+                </td>
+                <td className="px-4 py-3 text-right font-bold text-slate-900">
+                  {Number(payment.received_amount - payment.change_amount).toLocaleString('fr-FR')} f CFA
+                </td>
+              </tr>
+            ))}
+            {sessionPayments.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                  Aucune vente dans cette session
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Dépenses de caisse */}
+    {/* Dépenses de caisse */}
+<div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+  <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+    <h4 className="font-semibold text-slate-900">
+      Dépenses de caisse ({cashExpenses.length})
+    </h4>
+    <button
+      onClick={() => setShowNewExpenseModal(true)}
+      className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
+    >
+      <Plus className="w-4 h-4" />
+      Nouvelle Dépense
+    </button>
+  </div>
+  
+  {cashExpenses.length === 0 ? (
+    <div className="p-8 text-center text-slate-400">
+      <TrendingDown className="w-12 h-12 mx-auto mb-3 opacity-50" />
+      <p>Aucune dépense enregistrée dans cette session</p>
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
+          <tr>
+            <th className="px-4 py-3 text-left">HEURE</th>
+            <th className="px-4 py-3 text-left">CATÉGORIE</th>
+            <th className="px-4 py-3 text-left">DESCRIPTION</th>
+            <th className="px-4 py-3 text-left">MÉTHODE</th>
+            <th className="px-4 py-3 text-right">MONTANT</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {cashExpenses.map((expense) => (
+            <tr key={expense.id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 text-slate-600">
+                {new Date(expense.created_at).toLocaleTimeString('fr-FR', { 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </td>
+              <td className="px-4 py-3">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                  {expense.category}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-slate-900">
+                {expense.description}
+                {expense.notes && (
+                  <div className="text-xs text-slate-500 mt-1">{expense.notes}</div>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
+                  {expense.payment_method}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-right font-bold text-red-600">
+                -{Number(expense.amount).toLocaleString('fr-FR')} f CFA
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="bg-red-50 font-bold">
+          <tr>
+            <td colSpan={4} className="px-4 py-3 text-right">Total dépenses :</td>
+            <td className="px-4 py-3 text-right text-red-700">
+              -{cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )}
+</div>
+  </div>
+)}
       {tab === 'historique' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="p-4 flex justify-between items-center border-b">
@@ -565,6 +901,14 @@ await loadAll(); setBusy(false);
           </div>
         </div>
       )}
+            <NewCashExpenseModal
+        isOpen={showNewExpenseModal}
+        onClose={() => setShowNewExpenseModal(false)}
+        siteId={siteId}
+        onSuccess={() => {
+          loadAll(); // ✅ Correction : utilise loadAll() pour recharger les données
+        }}
+      />
     </div>
   );
 }
