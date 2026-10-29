@@ -28,6 +28,7 @@ interface Order {
   rooms?: { number: string } | null;
   restaurant_order_items?: OrderItem[];
 }
+
 interface Payment {
   id: string;
   order_id: string;
@@ -36,7 +37,11 @@ interface Payment {
   received_amount: number;
   change_amount: number;
   paid_at: string;
-  restaurant_orders?: { order_number: string };
+  restaurant_orders?: { 
+    order_number: string;
+    restaurant_tables?: { number: string } | null; // ✅ AJOUTÉ
+    rooms?: { number: string } | null;             // ✅ AJOUTÉ
+  };
 }
 interface CashSession {
   id: string;
