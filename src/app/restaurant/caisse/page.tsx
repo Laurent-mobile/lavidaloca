@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   DollarSign, Search, CreditCard, Banknote, Smartphone, BedDouble,
   ArrowRightLeft, Printer, X, CheckCircle2, Lock, History,
-  TrendingUp, TrendingDown, Download, RefreshCw, ReceiptText, AlertCircle, Play, Plus, Receipt
+  TrendingUp, TrendingDown, Download, RefreshCw, ReceiptText, AlertCircle, Play, Plus, Receipt, Hotel
 } from 'lucide-react';
 import NewCashExpenseModal from './components/NewCashExpenseModal';
 
@@ -63,9 +63,9 @@ export default function CaissePage() {
   const supabase = createClient();
   const [siteId, setSiteId] = useState('');
   const [userId, setUserId] = useState('');
-  const [tab, setTab] = useState<'vente' | 'session' | 'historique' | 'cloture'>('vente');
+  const [tab, setTab] = useState<'vente' | 'session' | 'historique' | 'reconciliations' | 'cloture'>('vente');
   const [showNewExpenseModal, setShowNewExpenseModal] = useState(false);
-
+  const [reconciliations, setReconciliations] = useState<any[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [selected, setSelected] = useState<Order | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -131,7 +131,27 @@ useEffect(() => {
     setSessionPayments(p || []);
   } else setSessionPayments([]);
 };
+// Fonction de chargement
+const loadReconciliations = async () => {
+  const { data } = await supabase
+    .from('payment_reconciliation')
+    .select(`
+      *,
+      restaurant_orders(order_number, total_amount),
+      restaurant_payments(paid_at)
+    `)
+    .order('reconciliation_date', { ascending: false })
+    .limit(50);
+  
+  setReconciliations(data || []);
+};
 
+// Charger les réconciliations quand on active l'onglet
+useEffect(() => {
+  if (tab === 'reconciliations') {
+    loadReconciliations();
+  }
+}, [tab]);
    const loadActiveStays = async () => {
   try {
     console.log('🔍 Chargement des séjours actifs...');
@@ -370,13 +390,21 @@ await loadAll(); setBusy(false);
 
          {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200">
-        {([['vente','Ventes',ReceiptText], ['session','Session',DollarSign], ['historique','Historique',History], ['cloture','Clôture',Lock]] as const).map(([k,l,Icon]) => (
-          <button key={k} onClick={() => setTab(k)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium ${tab===k?'border-b-2 border-emerald-600 text-emerald-700':'text-slate-500'}`}>
-            <Icon className="w-4 h-4" /> {l}
-          </button>
-        ))}
-      </div>
+  {([
+    ['vente','Ventes',ReceiptText], 
+    ['session','Session',DollarSign], 
+    ['historique','Historique',History], 
+    ['reconciliations','Réconciliations',CheckCircle2], // ✅ NOUVEL ONGLET
+    ['cloture','Clôture',Lock]
+  ] as const).map(([k,l,Icon]) => (
+    <button key={k} onClick={() => setTab(k)}
+      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium ${
+        tab===k?'border-b-2 border-emerald-600 text-emerald-700':'text-slate-500'
+      }`}>
+      <Icon className="w-4 h-4" /> {l}
+    </button>
+  ))}
+</div>
 
       {(error || success) && (
         <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${error?'bg-red-50 text-red-800':'bg-emerald-50 text-emerald-800'}`}>
@@ -827,30 +855,138 @@ await loadAll(); setBusy(false);
 </div>
   </div>
 )}
-      {tab === 'historique' && (
+
+      {tab === 'reconciliations' && (
+  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+      <div>
+        <h3 className="font-bold text-slate-900 flex items-center gap-2">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+          Réconciliations Réception → Restaurant
+        </h3>
+        <p className="text-sm text-slate-500 mt-1">
+          Commandes restaurant payées via la caisse de l'hôtel (réception)
+        </p>
+      </div>
+      <button 
+        onClick={loadReconciliations}
+        className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg text-sm"
+      >
+        <RefreshCw className="w-4 h-4" /> Rafraîchir
+      </button>
+    </div>
+
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
+          <tr>
+            <th className="px-4 py-3 text-left">DATE RÉCONCILIATION</th>
+            <th className="px-4 py-3 text-left">COMMANDE</th>
+            <th className="px-4 py-3 text-left">MONTANT</th>
+            <th className="px-4 py-3 text-left">PAYÉ LE</th>
+            <th className="px-4 py-3 text-left">RÉCONCILIÉ PAR</th>
+            <th className="px-4 py-3 text-left">NOTES</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {reconciliations.map((recon) => (
+            <tr key={recon.id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 text-slate-600">
+                {new Date(recon.reconciliation_date).toLocaleString('fr-FR')}
+              </td>
+              <td className="px-4 py-3 font-medium text-slate-900">
+                {recon.restaurant_orders?.order_number || 'N/A'}
+              </td>
+              <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                {money(recon.restaurant_orders?.total_amount || 0)} f CFA
+              </td>
+              <td className="px-4 py-3 text-slate-600">
+                {recon.restaurant_payments?.paid_at 
+                  ? new Date(recon.restaurant_payments.paid_at).toLocaleString('fr-FR')
+                  : 'N/A'
+                }
+              </td>
+              <td className="px-4 py-3 text-slate-600">
+                {recon.reconciled_by ? 'Réception' : 'Système'}
+              </td>
+              <td className="px-4 py-3 text-slate-500 text-xs">
+                {recon.notes}
+              </td>
+            </tr>
+          ))}
+          {reconciliations.length === 0 && (
+            <tr>
+              <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                Aucune réconciliation enregistrée
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)}
+              {tab === 'historique' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="p-4 flex justify-between items-center border-b">
-            <h3 className="font-semibold">Derniers encaissements</h3>
-            <button onClick={exportCSV} className="flex items-center gap-2 text-sm bg-slate-100 px-3 py-2 rounded-lg"><Download className="w-4 h-4"/> Export CSV</button>
+            <h3 className="font-semibold flex items-center gap-2">
+              <History className="w-4 h-4 text-slate-500" />
+              Derniers encaissements
+            </h3>
+            <button onClick={exportCSV} className="flex items-center gap-2 text-sm bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition-colors">
+              <Download className="w-4 h-4"/> Export CSV
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
-                <tr><th className="px-4 py-3 text-left">Date</th><th className="px-4 py-3 text-left">Commande</th>
-                <th className="px-4 py-3 text-left">Moyen</th><th className="px-4 py-3 text-right">Montant</th>
-                <th className="px-4 py-3 text-right">Monnaie</th></tr>
+                <tr>
+                  <th className="px-4 py-3 text-left">Date</th>
+                  <th className="px-4 py-3 text-left">Commande</th>
+                  <th className="px-4 py-3 text-left">Moyen de paiement</th>
+                  <th className="px-4 py-3 text-right">Montant</th>
+                  <th className="px-4 py-3 text-right">Monnaie</th>
+                </tr>
               </thead>
-              <tbody className="divide-y">
-                {payments.map(p=>(
-                  <tr key={p.id}>
-                    <td className="px-4 py-3">{new Date(p.paid_at).toLocaleString('fr-FR')}</td>
-                    <td className="px-4 py-3 font-medium">{p.restaurant_orders?.order_number}</td>
-                    <td className="px-4 py-3">{METHODS.find(m=>m.key===p.method)?.label || p.method}</td>
-                    <td className="px-4 py-3 text-right font-bold">{money(p.amount)} F</td>
-                    <td className="px-4 py-3 text-right">{money(p.change_amount)} F</td>
+              <tbody className="divide-y divide-slate-100">
+                {payments.map(p => {
+                  const isRoomCharge = p.method === 'ROOM_CHARGE';
+                  return (
+                    <tr key={p.id} className={`hover:bg-slate-50 transition-colors ${isRoomCharge ? 'bg-purple-50/40' : ''}`}>
+                      <td className="px-4 py-3 text-slate-600">
+                        {new Date(p.paid_at).toLocaleString('fr-FR')}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {p.restaurant_orders?.order_number || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3">
+                        {isRoomCharge ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                            <Hotel className="w-3.5 h-3.5" />
+                            Réception (Folio)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
+                            {METHODS.find(m => m.key === p.method)?.label || p.method}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-900">
+                        {money(p.amount)} F
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {money(p.change_amount)} F
+                      </td>
+                    </tr>
+                  );
+                })}
+                {payments.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-slate-400">
+                      Aucun encaissement enregistré.
+                    </td>
                   </tr>
-                ))}
-                {payments.length===0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400">Aucun encaissement.</td></tr>}
+                )}
               </tbody>
             </table>
           </div>

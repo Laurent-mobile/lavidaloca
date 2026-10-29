@@ -186,7 +186,7 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
     printWindow.document.close();
   };
 
-  const handleCheckout = async () => {
+        const handleCheckout = async () => {
     if (amountReceived < grandTotal) {
       setError('Le montant reçu est insuffisant');
       return;
@@ -196,7 +196,7 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // 1. Créer le paiement
+      // 1. Créer le paiement global dans le système hôtelier
       const { error: paymentError } = await supabase.from('payments').insert({
         stay_id: stay.id,
         amount: grandTotal,
@@ -213,11 +213,51 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
       }).eq('id', stay.id);
       if (stayError) throw stayError;
 
-      // 3. Libérer la chambre
-      const { error: roomError } = await supabase.from('rooms').update({ status: 'DIRTY' }).eq('id', stay.room_id);
-      if (roomError) throw roomError;
+      // 3. ✅ CORRECTION : Libérer la chambre de manière sécurisée
+      // On cherche l'ID de la chambre à plusieurs endroits possibles dans l'objet 'stay'
+      const roomIdToUpdate = stay.room_id || stay.rooms?.[0]?.id || stay.rooms?.id;
+      
+      if (roomIdToUpdate) {
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .update({ status: 'DIRTY' }) // Ou 'AVAILABLE' selon votre workflow
+          .eq('id', roomIdToUpdate);
+        
+        if (roomError) {
+          console.error('Erreur mise à jour chambre:', roomError);
+          // On ne bloque pas tout le processus si c'est juste la chambre, mais on log l'erreur
+        }
+      } else {
+        console.warn('⚠️ Aucun room_id trouvé pour ce séjour. La chambre n\'a pas été libérée automatiquement.');
+      }
 
-      // 4. Créer une transaction dans la caisse hôtel
+      // 4. ✅ RÉCONCILIATION : Marquer les commandes restaurant comme payées via la réception
+      if (roomCharges && roomCharges.length > 0) {
+        for (const charge of roomCharges) {
+          // On vérifie que la charge est bien liée à une commande restaurant
+          if (charge.order_id) {
+            // a. Enregistrer le paiement dans le module restaurant (pour l'historique)
+            await supabase.from('restaurant_payments').insert({
+              order_id: charge.order_id,
+              session_id: null, // Pas de session de caisse restaurant
+              method: 'ROOM_CHARGE', // Méthode spéciale pour identification claire
+              amount: Number(charge.amount),
+              received_amount: Number(charge.amount),
+              change_amount: 0,
+              paid_at: new Date().toISOString(),
+              notes: `Payé à la réception lors du check-out (Folio séjour)`
+            });
+
+            // b. Mettre à jour le statut de la commande restaurant
+            await supabase.from('restaurant_orders').update({
+              status: 'PAID',
+              paid_at: new Date().toISOString()
+            }).eq('id', charge.order_id);
+          }
+        }
+      }
+
+      // 5. Créer une transaction dans la caisse hôtel
       const { error: cashError } = await supabase.from('cash_transactions').insert({
         site_id: siteId,
         type: 'INCOME',
@@ -225,7 +265,7 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
         amount: grandTotal,
         payment_method: paymentMethod,
         status: 'PAID',
-        provider_name: `Check-out Chambre ${stay.rooms?.number}`,
+        provider_name: `Check-out Chambre ${stay.rooms?.[0]?.number || stay.rooms?.number || 'N/A'}`,
         description: `Paiement séjour - ${nights} nuit(s) + charges`,
         reference_id: stay.id,
         reference_table: 'stays',

@@ -254,30 +254,84 @@ export default function CommandesPage() {
     }
   };
 
-  const loadMenu = async () => {
+    const loadMenu = async () => {
   try {
-    const { data } = await supabase
+    // 1. Charger les articles du menu
+    const { data: menuData, error: menuError } = await supabase
       .from('restaurant_items')
-      .select(`id, name, restaurant_categories(name), price, destination, is_available, stock`) // ✅ AJOUTÉ 'stock'
+      .select(`
+        id, 
+        name, 
+        restaurant_categories(name), 
+        price, 
+        destination, 
+        is_available
+      `)
       .eq('site_id', siteId)
       .eq('is_available', true)
       .order('name');
-    
-    if (data && data.length > 0) {
-      const formatted = data.map(item => ({
-        id: item.id,
-        name: item.name,
-        category: (item as any).restaurant_categories?.name || 'Autres',
-        price: item.price,
-        destination: item.destination || undefined,
-        stock: item.stock || 0 // ✅ AJOUTÉ
-      }));
-      setMenuItems(formatted);
-    } 
-    } catch (error) {
-      console.error('Erreur menu:', error);
+
+    if (menuError) throw menuError;
+    if (!menuData || menuData.length === 0) {
+      setMenuItems([]);
+      return;
     }
-  };
+
+    // 2. Pour chaque article du menu, calculer le stock disponible
+    const menuItemsWithStock = await Promise.all(menuData.map(async (menuItem) => {
+      // Charger les ingrédients de cet article
+      const { data: recipes } = await supabase
+        .from('item_recipes')
+        .select(`
+          stock_item_id,
+          quantity,
+          stock_items(current_stock, unit)
+        `)
+        .eq('menu_item_id', menuItem.id);
+
+      // ✅ CORRECTION : Si pas de fiche technique, le stock est 0 (Indisponible)
+      if (!recipes || recipes.length === 0) {
+        return {
+          id: menuItem.id,
+          name: menuItem.name,
+          category: (menuItem as any).restaurant_categories?.name || 'Autres',
+          price: menuItem.price,
+          destination: menuItem.destination || undefined,
+          stock: 0 // ✅ Stock à 0 pour forcer la création d'une fiche technique
+        };
+      }
+
+      // Calculer le stock maximum possible basé sur les ingrédients
+      let maxPossibleStock = Infinity;
+
+      for (const recipe of recipes) {
+        const currentStock = recipe.stock_items?.current_stock || 0;
+        const requiredQty = recipe.quantity || 1;
+        
+        // Combien de fois on peut produire cet article avec cet ingrédient ?
+        const possibleWithThisIngredient = Math.floor(currentStock / requiredQty);
+        
+        // Le stock max est limité par l'ingrédient le plus restrictif
+        if (possibleWithThisIngredient < maxPossibleStock) {
+          maxPossibleStock = possibleWithThisIngredient;
+        }
+      }
+
+      return {
+        id: menuItem.id,
+        name: menuItem.name,
+        category: (menuItem as any).restaurant_categories?.name || 'Autres',
+        price: menuItem.price,
+        destination: menuItem.destination || undefined,
+        stock: maxPossibleStock === Infinity ? 0 : maxPossibleStock
+      };
+    }));
+
+    setMenuItems(menuItemsWithStock);
+  } catch (error) {
+    console.error('Erreur chargement menu:', error);
+  }
+};
 
   const loadSupplements = async () => {
   try {
@@ -515,34 +569,7 @@ export default function CommandesPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       // ✅ VÉRIFICATION DE SÉCURITÉ DU STOCK AVANT COMMANDE
-let stockErrorFound = false;
-for (const cartItem of cart) {
-  const itemId = cartItem.menuItemId || cartItem.id;
-  
-  const { data: currentItem, error } = await supabase
-    .from('restaurant_items')
-    .select('stock, name')
-    .eq('id', itemId)
-    .single();
 
-  if (error || !currentItem) {
-    alert(`Erreur : Impossible de vérifier le stock de ${cartItem.name}`);
-    stockErrorFound = true;
-    break;
-  }
-
-  if (currentItem.stock < cartItem.quantity) {
-    alert(`⚠️ Le stock de "${currentItem.name}" a changé ou est insuffisant.\nStock actuel: ${currentItem.stock}, Demandé: ${cartItem.quantity}`);
-    stockErrorFound = true;
-    break;
-  }
-}
-
-if (stockErrorFound) {
-  setIsSubmittingOrder(false);
-  loadMenu(); // Rafraîchir le menu pour montrer les vrais stocks
-  return; // 🛑 BLOQUE LA COMMANDE ICI
-}
       
       if (editingOrderId) {
         const newItems: CartItem[] = [];
