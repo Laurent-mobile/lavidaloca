@@ -53,6 +53,8 @@ const MENU_ITEMS = [
       { label: 'Fournisseurs', href: '/restaurant/fournisseurs', icon: Truck, roles: ['ADMIN', 'MANAGER', 'STOCK_MANAGER', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
       { label: 'Commandes Fourn.', href: '/restaurant/commandes-frs', icon: Receipt, roles: ['ADMIN', 'MANAGER', 'STOCK_MANAGER', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
       { label: 'Dépenses', href: '/restaurant/depenses', icon: TrendingDown, roles: ['ADMIN', 'MANAGER', 'CASHIER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
+      { label: 'Historique Caisses', href: '/restaurant/historique-caisse', icon: Receipt, roles: ['ADMIN', 'MANAGER', 'CASHIER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
+  
     ],
   },
   {
