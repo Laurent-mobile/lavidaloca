@@ -59,7 +59,7 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
     .from('stays')
     .select(`
       id, 
-      room_id,  // ✅ AJOUTÉ : room_id est maintenant sélectionné
+      room_id,  
       check_in_at, 
       nightly_rate, 
       folio_balance, 
