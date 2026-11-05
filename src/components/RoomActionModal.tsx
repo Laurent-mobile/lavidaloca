@@ -53,24 +53,34 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
   }, []);
 
   const loadRoomData = async () => {
-    if (!room) return;
+  if (!room) return;
 
-    const { data: stay } = await supabase
-      .from('stays')
-      .select(`id, check_in_at, nightly_rate, folio_balance, status, customer_id, reservation_id, reservations (id, number, check_in_date, check_out_date)`)
-      .eq('room_id', room.id)
-      .eq('status', 'IN_HOUSE')
-      .limit(1)
+  const { data: stay } = await supabase
+    .from('stays')
+    .select(`
+      id, 
+      room_id,  // ✅ AJOUTÉ : room_id est maintenant sélectionné
+      check_in_at, 
+      nightly_rate, 
+      folio_balance, 
+      status, 
+      customer_id, 
+      reservation_id, 
+      reservations (id, number, check_in_date, check_out_date)
+    `)
+    .eq('room_id', room.id)
+    .eq('status', 'IN_HOUSE')
+    .limit(1)
+    .maybeSingle();
+
+  if (stay) {
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('first_name, last_name, phone')
+      .eq('id', stay.customer_id)
       .maybeSingle();
-
-    if (stay) {
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('first_name, last_name, phone')
-        .eq('id', stay.customer_id)
-        .maybeSingle();
-      setCurrentStay({ ...stay, customers: customer });
-    }
+    setCurrentStay({ ...stay, customers: customer });
+  }
 
     let { data: res } = await supabase
       .from('reservations')
@@ -203,9 +213,11 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
     }
   };
 
-  const handleForceCheckOut = async () => {
-    if (!confirm('Chambre marquée Occupée mais aucun séjour enregistré. Passer en "À nettoyer" ?')) return;
+    const handleForceCheckOut = async () => {
+    if (!confirm('⚠️ Check-out forcé : Cette action va libérer la chambre ET fermer tout séjour incohérent associé. Continuer ?')) return;
+    
     setLoading(true);
+    setError('');
     try {
       if (!isOnline) {
         await addToOutbox({ type: 'UPDATE', table: 'rooms', data: { id: room.id, status: 'DIRTY' } });
@@ -214,7 +226,27 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
         onClose();
         return;
       }
-      await supabase.from('rooms').update({ status: 'DIRTY' }).eq('id', room.id);
+
+      // 1. ✅ NOUVEAU : Fermer TOUT séjour IN_HOUSE associé à cette chambre (au cas où)
+      await supabase
+        .from('stays')
+        .update({ 
+          status: 'CHECKED_OUT', 
+          check_out_at: new Date().toISOString(),
+          folio_balance: 0,
+          notes: '[FORCÉ] Check-out forcé depuis le plan de salle'
+        })
+        .eq('room_id', room.id)
+        .eq('status', 'IN_HOUSE');
+
+      // 2. Passer la chambre en statut "À nettoyer"
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({ status: 'DIRTY' })
+        .eq('id', room.id);
+
+      if (roomError) throw new Error(roomError.message);
+
       setLoading(false);
       onSuccess();
       onClose();

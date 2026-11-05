@@ -254,7 +254,7 @@ export default function CommandesPage() {
     }
   };
 
-    const loadMenu = async () => {
+      const loadMenu = async () => {
   try {
     // 1. Charger les articles du menu
     const { data: menuData, error: menuError } = await supabase
@@ -289,7 +289,7 @@ export default function CommandesPage() {
         `)
         .eq('menu_item_id', menuItem.id);
 
-      // ✅ CORRECTION : Si pas de fiche technique, le stock est 0 (Indisponible)
+      // Si pas de fiche technique, le stock est 0 (Indisponible)
       if (!recipes || recipes.length === 0) {
         return {
           id: menuItem.id,
@@ -297,7 +297,7 @@ export default function CommandesPage() {
           category: (menuItem as any).restaurant_categories?.name || 'Autres',
           price: menuItem.price,
           destination: menuItem.destination || undefined,
-          stock: 0 // ✅ Stock à 0 pour forcer la création d'une fiche technique
+          stock: 0
         };
       }
 
@@ -305,7 +305,8 @@ export default function CommandesPage() {
       let maxPossibleStock = Infinity;
 
       for (const recipe of recipes) {
-        const currentStock = recipe.stock_items?.current_stock || 0;
+        // ✅ CORRECTION : stock_items est un tableau, on prend le premier élément
+        const currentStock = recipe.stock_items?.[0]?.current_stock || 0;
         const requiredQty = recipe.quantity || 1;
         
         // Combien de fois on peut produire cet article avec cet ingrédient ?
@@ -384,9 +385,21 @@ export default function CommandesPage() {
     setSelectedSupplements([]);
   };
 
-  const getStatusConfig = (status: string) => {
+  const getStatusConfig = (status: string, orderType?: string) => {
   switch (status) {
-    case 'DRAFT': return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
+    case 'DRAFT': 
+      // ✅ Si c'est du room service, on affiche un badge spécifique
+      if (orderType === 'ROOM_SERVICE') {
+        return { 
+          label: 'Brouillon (Folio)', 
+          badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', 
+          cardBg: 'bg-amber-50', 
+          cardBorder: 'border-amber-300', 
+          icon: Clock, 
+          nextStatus: null // On ne permet pas de le passer en SENT manuellement
+        };
+      }
+      return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
     case 'SENT': return { label: 'Envoyée', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
     case 'PREPARING': return { label: 'En prép.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
     case 'READY': return { label: 'Prête', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
@@ -618,17 +631,27 @@ export default function CommandesPage() {
 
       } else {
         const orderNumber = `CMD-${Date.now().toString().slice(-6)}`;
-        const orderData: any = {
-          site_id: siteId, order_type: orderType, order_number: orderNumber, status: 'SENT',
-          total_amount: totalAmount, subtotal: totalAmount, tax_amount: 0, discount_amount: 0,
-          created_by: user?.id, server_id: selectedServerId, sent_at: new Date().toISOString(),
-        };
-        if (orderType === 'DINE_IN') orderData.table_id = selectedTableId;
-        if (orderType === 'ROOM_SERVICE') {
-          orderData.room_id = selectedRoomId;
-          const room = rooms.find(r => r.id === selectedRoomId);
-          if (room) orderData.room_number = room.number;
-        }
+          const orderData: any = {
+  site_id: siteId,
+  order_type: orderType,
+  order_number: orderNumber,
+  // ✅ MODIFICATION : DRAFT pour chambre, SENT pour le reste
+  status: orderType === 'ROOM_SERVICE' ? 'DRAFT' : 'SENT', 
+  total_amount: totalAmount,
+  subtotal: totalAmount,
+  tax_amount: 0,
+  discount_amount: 0,
+  created_by: user?.id,
+  server_id: selectedServerId,
+  sent_at: orderType === 'ROOM_SERVICE' ? null : new Date().toISOString(),
+};
+
+if (orderType === 'DINE_IN') orderData.table_id = selectedTableId;
+if (orderType === 'ROOM_SERVICE') {
+  orderData.room_id = selectedRoomId;
+  const room = rooms.find(r => r.id === selectedRoomId);
+  if (room) orderData.room_number = room.number;
+}
 
         const { data: order, error: orderError } = await supabase.from('restaurant_orders').insert(orderData).select('id').single();
         if (orderError) throw orderError;
@@ -644,59 +667,62 @@ export default function CommandesPage() {
         }
 
         // ✅ BRANCHEMENT : Facturation sur chambre (ROOM_SERVICE) OU Flux normal
-        if (orderType === 'ROOM_SERVICE' && selectedRoomId && order) {
-          const occupiedRoom = occupiedRooms.find(r => r.id === selectedRoomId);
-          const stayId = occupiedRoom?.stay_id;
+          if (orderType === 'ROOM_SERVICE' && selectedRoomId && order) {
+  const occupiedRoom = occupiedRooms.find(r => r.id === selectedRoomId);
+  const stayId = occupiedRoom?.stay_id;
 
-          if (stayId) {
-            await supabase.from('restaurant_orders').update({ stay_id: stayId }).eq('id', order.id);
-            
-            await supabase.from('room_charges').insert({
-              site_id: siteId,
-              stay_id: stayId,
-              order_id: order.id,
-              charge_type: 'RESTAURANT',
-              amount: totalAmount,
-              description: `Commande ${orderNumber} - ${cart.length} article(s) - Ch. ${occupiedRoom.number}`,
-              charge_date: new Date().toISOString(),
-              is_voided: false
-            });
-            
-            await supabase.from('stays').update({ 
-              folio_balance: (occupiedRoom?.folio_balance || 0) + totalAmount 
-            }).eq('id', stayId);
-            
-            const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
-            const barItems = cart.filter(i => getDestination(i) === 'BAR');
-            
-            const tempOrder: RestaurantOrder = {
-              id: order.id, 
-              order_number: orderNumber, 
-              table_id: null, 
-              room_id: selectedRoomId,
-              order_type: 'ROOM_SERVICE', 
-              status: 'SENT', 
-              total_amount: totalAmount, 
-              created_at: new Date().toISOString(),
-              restaurant_tables: null,
-              rooms: occupiedRoom ? { number: occupiedRoom.number } : null,
-              restaurant_order_items: cart.map(item => ({ 
-                id: item.id, 
-                item_name: item.name, 
-                quantity: item.quantity, 
-                unit_price: item.price, 
-                total_price: item.quantity * item.price, 
-                status: 'PENDING', 
-                destination: getDestination(item) 
-              }))
-            };
-            
-            if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
-            if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-            
-            alert(`✅ Commande facturée sur la chambre ${occupiedRoom.number} !\nLes bons cuisine/bar ont été imprimés.`);
-          }
-        } else {
+  if (stayId) {
+    // 1. Lier la commande au séjour
+    await supabase.from('restaurant_orders').update({ stay_id: stayId }).eq('id', order.id);
+    
+    // 2. Ajouter au folio de la chambre (pour la réception)
+    await supabase.from('room_charges').insert({
+      site_id: siteId,
+      stay_id: stayId,
+      order_id: order.id,
+      charge_type: 'RESTAURANT',
+      amount: totalAmount,
+      description: `Commande ${orderNumber} - ${cart.length} article(s) - Ch. ${occupiedRoom.number}`,
+      charge_date: new Date().toISOString(),
+      is_voided: false
+    });
+    
+    await supabase.from('stays').update({ 
+      folio_balance: (occupiedRoom?.folio_balance || 0) + totalAmount 
+    }).eq('id', stayId);
+    
+    // 3. ✅ IMPRESSION DES BONS (Cuisine / Bar) MÊME SI DRAFT
+    const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
+    const barItems = cart.filter(i => getDestination(i) === 'BAR');
+    
+    const tempOrder: RestaurantOrder = {
+      id: order.id, 
+      order_number: orderNumber, 
+      table_id: null, 
+      room_id: selectedRoomId,
+      order_type: 'ROOM_SERVICE', 
+      status: 'DRAFT', // ✅ Reste en brouillon financièrement
+      total_amount: totalAmount, 
+      created_at: new Date().toISOString(),
+      restaurant_tables: null,
+      rooms: occupiedRoom ? { number: occupiedRoom.number } : null,
+      restaurant_order_items: cart.map(item => ({ 
+        id: item.id, 
+        item_name: item.name, 
+        quantity: item.quantity, 
+        unit_price: item.price, 
+        total_price: item.quantity * item.price, 
+        status: 'PENDING', // ✅ Les articles sont en attente de préparation en cuisine
+        destination: getDestination(item) 
+      }))
+    };
+    
+    if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
+    if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
+    
+    alert(`✅ Commande ajoutée au folio de la chambre ${occupiedRoom.number} (Statut: Brouillon).\nLes bons cuisine/bar ont été imprimés pour préparation.`);
+  }
+} else {
           const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
           const barItems = cart.filter(i => getDestination(i) === 'BAR');
           
@@ -740,6 +766,11 @@ export default function CommandesPage() {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
     if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sélectionnez une table.'); return; }
     if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sélectionnez une chambre.'); return; }
+    if (orderType === 'ROOM_SERVICE') {
+    alert('⚠️ Les commandes en chambre sont réglées directement à la réception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
+    return;
+  }
+  if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
     if (!selectedServerId) { alert('Sélectionnez un serveur.'); return; }
     if (!confirm('Valider cette commande et l\'envoyer à la caisse ?')) return;
 
