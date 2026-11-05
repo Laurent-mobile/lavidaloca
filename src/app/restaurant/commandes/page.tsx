@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { createClient } from '@/lib/supabasée/client';
+import { createClient } from '@/lib/supabase/client';
 import { 
   ClipboardList, Search, Eye, X, Clock, ChefHat, 
   CheckCircle, Truck, DollarSign, Users, AlertCircle,
@@ -16,7 +16,7 @@ interface MenuItem {
   name: string;
   category: string;
   price: number;
-  stock: number; // ✅ AJOUTÉ� : Niveau de stock
+  stock: number; 
   destination?: string;
 }
 
@@ -80,13 +80,13 @@ interface Employee {
 
 const getDestination = (item: { name?: string; category?: string; destination?: string }): string => {
   if (item.destination) return item.destination;
-  const barCategories = ['Boissons', 'Cocktails', 'Vins', 'Bi�res', 'Softs', 'Caf�s', 'Jus'];
+  const barCategories = ['Boissons', 'Cocktails', 'Vins', 'BiÃ¨res', 'Softs', 'CafÃ©s', 'Jus'];
   const name = (item.name || '').toLowerCase();
   const category = (item.category || '').toLowerCase();
 
   if (barCategories.some(cat => category.includes(cat.toLowerCase())) ||
     name.includes('jus') || name.includes('eau') || name.includes('coca') ||
-    name.includes('mojito') || name.includes('bi�re') || name.includes('vin') ||
+    name.includes('mojito') || name.includes('biÃ¨re') || name.includes('vin') ||
     name.includes('sobra') || name.includes('bissap')) {
     return 'BAR';
   }
@@ -94,7 +94,7 @@ const getDestination = (item: { name?: string; category?: string; destination?: 
 };
 
 export default function CommandesPage() {
-  const supabasée = createClient();
+  const supabase = createClient();
   const [siteId, setSiteId] = useState<string>('');
   const [orders, setOrders] = useState<RestaurantOrder[]>([]);
   const [tables, setTables] = useState<RestaurantTable[]>([]);
@@ -129,15 +129,15 @@ export default function CommandesPage() {
   const [selectedSupplements, setSelectedSupplements] = useState<MenuItem[]>([]);
   const [supplements, setSupplements] = useState<MenuItem[]>([]);
   
-  // ✅ NOUVEAU : Chambres occup�es avec infos de s�jour (pour type ROOM_SERVICE)
+  // âœ… NOUVEAU : Chambres occupÃ©es avec infos de sÃ©jour (pour type ROOM_SERVICE)
   const [occupiedRooms, setOccupiedRooms] = useState<any[]>([]);
   const [mainTab, setMainTab] = useState<'active' | 'history'>('active');
 
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabasée.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data: profile } = await supabasée.from('profiles').select('site_id').eq('id', user.id).maybeSingle();
+        const { data: profile } = await supabase.from('profiles').select('site_id').eq('id', user.id).maybeSingle();
         if (profile) setSiteId(profile.site_id || '');
       }
     };
@@ -152,23 +152,23 @@ export default function CommandesPage() {
       loadMenu();
       loadEmployees();
       loadSupplements();
-      loadOccupiedRooms(); // ? Chargement des chambres occup�es
+      loadOccupiedRooms(); // âœ… Chargement des chambres occupÃ©es
     }
   }, [siteId, editingOrderId]);
 
   const loadEmployees = async () => {
     try {
-      const { data } = await supabasée.from('restaurant_employees').select('id, first_name, last_name, role').eq('site_id', siteId).eq('is_active', true).order('first_name', { ascending: true });
+      const { data } = await supabase.from('restaurant_employees').select('id, first_name, last_name, role').eq('site_id', siteId).eq('is_active', true).order('first_name', { ascending: true });
       setEmployees(data || []);
     } catch (error) {
-      console.error('Erreur chargement employ�s:', error);
+      console.error('Erreur chargement employÃ©s:', error);
       setEmployees([]);
     }
   };
 
   const loadOccupiedRooms = async () => {
     try {
-      const { data, error } = await supabasée
+      const { data, error } = await supabase
         .from('rooms')
         .select(`
           id, number,
@@ -183,7 +183,7 @@ export default function CommandesPage() {
         .order('number', { ascending: true });
 
       if (error) {
-        console.error('Erreur chargement chambres occup�es:', error);
+        console.error('Erreur chargement chambres occupÃ©es:', error);
         setOccupiedRooms([]);
         return;
       }
@@ -200,7 +200,7 @@ export default function CommandesPage() {
 
       setOccupiedRooms(formatted);
     } catch (error) {
-      console.error('Erreur chargement chambres occup�es:', error);
+      console.error('Erreur chargement chambres occupÃ©es:', error);
       setOccupiedRooms([]);
     }
   };
@@ -208,7 +208,7 @@ export default function CommandesPage() {
   const loadOrders = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabasée.from('restaurant_orders').select(`
+      const { data, error } = await supabase.from('restaurant_orders').select(`
           *,
           restaurant_tables(number),
           rooms(number),
@@ -217,7 +217,7 @@ export default function CommandesPage() {
         `).eq('site_id', siteId).order('created_at', { ascending: false });
 
       if (error) {
-        const { data: fallbackData } = await supabasée.from('restaurant_orders').select(`
+        const { data: fallbackData } = await supabase.from('restaurant_orders').select(`
             *,
             restaurant_tables(number),
             restaurant_employees!restaurant_orders_server_id_fkey(first_name, last_name),
@@ -228,7 +228,7 @@ export default function CommandesPage() {
       }
       setOrders(data || []);
     } catch (error: any) {
-      console.error('❌ Erreur chargement commandes:', error.message);
+      console.error('âŒ Erreur chargement commandes:', error.message);
     } finally {
       setLoading(false);
     }
@@ -236,7 +236,7 @@ export default function CommandesPage() {
 
   const loadTables = async () => {
     try {
-      let query = supabasée.from('restaurant_tables').select('id, number, capacity, status').eq('site_id', siteId).order('number', { ascending: true });
+      let query = supabase.from('restaurant_tables').select('id, number, capacity, status').eq('site_id', siteId).order('number', { ascending: true });
       if (!editingOrderId) query = query.eq('status', 'AVAILABLE');
       const { data } = await query;
       setTables(data || []);
@@ -247,116 +247,109 @@ export default function CommandesPage() {
 
   const loadRooms = async () => {
     try {
-      const { data } = await supabasée.from('rooms').select('id, number, floor, status').eq('site_id', siteId).order('number', { ascending: true });
+      const { data } = await supabase.from('rooms').select('id, number, floor, status').eq('site_id', siteId).order('number', { ascending: true });
       setRooms(data || []);
     } catch (error) {
       setRooms([]);
     }
   };
 
-      const loadMenu = async () => {
-  try {
-    // 1. Charger les articles du menu
-    const { data: menuData, error: menuError } = await supabasée
-      .from('restaurant_items')
-      .select(`
-        id, 
-        name, 
-        restaurant_categories(name), 
-        price, 
-        destination, 
-        is_available
-      `)
-      .eq('site_id', siteId)
-      .eq('is_available', true)
-      .order('name');
-
-    if (menuError) throw menuError;
-    if (!menuData || menuData.length === 0) {
-      setMenuItems([]);
-      return;
-    }
-
-    // 2. Pour chaque article du menu, calculer le stock disponible
-    const menuItemsWithStock = await Promise.all(menuData.map(async (menuItem) => {
-      // Charger les ingr�dients de cet article
-      const { data: recipes } = await supabasée
-        .from('item_recipes')
+  const loadMenu = async () => {
+    try {
+      const { data: menuData, error: menuError } = await supabase
+        .from('restaurant_items')
         .select(`
-          stock_item_id,
-          quantity,
-          stock_items(current_stock, unit)
+          id, 
+          name, 
+          restaurant_categories(name), 
+          price, 
+          destination, 
+          is_available
         `)
-        .eq('menu_item_id', menuItem.id);
+        .eq('site_id', siteId)
+        .eq('is_available', true)
+        .order('name');
 
-      // Si pas de fiche technique, le stock est 0 (Indisponible)
-      if (!recipes || recipes.length === 0) {
+      if (menuError) throw menuError;
+      if (!menuData || menuData.length === 0) {
+        setMenuItems([]);
+        return;
+      }
+
+      const menuItemsWithStock = await Promise.all(menuData.map(async (menuItem) => {
+        const { data: recipes } = await supabase
+          .from('item_recipes')
+          .select(`
+            stock_item_id,
+            quantity,
+            stock_items(current_stock, unit)
+          `)
+          .eq('menu_item_id', menuItem.id);
+
+        if (!recipes || recipes.length === 0) {
+          return {
+            id: menuItem.id,
+            name: menuItem.name,
+            category: (menuItem as any).restaurant_categories?.name || 'Autres',
+            price: menuItem.price,
+            destination: menuItem.destination || undefined,
+            stock: 0
+          };
+        }
+
+        let maxPossibleStock = Infinity;
+
+        for (const recipe of recipes) {
+          // âœ… CORRECTION : stock_items est un tableau, on prend le premier Ã©lÃ©ment
+          const currentStock = recipe.stock_items?.[0]?.current_stock || 0;
+          const requiredQty = recipe.quantity || 1;
+          
+          const possibleWithThisIngredient = Math.floor(currentStock / requiredQty);
+          
+          if (possibleWithThisIngredient < maxPossibleStock) {
+            maxPossibleStock = possibleWithThisIngredient;
+          }
+        }
+
         return {
           id: menuItem.id,
           name: menuItem.name,
           category: (menuItem as any).restaurant_categories?.name || 'Autres',
           price: menuItem.price,
           destination: menuItem.destination || undefined,
-          stock: 0
+          stock: maxPossibleStock === Infinity ? 0 : maxPossibleStock
         };
-      }
+      }));
 
-      // Calculer le stock maximum possible basé� sur les ingr�dients
-      let maxPossibleStock = Infinity;
-
-      for (const recipe of recipes) {
-        // ✅ CORRECTION : stock_items est un tableau, on prend le premier �l�ment
-        const currentStock = recipe.stock_items?.[0]?.current_stock || 0;
-        const requiredqtéy = recipe.quantity || 1;
-        
-        // Combien de fois on peut produire cet article avec cet ingr�dient ?
-        const possibleWithThisIngredient = Math.floor(currentStock / requiredqtéy);
-        
-        // Le stock max est limité� par l'ingr�dient le plus restrictif
-        if (possibleWithThisIngredient < maxPossibleStock) {
-          maxPossibleStock = possibleWithThisIngredient;
-        }
-      }
-
-      return {
-        id: menuItem.id,
-        name: menuItem.name,
-        category: (menuItem as any).restaurant_categories?.name || 'Autres',
-        price: menuItem.price,
-        destination: menuItem.destination || undefined,
-        stock: maxPossibleStock === Infinity ? 0 : maxPossibleStock
-      };
-    }));
-
-    setMenuItems(menuItemsWithStock);
-  } catch (error) {
-    console.error('Erreur chargement menu:', error);
-  }
-};
+      setMenuItems(menuItemsWithStock);
+    } catch (error) {
+      console.error('Erreur chargement menu:', error);
+    }
+  };
 
   const loadSupplements = async () => {
-  try {
-    const { data } = await supabasée
-      .from('restaurant_items')
-      .select('id, name, category:restaurant_categories(name), price, destination, stock') // ✅ AJOUTÉ� 'stock'
-      .eq('site_id', siteId)
-      .eq('is_available', true)
-      .eq('restaurant_categories.name', 'SUPPL�MENTS');
-    
-    if (data && data.length > 0) {
-      setSupplements(data.map(item => ({
-        id: item.id,
-        name: item.name,
-        category: (item as any).category?.name || 'Suppl�ments',
-        price: item.price,
-        destination: 'KITCHEN',
-        stock: item.stock || 0 // ✅ AJOUTÉ�
-      })));
+    try {
+      const { data } = await supabase
+        .from('restaurant_items')
+        .select('id, name, category:restaurant_categories(name), price, destination, stock')
+        .eq('site_id', siteId)
+        .eq('is_available', true)
+        .eq('restaurant_categories.name', 'SUPPLÃ‰MENTS');
+      
+      if (data && data.length > 0) {
+        setSupplements(data.map(item => ({
+          id: item.id,
+          name: item.name,
+          category: (item as any).category?.name || 'SupplÃ©ments',
+          price: item.price,
+          destination: 'KITCHEN',
+          stock: item.stock || 0 
+        })));
+      }
+    } catch (error) {
+      console.error('Erreur chargement supplÃ©ments:', error);
     }
-  } catch (error) {
-    console.error('Erreur chargement suppl�ments:', error);
-  }
-};
+  };
 
   const openPizzaWithSupplements = (item: MenuItem) => {
     setSelectedPizza(item);
@@ -386,36 +379,34 @@ export default function CommandesPage() {
   };
 
   const getStatusConfig = (status: string, orderType?: string) => {
-  switch (status) {
-    case 'DRAFT': 
-      // ? Si c'est du room service, on affichée un badge sp�cifique
-      if (orderType === 'ROOM_SERVICE') {
-        return { 
-          label: 'Brouillon (Folio)', 
-          badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', 
-          cardBg: 'bg-amber-50', 
-          cardBorder: 'border-amber-300', 
-          icon: Clock, 
-          nextStatus: null // On ne permet pas de le Passer àen SENT manuellement
-        };
-      }
-      return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
-    case 'SENT': return { label: 'Envoy�e', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
-    case 'PREPARING': return { label: 'En pr�p.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
-    case 'READY': return { label: 'Pr�te', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
-    // ✅ MODIFICATION ICI : nextStatus est maintenant null
-    case 'SERVED': return { label: 'Servie', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200', cardBg: 'bg-purple-50', cardBorder: 'border-purple-300', icon: Users, nextStatus: null }; 
-    case 'PAID': return { label: 'Pay�e', badgeColor: 'bg-green-100 text-green-800 border-green-200', cardBg: 'bg-green-50', cardBorder: 'border-green-300', icon: DollarSign, nextStatus: null };
-    case 'CANCELLED': return { label: 'Annul�e', badgeColor: 'bg-red-100 text-red-800 border-red-200', cardBg: 'bg-red-50', cardBorder: 'border-red-300', icon: Ban, nextStatus: null };
-    default: return { label: status, badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: null };
-  }
-};
+    switch (status) {
+      case 'DRAFT': 
+        if (orderType === 'ROOM_SERVICE') {
+          return { 
+            label: 'Brouillon (Folio)', 
+            badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', 
+            cardBg: 'bg-amber-50', 
+            cardBorder: 'border-amber-300', 
+            icon: Clock, 
+            nextStatus: null 
+          };
+        }
+        return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
+      case 'SENT': return { label: 'EnvoyÃ©e', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
+      case 'PREPARING': return { label: 'En prÃ©p.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
+      case 'READY': return { label: 'PrÃªte', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
+      case 'SERVED': return { label: 'Servie', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200', cardBg: 'bg-purple-50', cardBorder: 'border-purple-300', icon: Users, nextStatus: null }; 
+      case 'PAID': return { label: 'PayÃ©e', badgeColor: 'bg-green-100 text-green-800 border-green-200', cardBg: 'bg-green-50', cardBorder: 'border-green-300', icon: DollarSign, nextStatus: null };
+      case 'CANCELLED': return { label: 'AnnulÃ©e', badgeColor: 'bg-red-100 text-red-800 border-red-200', cardBg: 'bg-red-50', cardBorder: 'border-red-300', icon: Ban, nextStatus: null };
+      default: return { label: status, badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: null };
+    }
+  };
 
   const getOrderTypeLabel = (type?: string) => {
     const t = type || 'DINE_IN';
     switch (t) {
       case 'DINE_IN': return 'Sur place';
-      case 'TAKEAWAY': return '� emporter';
+      case 'TAKEAWAY': return 'Ã€ emporter';
       case 'DELIVERY': return 'Livraison';
       case 'ROOM_SERVICE': return 'Chambre';
       default: return 'Sur place';
@@ -425,20 +416,19 @@ export default function CommandesPage() {
   const getOrderTypeIcon = (type?: string) => {
     const t = type || 'DINE_IN';
     switch (t) {
-      case 'DINE_IN': return '🍽️';
-      case 'TAKEAWAY': return '🥡';
-      case 'DELIVERY': return '🚚';
-      case 'ROOM_SERVICE': return '🛎️';
-      default: return '???';
+      case 'DINE_IN': return 'ðŸ½ï¸';
+      case 'TAKEAWAY': return 'ðŸ¥¡';
+      case 'DELIVERY': return 'ðŸšš';
+      case 'ROOM_SERVICE': return 'ðŸ›Žï¸';
+      default: return 'ðŸ½ï¸';
     }
   };
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
-    // ✅ NOUVEAU : Emp�cher le passage direct � PAY�E depuis cette page
-  if (newStatus === 'PAID') {
-    alert('⚠️ Impossible de Passer àune commande en statut "Pay�e" directement ici.\n\nVeuillez utiliser le module "Caisse" pour encaisser le paiement, imprimer le ticket et lib�rer la table.');
-    return;
-  }
+    if (newStatus === 'PAID') {
+      alert('âš ï¸ Impossible de passer une commande en statut "PayÃ©e" directement ici.\n\nVeuillez utiliser le module "Caisse" pour encaisser le paiement, imprimer le ticket et libÃ©rer la table.');
+      return;
+    }
     if (!confirm(`Changer le statut vers "${getStatusConfig(newStatus).label}" ?`)) return;
     setIsUpdating(true);
     try {
@@ -447,7 +437,7 @@ export default function CommandesPage() {
       if (newStatus === 'SENT') updateData.sent_at = new Date().toISOString();
       if (['PAID', 'CANCELLED'].includes(newStatus)) updateData.completed_at = new Date().toISOString();
       
-      await supabasée.from('restaurant_orders').update(updateData).eq('id', orderId);
+      await supabase.from('restaurant_orders').update(updateData).eq('id', orderId);
       loadOrders();
       if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus });
     } catch (error) {
@@ -471,14 +461,14 @@ export default function CommandesPage() {
     setIsCancelling(true);
     try {
       const updateData: any = { status: 'CANCELLED', cancellation_reason: cancelReason, cancelled_at: new Date().toISOString(), completed_at: new Date().toISOString() };
-      if (selectedOrder.table_id) await supabasée.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selectedOrder.table_id);
-      await supabasée.from('restaurant_orders').update(updateData).eq('id', selectedOrder.id);
+      if (selectedOrder.table_id) await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selectedOrder.table_id);
+      await supabase.from('restaurant_orders').update(updateData).eq('id', selectedOrder.id);
       setIsCancelModalOpen(false);
       setCancelReason('');
       setSelectedOrder(null);
       loadOrders();
       loadTables();
-      alert('? Commande annul�e.');
+      alert('âœ… Commande annulÃ©e.');
     } catch (error) {
       alert('Erreur lors de l\'annulation.');
     } finally {
@@ -489,39 +479,36 @@ export default function CommandesPage() {
   const PIZZA_CATEGORIES = ['NOS PIZZAS'];
 
   const addToCart = (item: MenuItem) => {
-  // 1. Bloquer si rupture de stock totale
-  if (item.stock <= 0) {
-    alert(`⚠️ Rupture de stock pour : ${item.name}`);
-    return;
-  }
+    if (item.stock <= 0) {
+      alert(`âš ï¸ Rupture de stock pour : ${item.name}`);
+      return;
+    }
 
-  setCart(prev => {
-    const existingIndex = prev.findIndex(i => {
-      if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
-      if (item.id && i.id === item.id) return true;
-      return i.name.toLowerCase() === item.name.toLowerCase();
+    setCart(prev => {
+      const existingIndex = prev.findIndex(i => {
+        if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
+        if (item.id && i.id === item.id) return true;
+        return i.name.toLowerCase() === item.name.toLowerCase();
+      });
+      
+      const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
+
+      if (currentQty + 1 > item.stock) {
+        alert(`âš ï¸ Stock insuffisant pour : ${item.name}\nDisponible : ${item.stock}`);
+        return prev;
+      }
+
+      if (existingIndex >= 0) {
+        const newCart = [...prev];
+        newCart[existingIndex] = { 
+          ...newCart[existingIndex], 
+          quantity: newCart[existingIndex].quantity + 1 
+        };
+        return newCart;
+      }
+      return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
     });
-    
-    const currentqtéy = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
-
-    // 2. Bloquer si on d�passe le stock disponible
-    if (currentqtéy + 1 > item.stock) {
-      alert(`⚠️ Stock insuffisant pour : ${item.name}\nDisponible : ${item.stock}`);
-      return prev; // On ne modifie pas le panier
-    }
-
-    // 3. Ajout normal
-    if (existingIndex >= 0) {
-      const newCart = [...prev];
-      newCart[existingIndex] = { 
-        ...newCart[existingIndex], 
-        quantity: newCart[existingIndex].quantity + 1 
-      };
-      return newCart;
-    }
-    return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
-  });
-};
+  };
 
   const removeFromCart = (itemId: string) => {
     setCart(prev => {
@@ -545,7 +532,7 @@ export default function CommandesPage() {
 
   const openEditOrder = (order: RestaurantOrder) => {
     if (['PAID', 'CANCELLED'].includes(order.status)) {
-      alert('Impossible de modifier une commande pay�e ou annul�e.');
+      alert('Impossible de modifier une commande payÃ©e ou annulÃ©e.');
       return;
     }
     setEditingOrderId(order.id);
@@ -554,7 +541,7 @@ export default function CommandesPage() {
     setSelectedRoomId(order.room_id || '');
     setSelectedServerId(order.server_id || '');
     
-        const cartItems = order.restaurant_order_items?.map(item => ({
+    const cartItems = order.restaurant_order_items?.map(item => ({
       orderItemId: item.id,
       menuItemId: (item as any).menu_item_id || '',
       id: item.id,
@@ -563,7 +550,7 @@ export default function CommandesPage() {
       price: item.unit_price,
       quantity: item.quantity,
       destination: item.destination,
-      stock: 0 // ✅ AJOUTÉ�
+      stock: 0
     })) || [];
 
     setCart(cartItems);
@@ -574,15 +561,13 @@ export default function CommandesPage() {
 
   const handleCommander = async () => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (orderType === 'DINE_IN' && !selectedTableId) { alert('S�lectionnez une table.'); return; }
-    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('S�lectionnez une chambre.'); return; }
-    if (!selectedServerId) { alert('S�lectionnez un serveur.'); return; }
+    if (orderType === 'DINE_IN' && !selectedTableId) { alert('SÃ©lectionnez une table.'); return; }
+    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('SÃ©lectionnez une chambre.'); return; }
+    if (!selectedServerId) { alert('SÃ©lectionnez un serveur.'); return; }
 
     setIsSubmittingOrder(true);
     try {
-      const { data: { user } } = await supabasée.auth.getUser();
-      // ? V�RIFICATION DE S�CURIT� DU STOCK AVANT COMMANDE
-
+      const { data: { user } } = await supabase.auth.getUser();
       
       if (editingOrderId) {
         const newItems: CartItem[] = [];
@@ -594,18 +579,18 @@ export default function CommandesPage() {
         });
 
         if (newItems.length > 0) {
-          await supabasée.from('restaurant_order_items').insert(newItems.map(item => ({
+          await supabase.from('restaurant_order_items').insert(newItems.map(item => ({
             order_id: editingOrderId, menu_item_id: item.menuItemId || item.id || null, item_name: item.name,
             quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price,
             status: 'PENDING', destination: getDestination(item)
           })));
         }
         for (const item of updatedItems) {
-          await supabasée.from('restaurant_order_items').update({ quantity: item.quantity, total_price: item.quantity * item.price }).eq('id', item.orderItemId);
+          await supabase.from('restaurant_order_items').update({ quantity: item.quantity, total_price: item.quantity * item.price }).eq('id', item.orderItemId);
         }
 
         const newTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        await supabasée.from('restaurant_orders').update({ total_amount: newTotal, status: 'SENT' }).eq('id', editingOrderId);
+        await supabase.from('restaurant_orders').update({ total_amount: newTotal, status: 'SENT' }).eq('id', editingOrderId);
 
         const kitchenItemsToPrint = [...newItems.filter(i => getDestination(i) === 'KITCHEN'), ...updatedItems.filter(i => getDestination(i) === 'KITCHEN')];
         const barItemsToPrint = [...newItems.filter(i => getDestination(i) === 'BAR'), ...updatedItems.filter(i => getDestination(i) === 'BAR')];
@@ -624,105 +609,102 @@ export default function CommandesPage() {
           };
           if (kitchenItemsToPrint.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
           if (barItemsToPrint.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-          alert('? Commande mise � jour et bons imprim�s !');
+          alert('âœ… Commande mise Ã  jour et bons imprimÃ©s !');
         } else {
-          alert('? Commande mise � jour avec succ�s !');
+          alert('âœ… Commande mise Ã  jour avec succÃ¨s !');
         }
 
       } else {
         const orderNumber = `CMD-${Date.now().toString().slice(-6)}`;
-          const orderData: any = {
-  site_id: siteId,
-  order_type: orderType,
-  order_number: orderNumber,
-  // ✅ MODIFICATION : DRAFT pour chambre, SENT pour le reste
-  status: orderType === 'ROOM_SERVICE' ? 'DRAFT' : 'SENT', 
-  total_amount: totalAmount,
-  subtotal: totalAmount,
-  tax_amount: 0,
-  discount_amount: 0,
-  created_by: user?.id,
-  server_id: selectedServerId,
-  sent_at: orderType === 'ROOM_SERVICE' ? null : new Date().toISOString(),
-};
+        const orderData: any = {
+          site_id: siteId,
+          order_type: orderType,
+          order_number: orderNumber,
+          // âœ… MODIFICATION : DRAFT pour chambre, SENT pour le reste
+          status: orderType === 'ROOM_SERVICE' ? 'DRAFT' : 'SENT', 
+          total_amount: totalAmount,
+          subtotal: totalAmount,
+          tax_amount: 0,
+          discount_amount: 0,
+          created_by: user?.id,
+          server_id: selectedServerId,
+          sent_at: orderType === 'ROOM_SERVICE' ? null : new Date().toISOString(),
+        };
 
-if (orderType === 'DINE_IN') orderData.table_id = selectedTableId;
-if (orderType === 'ROOM_SERVICE') {
-  orderData.room_id = selectedRoomId;
-  const room = rooms.find(r => r.id === selectedRoomId);
-  if (room) orderData.room_number = room.number;
-}
+        if (orderType === 'DINE_IN') orderData.table_id = selectedTableId;
+        if (orderType === 'ROOM_SERVICE') {
+          orderData.room_id = selectedRoomId;
+          const room = rooms.find(r => r.id === selectedRoomId);
+          if (room) orderData.room_number = room.number;
+        }
 
-        const { data: order, error: orderError } = await supabasée.from('restaurant_orders').insert(orderData).select('id').single();
+        const { data: order, error: orderError } = await supabase.from('restaurant_orders').insert(orderData).select('id').single();
         if (orderError) throw orderError;
 
-        await supabasée.from('restaurant_order_items').insert(cart.map(item => ({
+        await supabase.from('restaurant_order_items').insert(cart.map(item => ({
           order_id: order.id, menu_item_id: item.menuItemId || item.id || null, item_name: item.name,
           quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price,
           status: 'PENDING', destination: getDestination(item)
         })));
 
         if (orderType === 'DINE_IN' && selectedTableId) {
-          await supabasée.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
+          await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
         }
 
-        // ✅ BRANCHEMENT : Facturation sur chambre (ROOM_SERVICE) OU Flux normal
-          if (orderType === 'ROOM_SERVICE' && selectedRoomId && order) {
-  const occupiedRoom = occupiedRooms.find(r => r.id === selectedRoomId);
-  const stayId = occupiedRoom?.stay_id;
+        // âœ… BRANCHEMENT : Facturation sur chambre (ROOM_SERVICE) OU Flux normal
+        if (orderType === 'ROOM_SERVICE' && selectedRoomId && order) {
+          const occupiedRoom = occupiedRooms.find(r => r.id === selectedRoomId);
+          const stayId = occupiedRoom?.stay_id;
 
-  if (stayId) {
-    // 1. Lier la commande au s�jour
-    await supabasée.from('restaurant_orders').update({ stay_id: stayId }).eq('id', order.id);
-    
-    // 2. Ajouter au folio de la chambre (pour la r�ception)
-    await supabasée.from('room_charges').insert({
-      site_id: siteId,
-      stay_id: stayId,
-      order_id: order.id,
-      charge_type: 'RESTAURANT',
-      amount: totalAmount,
-      description: `Commande ${orderNumber} - ${cart.length} article(s) - Ch. ${occupiedRoom.number}`,
-      charge_date: new Date().toISOString(),
-      is_voided: false
-    });
-    
-    await supabasée.from('stays').update({ 
-      folio_balance: (occupiedRoom?.folio_balance || 0) + totalAmount 
-    }).eq('id', stayId);
-    
-    // 3. ✅ IMPRESSION DES BONS (Cuisine / Bar) M�ME SI DRAFT
-    const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
-    const barItems = cart.filter(i => getDestination(i) === 'BAR');
-    
-    const tempOrder: RestaurantOrder = {
-      id: order.id, 
-      order_number: orderNumber, 
-      table_id: null, 
-      room_id: selectedRoomId,
-      order_type: 'ROOM_SERVICE', 
-      status: 'DRAFT', // ✅ Reste en brouillon financi�rement
-      total_amount: totalAmount, 
-      created_at: new Date().toISOString(),
-      restaurant_tables: null,
-      rooms: occupiedRoom ? { number: occupiedRoom.number } : null,
-      restaurant_order_items: cart.map(item => ({ 
-        id: item.id, 
-        item_name: item.name, 
-        quantity: item.quantity, 
-        unit_price: item.price, 
-        total_price: item.quantity * item.price, 
-        status: 'PENDING', // ✅ Les articles sont en attente de pr�paration en cuisine
-        destination: getDestination(item) 
-      }))
-    };
-    
-    if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
-    if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-    
-    alert(`? Commande ajout�e au folio de la chambre ${occupiedRoom.number} (Statut: Brouillon).\nLes bons cuisine/bar ont �t� imprim�s pour pr�paration.`);
-  }
-} else {
+          if (stayId) {
+            await supabase.from('restaurant_orders').update({ stay_id: stayId }).eq('id', order.id);
+            
+            await supabase.from('room_charges').insert({
+              site_id: siteId,
+              stay_id: stayId,
+              order_id: order.id,
+              charge_type: 'RESTAURANT',
+              amount: totalAmount,
+              description: `Commande ${orderNumber} - ${cart.length} article(s) - Ch. ${occupiedRoom.number}`,
+              charge_date: new Date().toISOString(),
+              is_voided: false
+            });
+            
+            await supabase.from('stays').update({ 
+              folio_balance: (occupiedRoom?.folio_balance || 0) + totalAmount 
+            }).eq('id', stayId);
+            
+            const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
+            const barItems = cart.filter(i => getDestination(i) === 'BAR');
+            
+            const tempOrder: RestaurantOrder = {
+              id: order.id, 
+              order_number: orderNumber, 
+              table_id: null, 
+              room_id: selectedRoomId,
+              order_type: 'ROOM_SERVICE', 
+              status: 'DRAFT', // âœ… Reste en brouillon financiÃ¨rement
+              total_amount: totalAmount, 
+              created_at: new Date().toISOString(),
+              restaurant_tables: null,
+              rooms: occupiedRoom ? { number: occupiedRoom.number } : null,
+              restaurant_order_items: cart.map(item => ({ 
+                id: item.id, 
+                item_name: item.name, 
+                quantity: item.quantity, 
+                unit_price: item.price, 
+                total_price: item.quantity * item.price, 
+                status: 'PENDING', // âœ… Les articles sont en attente de prÃ©paration en cuisine
+                destination: getDestination(item) 
+              }))
+            };
+            
+            if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
+            if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
+            
+            alert(`âœ… Commande ajoutÃ©e au folio de la chambre ${occupiedRoom.number} (Statut: Brouillon).\nLes bons cuisine/bar ont Ã©tÃ© imprimÃ©s pour prÃ©paration.`);
+          }
+        } else {
           const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
           const barItems = cart.filter(i => getDestination(i) === 'BAR');
           
@@ -736,11 +718,10 @@ if (orderType === 'ROOM_SERVICE') {
 
           if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
           if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-          alert(`? Commande ${orderNumber} envoy�e et bons imprim�s !`);
+          alert(`âœ… Commande ${orderNumber} envoyÃ©e et bons imprimÃ©s !`);
         }
       }
 
-      // 5. R�initialisation des �tats
       setCart([]);
       setSelectedTableId('');
       setSelectedRoomId('');
@@ -752,7 +733,7 @@ if (orderType === 'ROOM_SERVICE') {
       
       loadOrders();
       loadTables();
-      loadOccupiedRooms(); // ✅ Utiliser la bonne fonction
+      loadOccupiedRooms();
       
     } catch (error: any) {
       console.error('Erreur commande:', error);
@@ -764,23 +745,24 @@ if (orderType === 'ROOM_SERVICE') {
 
   const handleValiderPourCaisse = async () => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (orderType === 'DINE_IN' && !selectedTableId) { alert('S�lectionnez une table.'); return; }
-    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('S�lectionnez une chambre.'); return; }
+    if (orderType === 'DINE_IN' && !selectedTableId) { alert('SÃ©lectionnez une table.'); return; }
+    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('SÃ©lectionnez une chambre.'); return; }
+    
     if (orderType === 'ROOM_SERVICE') {
-    alert('⚠️ Les commandes en chambre sont r�gl�es directement � la r�ception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
-    return;
-  }
-  if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (!selectedServerId) { alert('S�lectionnez un serveur.'); return; }
-    if (!confirm('Valider cette commande et l\'Envoyéer � la caisse ?')) return;
+      alert('âš ï¸ Les commandes en chambre sont rÃ©glÃ©es directement Ã  la rÃ©ception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
+      return;
+    }
+    
+    if (!selectedServerId) { alert('SÃ©lectionnez un serveur.'); return; }
+    if (!confirm('Valider cette commande et l\'envoyer Ã  la caisse ?')) return;
 
     setIsSubmittingOrder(true);
     try {
-      const { data: { user } } = await supabasée.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (editingOrderId) {
         const newItems = cart.filter(item => !originalItems.find(orig => orig.id === item.id));
         if (newItems.length > 0) {
-          await supabasée.from('restaurant_order_items').insert(newItems.map(item => ({
+          await supabase.from('restaurant_order_items').insert(newItems.map(item => ({
             order_id: editingOrderId, menu_item_id: item.id, item_name: item.name,
             quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price,
             status: 'PENDING', destination: getDestination(item)
@@ -789,8 +771,8 @@ if (orderType === 'ROOM_SERVICE') {
         const currentOrder = orders.find(o => o.id === editingOrderId);
         const currentTotal = currentOrder?.total_amount || 0;
         const addedTotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        await supabasée.from('restaurant_orders').update({ total_amount: currentTotal + addedTotal, status: 'SERVED' }).eq('id', editingOrderId);
-        alert('? Commande valid�e et envoy�e � la caisse !');
+        await supabase.from('restaurant_orders').update({ total_amount: currentTotal + addedTotal, status: 'SERVED' }).eq('id', editingOrderId);
+        alert('âœ… Commande validÃ©e et envoyÃ©e Ã  la caisse !');
       } else {
         const orderNumber = `CMD-${Date.now().toString().slice(-6)}`;
         const orderData: any = {
@@ -805,19 +787,19 @@ if (orderType === 'ROOM_SERVICE') {
           if (room) orderData.room_number = room.number;
         }
 
-        const { data: order, error: orderError } = await supabasée.from('restaurant_orders').insert(orderData).select('id').single();
+        const { data: order, error: orderError } = await supabase.from('restaurant_orders').insert(orderData).select('id').single();
         if (orderError) throw orderError;
 
-        await supabasée.from('restaurant_order_items').insert(cart.map(item => ({
+        await supabase.from('restaurant_order_items').insert(cart.map(item => ({
           order_id: order.id, menu_item_id: item.id, item_name: item.name,
           quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price,
           status: 'PENDING', destination: getDestination(item)
         })));
 
         if (orderType === 'DINE_IN' && selectedTableId) {
-          await supabasée.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
+          await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
         }
-        alert(`? Commande ${orderNumber} valid�e et envoy�e � la caisse !`);
+        alert(`âœ… Commande ${orderNumber} validÃ©e et envoyÃ©e Ã  la caisse !`);
       }
       setCart([]); 
       setSelectedTableId(''); 
@@ -839,7 +821,7 @@ if (orderType === 'ROOM_SERVICE') {
   const getLocationLabel = (order: RestaurantOrder) => {
     if (order.order_type === 'DINE_IN') return `Table ${order.restaurant_tables?.number || '-'}`;
     if (order.order_type === 'ROOM_SERVICE') return `Ch. ${order.room_number || order.rooms?.number || '-'}`;
-    if (order.order_type === 'TAKEAWAY') return '� emporter';
+    if (order.order_type === 'TAKEAWAY') return 'Ã€ emporter';
     if (order.order_type === 'DELIVERY') return 'Livraison';
     return '-';
   };
@@ -862,7 +844,7 @@ if (orderType === 'ROOM_SERVICE') {
       <div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p>
       <p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div>
       <div class="info">
-        <div><span>N�:</span><span>${order.order_number}</span></div>
+        <div><span>NÂ°:</span><span>${order.order_number}</span></div>
         <div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div>
         <div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}</span></div>
       </div>
@@ -895,20 +877,20 @@ if (orderType === 'ROOM_SERVICE') {
       .item{display:flex;justify-content:space-between;padding:12px 15px;border-bottom:1px solid #e5e7eb;}
       .item:last-child{border-bottom:none;}
       .item-name{font-weight:bold;font-size:14px;color:#1f2937;}
-      .item-qtéy{background:#1e40af;color:white;padding:4px 12px;border-radius:20px;font-weight:bold;font-size:16px;}
+      .item-qty{background:#1e40af;color:white;padding:4px 12px;border-radius:20px;font-weight:bold;font-size:16px;}
       .footer{text-align:center;color:#6b7280;font-size:12px;margin-top:20px;}
       .timestamp{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;}
       @media print{body{padding:10px;}}</style></head><body>
-      <div class="header"><h1>????? BON DE CUISINE</h1><p>LA VIDA-LOCA Restaurant</p></div>
+      <div class="header"><h1>ðŸ‘¨â€ðŸ³ BON DE CUISINE</h1><p>LA VIDA-LOCA Restaurant</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
-        <div class="info-box"><label>N� Commande</label><strong>${order.order_number}</strong></div>
+        <div class="info-box"><label>NÂ° Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></div>
         <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
-      <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qtéy">x${i.quantity}</span></div>`).join('')}</div>
-      <div class="footer"><p><strong>?? � pr�parer imm�diatement</strong></p><p class="timestamp">Imprim� le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
+      <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>
+      <div class="footer"><p><strong>âš ï¸ Ã€ prÃ©parer immÃ©diatement</strong></p><p class="timestamp">ImprimÃ© le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
     `);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
@@ -935,20 +917,20 @@ if (orderType === 'ROOM_SERVICE') {
       .item{display:flex;justify-content:space-between;padding:12px 15px;border-bottom:1px solid #e5e7eb;}
       .item:last-child{border-bottom:none;}
       .item-name{font-weight:bold;font-size:14px;color:#1f2937;}
-      .item-qtéy{background:#7c2d12;color:white;padding:4px 12px;border-radius:20px;font-weight:bold;font-size:16px;}
+      .item-qty{background:#7c2d12;color:white;padding:4px 12px;border-radius:20px;font-weight:bold;font-size:16px;}
       .footer{text-align:center;color:#6b7280;font-size:12px;margin-top:20px;}
       .timestamp{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;}
       @media print{body{padding:10px;}}</style></head><body>
-      <div class="header"><h1>?? BON DE BAR</h1><p>Gentlemen Lounge</p></div>
+      <div class="header"><h1>ðŸ¹ BON DE BAR</h1><p>Gentlemen Lounge</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
-        <div class="info-box"><label>N� Commande</label><strong>${order.order_number}</strong></div>
+        <div class="info-box"><label>NÂ° Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></div>
         <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
-      <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qtéy">x${i.quantity}</span></div>`).join('')}</div>
-      <div class="footer"><p><strong>?? � pr�parer imm�diatement</strong></p><p class="timestamp">Imprim� le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
+      <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>
+      <div class="footer"><p><strong>âš ï¸ Ã€ prÃ©parer immÃ©diatement</strong></p><p class="timestamp">ImprimÃ© le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
     `);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
@@ -960,17 +942,17 @@ if (orderType === 'ROOM_SERVICE') {
     doc.setFontSize(20); doc.setTextColor(79, 70, 229);
     doc.text('LA VIDA LOCA', 105, 20, { align: 'center' });
     doc.setFontSize(12); doc.setTextColor(100, 100, 100);
-    doc.text('Happiness - Hotel � Resto � Lounge', 105, 28, { align: 'center' });
+    doc.text('Happiness - Hotel â€¢ Resto â€¢ Lounge', 105, 28, { align: 'center' });
     doc.setDrawColor(200, 200, 200); doc.line(20, 35, 190, 35);
     doc.setFontSize(10); doc.setTextColor(50, 50, 50);
-    doc.text(`N�: ${order.order_number}`, 20, 45);
+    doc.text(`NÂ°: ${order.order_number}`, 20, 45);
     doc.text(`Date: ${new Date(order.created_at).toLocaleString('fr-FR')}`, 20, 52);
     doc.text(`Lieu: ${getLocationLabel(order)}`, 20, 59);
     doc.text(`Type: ${getOrderTypeLabel(order.order_type || 'DINE_IN')}`, 20, 66);
     doc.text(`Statut: ${getStatusConfig(order.status).label}`, 20, 73);
     const tableData = items.map(i => [i.item_name, i.quantity.toString(), `${Number(i.unit_price).toLocaleString('fr-FR')} F`, `${Number(i.total_price).toLocaleString('fr-FR')} F`]);
     autoTable(doc, {
-      startY: 80, head: [['Article', 'qté�', 'Prix unit.', 'Total']], body: tableData,
+      startY: 80, head: [['Article', 'QtÃ©', 'Prix unit.', 'Total']], body: tableData,
       theme: 'striped', headStyles: { fillColor: [79, 70, 229], textColor: 255 },
       styles: { fontSize: 10 },
       columnStyles: { 0: { cellWidth: 80 }, 1: { cellWidth: 30, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' }, 3: { cellWidth: 40, halign: 'right' } }
@@ -984,32 +966,28 @@ if (orderType === 'ROOM_SERVICE') {
   };
 
   const filteredOrders = useMemo(() => {
-  return orders.filter(order => {
-    const isActive = ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED'].includes(order.status);
-    const isHistory = ['PAID', 'CANCELLED'].includes(order.status);
-    
-    // Filtrer selon l'onglet actif
-    if (mainTab === 'active' && !isActive) return false;
-    if (mainTab === 'history' && !isHistory) return false;
-    
-    // Appliquer le filtre de statut uniquement pour l'historique
-    if (mainTab === 'history' && statusFilter !== 'ALL' && order.status !== statusFilter) return false;
+    return orders.filter(order => {
+      const isActive = ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED'].includes(order.status);
+      const isHistory = ['PAID', 'CANCELLED'].includes(order.status);
+      
+      if (mainTab === 'active' && !isActive) return false;
+      if (mainTab === 'history' && !isHistory) return false;
+      
+      if (mainTab === 'history' && statusFilter !== 'ALL' && order.status !== statusFilter) return false;
 
-    // Recherche textuelle
-    const matchesSearch = order.order_number.toLowerCase().includes(search.toLowerCase()) ||
-      (order.restaurant_tables?.number || '').toLowerCase().includes(search.toLowerCase()) ||
-      (order.rooms?.number || '').toLowerCase().includes(search.toLowerCase());
-    
-    return matchesSearch;
-  });
-}, [orders, mainTab, statusFilter, search]);
+      const matchesSearch = order.order_number.toLowerCase().includes(search.toLowerCase()) ||
+        (order.restaurant_tables?.number || '').toLowerCase().includes(search.toLowerCase()) ||
+        (order.rooms?.number || '').toLowerCase().includes(search.toLowerCase());
+      
+      return matchesSearch;
+    });
+  }, [orders, mainTab, statusFilter, search]);
 
-const sortedOrders = useMemo(() => {
-  return [...filteredOrders].sort((a, b) => {
-    // Tri par date de cr�ation d�croissante
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
-}, [filteredOrders]);
+  const sortedOrders = useMemo(() => {
+    return [...filteredOrders].sort((a, b) => {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [filteredOrders]);
 
   const stats = useMemo(() => ({
     total: orders.length,
@@ -1049,7 +1027,7 @@ const sortedOrders = useMemo(() => {
           {editingOrderId && (
             <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 bg-amber-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
               <Edit className="w-5 h-5" />
-              <span className="font-semibold">Mode �dition : Commande {orders.find(o => o.id === editingOrderId)?.order_number}</span>
+              <span className="font-semibold">Mode Ã‰dition : Commande {orders.find(o => o.id === editingOrderId)?.order_number}</span>
               <button onClick={() => { setEditingOrderId(null); setCart([]); setSelectedServerId(''); }} className="ml-2 hover:bg-amber-600 px-2 py-1 rounded">
                 <X className="w-4 h-4" />
               </button>
@@ -1061,16 +1039,16 @@ const sortedOrders = useMemo(() => {
               <label className="block text-sm font-medium text-slate-700 mb-2">Type de commande *</label>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
                 <button onClick={() => setOrderType('DINE_IN')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'DINE_IN' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  ?🍽️ Sur place
+                  ðŸ½ï¸ Sur place
                 </button>
                 <button onClick={() => setOrderType('TAKEAWAY')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'TAKEAWAY' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  ?? � emporter
+                  ðŸ¥¡ Ã€ emporter
                 </button>
                 <button onClick={() => setOrderType('DELIVERY')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'DELIVERY' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  🚚 Livraison
+                  ðŸšš Livraison
                 </button>
                 <button onClick={() => setOrderType('ROOM_SERVICE')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'ROOM_SERVICE' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  🛎️ Chambre
+                  ðŸ›Žï¸ Chambre
                 </button>
               </div>
 
@@ -1084,24 +1062,24 @@ const sortedOrders = useMemo(() => {
                       <option value="">-- Table --</option>
                       {tables.map(t => (
                         <option key={t.id} value={t.id}>
-                          Table {t.number} {t.status === 'OCCUPIED' ? '??' : t.status === 'DIRTY' ? '??' : '??'}
+                          Table {t.number} {t.status === 'OCCUPIED' ? 'ðŸ”´' : t.status === 'DIRTY' ? 'ðŸŸ¡' : 'ðŸŸ¢'}
                         </option>
                       ))}
                     </select>
                   )}
                   {orderType === 'ROOM_SERVICE' && (
                     <select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
-                      <option value="">-- Chambre occup�e --</option>
+                      <option value="">-- Chambre occupÃ©e --</option>
                       {occupiedRooms.map(r => (
                         <option key={r.id} value={r.id}>
-                          Ch. {r.number} � {r.guest_name}
+                          Ch. {r.number} â€” {r.guest_name}
                         </option>
                       ))}
                     </select>
                   )}
                   {(orderType === 'TAKEAWAY' || orderType === 'DELIVERY') && (
                     <div className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-500 text-sm flex items-center gap-2">
-                      {orderType === 'TAKEAWAY' ? '?? � emporter' : '🚚 Livraison'}
+                      {orderType === 'TAKEAWAY' ? 'ðŸ¥¡ Ã€ emporter' : 'ðŸšš Livraison'}
                     </div>
                   )}
                 </div>
@@ -1139,7 +1117,7 @@ const sortedOrders = useMemo(() => {
                     </div>
                   </div>
                   <p className="text-xs text-indigo-700 mt-2">
-                    💡 Cette commande sera ajout�e au folio du client et payable lors du check-out.
+                    ðŸ’¡ Cette commande sera ajoutÃ©e au folio du client et payable lors du check-out.
                   </p>
                 </div>
               )}
@@ -1168,46 +1146,44 @@ const sortedOrders = useMemo(() => {
             <div className="flex-1 overflow-y-auto p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredItems.map(item => {
-  const isOutOfStock = item.stock <= 0;
-  
-  return (
-    <button 
-      key={item.id} 
-      onClick={() => !isOutOfStock && addToCart(item)} 
-      disabled={isOutOfStock}
-      className={`bg-white border rounded-xl p-4 text-left transition-all active:scale-95 relative
-        ${isOutOfStock 
-          ? 'border-red-200 bg-red-50 opacity-70 cursor-not-allowed' 
-          : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
-        }`}
-    >
-      {/* Badge de rupture de stock */}
-      {isOutOfStock && (
-        <div className="absolute top-2 right-2 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded-full">
-          RUPTURE
-        </div>
-      )}
-      
-      <div className="font-semibold text-slate-900 mb-1">{item.name}</div>
-      <div className="text-xs text-slate-500 mb-2">{item.category}</div>
-      <div className="text-lg font-bold text-indigo-600">{Number(item.price).toLocaleString('fr-FR')} F</div>
-      
-      {/* Indicateur de stock */}
-      <div className={`text-xs mt-2 font-medium flex items-center gap-1 ${isOutOfStock ? 'text-red-600' : 'text-emerald-600'}`}>
-        {isOutOfStock ? (
-          <>❌ Indisponible</>
-        ) : (
-          <>✅ Stock: {item.stock}</>
-        )}
-      </div>
-    </button>
-  );
-})}
+                  const isOutOfStock = item.stock <= 0;
+                  
+                  return (
+                    <button 
+                      key={item.id} 
+                      onClick={() => !isOutOfStock && addToCart(item)} 
+                      disabled={isOutOfStock}
+                      className={`bg-white border rounded-xl p-4 text-left transition-all active:scale-95 relative
+                        ${isOutOfStock 
+                          ? 'border-red-200 bg-red-50 opacity-70 cursor-not-allowed' 
+                          : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
+                        }`}
+                    >
+                      {isOutOfStock && (
+                        <div className="absolute top-2 right-2 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded-full">
+                          RUPTURE
+                        </div>
+                      )}
+                      
+                      <div className="font-semibold text-slate-900 mb-1">{item.name}</div>
+                      <div className="text-xs text-slate-500 mb-2">{item.category}</div>
+                      <div className="text-lg font-bold text-indigo-600">{Number(item.price).toLocaleString('fr-FR')} F</div>
+                      
+                      <div className={`text-xs mt-2 font-medium flex items-center gap-1 ${isOutOfStock ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {isOutOfStock ? (
+                          <>âŒ Indisponible</>
+                        ) : (
+                          <>âœ… Stock: {item.stock}</>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
               {filteredItems.length === 0 && (
                 <div className="text-center py-8 text-slate-400">
                   <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>Aucun article ne correspond � votre recherche.</p>
+                  <p>Aucun article ne correspond Ã  votre recherche.</p>
                 </div>
               )}
             </div>
@@ -1221,7 +1197,7 @@ const sortedOrders = useMemo(() => {
                   Panier
                 </span>
                 <span className="text-xs font-medium text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-sm">
-                  {cart.length} type(s) •� {cart.reduce((sum, i) => sum + i.quantity, 0)} qté�
+                  {cart.length} type(s) â€¢ {cart.reduce((sum, i) => sum + i.quantity, 0)} qtÃ©
                 </span>
               </h4>
             </div>
@@ -1262,7 +1238,7 @@ const sortedOrders = useMemo(() => {
                   onClick={handleCommander} 
                   disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
-                  title="�met les bons de cuisine et de bar"
+                  title="Ã‰met les bons de cuisine et de bar"
                 >
                   {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Send className="w-5 h-5" />Commander</>}
                 </button>
@@ -1270,7 +1246,7 @@ const sortedOrders = useMemo(() => {
                   onClick={handleValiderPourCaisse} 
                   disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
-                  title="Valide et envoie � la caisse pour paiement"
+                  title="Valide et envoie Ã  la caisse pour paiement"
                 >
                   {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
                 </button>
@@ -1278,9 +1254,8 @@ const sortedOrders = useMemo(() => {
             </div>
           </div>
         </div>
-            ) : (
+      ) : (
         <>
-          {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
               <div className="text-xs text-slate-500 mb-1">Total commandes</div>
@@ -1291,7 +1266,7 @@ const sortedOrders = useMemo(() => {
               <div className="text-2xl font-bold text-blue-900">{stats.active}</div>
             </div>
             <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4 shadow-sm">
-              <div className="text-xs text-emerald-700 mb-1">Pay�es</div>
+              <div className="text-xs text-emerald-700 mb-1">PayÃ©es</div>
               <div className="text-2xl font-bold text-emerald-900">{stats.paid}</div>
             </div>
             <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4 shadow-sm">
@@ -1300,7 +1275,6 @@ const sortedOrders = useMemo(() => {
             </div>
           </div>
 
-          {/* Onglets Principaux : En cours / Historique */}
           <div className="flex gap-2 border-b border-slate-200 mb-4">
             <button 
               onClick={() => { setMainTab('active'); setViewMode('cards'); setStatusFilter('ALL'); }} 
@@ -1316,7 +1290,6 @@ const sortedOrders = useMemo(() => {
             </button>
           </div>
 
-          {/* Barre de recherche et filtres */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 mb-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -1332,12 +1305,11 @@ const sortedOrders = useMemo(() => {
             {mainTab === 'history' && (
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-sm cursor-pointer">
                 <option value="ALL">Tous les statuts</option>
-                <option value="PAID">?? Pay�e</option>
-                <option value="CANCELLED">? Annul�e</option>
+                <option value="PAID">ðŸ’° PayÃ©e</option>
+                <option value="CANCELLED">âŒ AnnulÃ©e</option>
               </select>
             )}
 
-            {/* S�lecteur de vue : affiché� uniquement pour l'historique pour garder "En cours" strictement en cartes */}
             {mainTab === 'history' && (
               <div className="flex bg-slate-100 rounded-lg p-1">
                 <button
@@ -1356,7 +1328,6 @@ const sortedOrders = useMemo(() => {
             )}
           </div>
 
-          {/* Contenu */}
           {loading ? (
             <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div></div>
           ) : sortedOrders.length === 0 ? (
@@ -1366,7 +1337,7 @@ const sortedOrders = useMemo(() => {
                 Aucune commande {mainTab === 'active' ? 'en cours' : 'dans l\'historique'}
               </h3>
               <p className="text-sm text-slate-500 mt-1">
-                {mainTab === 'active' ? 'Toutes les commandes ont �t� trait�es.' : 'Aucune commande pay�e ou annul�e pour le moment.'}
+                {mainTab === 'active' ? 'Toutes les commandes ont Ã©tÃ© traitÃ©es.' : 'Aucune commande payÃ©e ou annulÃ©e pour le moment.'}
               </p>
             </div>
           ) : (
@@ -1377,7 +1348,7 @@ const sortedOrders = useMemo(() => {
                     const statusConfig = getStatusConfig(order.status);
                     const StatusIcon = statusConfig.icon;
                     const itemsCount = order.restaurant_order_items?.length || 0;
-                    const itemsqtéy = order.restaurant_order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
+                    const itemsQty = order.restaurant_order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
                     const canAdvance = statusConfig.nextStatus !== null;
                     const isFinished = ['PAID', 'CANCELLED'].includes(order.status);
                     const canEdit = !['PAID', 'CANCELLED'].includes(order.status);
@@ -1418,7 +1389,7 @@ const sortedOrders = useMemo(() => {
                             </span>
                             <span className="flex items-center gap-1">
                               <Box className="w-3.5 h-3.5 text-slate-400" />
-                              qté�: {itemsqtéy}
+                              QtÃ©: {itemsQty}
                             </span>
                           </div>
                           {order.restaurant_employees && (
@@ -1447,7 +1418,7 @@ const sortedOrders = useMemo(() => {
                               <button
                                 onClick={() => handleStatusChange(order.id, statusConfig.nextStatus)}
                                 className="p-2 bg-white text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors shadow-sm"
-                                title={`Passer à�: ${getStatusConfig(statusConfig.nextStatus).label}`}
+                                title={`Passer Ã : ${getStatusConfig(statusConfig.nextStatus).label}`}
                               >
                                 <TrendingUp className="w-4 h-4" />
                               </button>
@@ -1455,7 +1426,7 @@ const sortedOrders = useMemo(() => {
                             <button
                               onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }}
                               className="p-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors shadow-sm"
-                              title="Voir les d�tails"
+                              title="Voir les dÃ©tails"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
@@ -1463,7 +1434,7 @@ const sortedOrders = useMemo(() => {
                               <button
                                 onClick={() => openCancelModal(order)}
                                 className="p-2 bg-white text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors shadow-sm"
-                                title="Annuléer"
+                                title="Annuler"
                               >
                                 <Ban className="w-4 h-4" />
                               </button>
@@ -1480,7 +1451,7 @@ const sortedOrders = useMemo(() => {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
-                          <th className="px-6 py-4">N�</th>
+                          <th className="px-6 py-4">NÂ°</th>
                           <th className="px-6 py-4">Lieu</th>
                           <th className="px-6 py-4">Serveur</th>
                           <th className="px-6 py-4">Type</th>
@@ -1496,7 +1467,7 @@ const sortedOrders = useMemo(() => {
                           const statusConfig = getStatusConfig(order.status);
                           const StatusIcon = statusConfig.icon;
                           const itemsCount = order.restaurant_order_items?.length || 0;
-                          const itemsqtéy = order.restaurant_order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
+                          const itemsQty = order.restaurant_order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
                           const canCancel = !['PAID', 'CANCELLED'].includes(order.status);
                           const isFinished = ['PAID', 'CANCELLED'].includes(order.status);
                           const canEdit = !isFinished;
@@ -1514,7 +1485,7 @@ const sortedOrders = useMemo(() => {
                                 {getOrderTypeIcon(order.order_type || 'DINE_IN')} {getOrderTypeLabel(order.order_type || 'DINE_IN')}
                               </td>
                               <td className="px-6 py-4 text-center text-sm text-slate-700">
-                                <span className="font-medium">{itemsqtéy}</span>
+                                <span className="font-medium">{itemsQty}</span>
                                 <span className="text-xs text-slate-500 ml-1">({itemsCount} type(s))</span>
                               </td>
                               <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} F</td>
@@ -1535,12 +1506,12 @@ const sortedOrders = useMemo(() => {
                                   {canEdit && (
                                     <button onClick={() => openEditOrder(order)} className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg" title="Modifier"><Edit className="w-4 h-4" /></button>
                                   )}
-                                  <button onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }} className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="D�tail"><Eye className="w-4 h-4" /></button>
+                                  <button onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }} className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="DÃ©tail"><Eye className="w-4 h-4" /></button>
                                   {statusConfig.nextStatus && (
                                     <button onClick={() => handleStatusChange(order.id, statusConfig.nextStatus)} disabled={isUpdating} className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg disabled:opacity-50" title="Avancer"><TrendingUp className="w-4 h-4" /></button>
                                   )}
                                   {canCancel && (
-                                    <button onClick={() => openCancelModal(order)} className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg" title="Annuléer"><Ban className="w-4 h-4" /></button>
+                                    <button onClick={() => openCancelModal(order)} className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg" title="Annuler"><Ban className="w-4 h-4" /></button>
                                   )}
                                 </div>
                               </td>
@@ -1600,7 +1571,7 @@ const sortedOrders = useMemo(() => {
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-slate-100">
-                        <tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">qté�</th><th className="px-4 py-2 text-center">Destination</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr>
+                        <tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">QtÃ©</th><th className="px-4 py-2 text-center">Destination</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {selectedOrder.restaurant_order_items.map((item) => (
@@ -1612,7 +1583,7 @@ const sortedOrders = useMemo(() => {
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-amber-100 text-amber-800'
                                 }`}>
-                                {item.destination === 'KITCHEN' ? '????? Cuisine' : '?? Bar'}
+                                {item.destination === 'KITCHEN' ? 'ðŸ‘¨â€ðŸ³ Cuisine' : 'ðŸ¹ Bar'}
                               </span>
                             </td>
                             <td className="px-4 py-2 text-right">{Number(item.unit_price).toLocaleString('fr-FR')} F</td>
@@ -1654,42 +1625,41 @@ const sortedOrders = useMemo(() => {
                 </button>
                 {!['PAID', 'CANCELLED'].includes(selectedOrder.status) && (
                   <button onClick={() => { setIsDetailOpen(false); openCancelModal(selectedOrder); }} className="flex-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg transition-colors">
-                    <Ban className="w-4 h-4" />Annuléer
+                    <Ban className="w-4 h-4" />Annuler
                   </button>
                 )}
               </div>
 
               <div className="space-y-3">
-  <h4 className="font-semibold text-slate-900">Changer le statut</h4>
-  <div className="flex flex-wrap gap-2">
-    {/* ✅ MODIFICATION ICI : 'PAID' a �t� retir� du tableau */}
-    {(['SENT', 'PREPARING', 'READY', 'SERVED', 'CANCELLED'] as const).map(status => {
-      const config = getStatusConfig(status);
-      const StatusIcon = config.icon;
-      const isCurrent = selectedOrder.status === status;
-      return (
-        <button 
-          key={status} 
-          onClick={() => handleStatusChange(selectedOrder.id, status)} 
-          disabled={isCurrent || isUpdating} 
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
-            isCurrent 
-              ? `${config.badgeColor} ring-2 ring-offset-2 ring-indigo-500` 
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50'
-          }`}
-        >
-          <StatusIcon className="w-4 h-4" />{config.label}{isCurrent && <CheckCircle className="w-4 h-4" />}
-        </button>
-      );
-    })}
-  </div>
-</div>
+                <h4 className="font-semibold text-slate-900">Changer le statut</h4>
+                <div className="flex flex-wrap gap-2">
+                  {(['SENT', 'PREPARING', 'READY', 'SERVED', 'CANCELLED'] as const).map(status => {
+                    const config = getStatusConfig(status);
+                    const StatusIcon = config.icon;
+                    const isCurrent = selectedOrder.status === status;
+                    return (
+                      <button 
+                        key={status} 
+                        onClick={() => handleStatusChange(selectedOrder.id, status)} 
+                        disabled={isCurrent || isUpdating} 
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
+                          isCurrent 
+                            ? `${config.badgeColor} ring-2 ring-offset-2 ring-indigo-500` 
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50'
+                        }`}
+                      >
+                        <StatusIcon className="w-4 h-4" />{config.label}{isCurrent && <CheckCircle className="w-4 h-4" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {selectedOrder.status === 'CANCELLED' && selectedOrder.cancellation_reason && (
                 <div className="bg-red-50 p-3 rounded-lg border border-red-200 text-sm text-red-900">
                   <div className="font-semibold mb-1 flex items-center gap-1"><Ban className="w-4 h-4" />Motif d'annulation</div>
                   <div>{selectedOrder.cancellation_reason}</div>
-                  {selectedOrder.cancelled_at && <div className="text-xs text-red-700 mt-1">Annul�e le {new Date(selectedOrder.cancelled_at).toLocaleString('fr-FR')}</div>}
+                  {selectedOrder.cancelled_at && <div className="text-xs text-red-700 mt-1">AnnulÃ©e le {new Date(selectedOrder.cancelled_at).toLocaleString('fr-FR')}</div>}
                 </div>
               )}
             </div>
@@ -1701,7 +1671,7 @@ const sortedOrders = useMemo(() => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
             <div className="bg-red-600 text-white px-6 py-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold flex items-center gap-2"><Ban className="w-5 h-5" />Annuléer la commande</h3>
+              <h3 className="text-lg font-bold flex items-center gap-2"><Ban className="w-5 h-5" />Annuler la commande</h3>
               <button onClick={() => { setIsCancelModalOpen(false); setCancelReason(''); }} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
@@ -1711,14 +1681,14 @@ const sortedOrders = useMemo(() => {
               </div>
               <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-sm text-amber-900 flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <div><strong>Attention :</strong> Action irr�versible.</div>
+                <div><strong>Attention :</strong> Action irrÃ©versible.</div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Motif d'annulation *</label>
                 <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-red-500 outline-none" rows={4} placeholder="Ex: Client parti, erreur..." required />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => { setIsCancelModalOpen(false); setCancelReason(''); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg">Annuléer</button>
+                <button onClick={() => { setIsCancelModalOpen(false); setCancelReason(''); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg">Annuler</button>
                 <button onClick={handleCancelOrder} disabled={isCancelling || !cancelReason.trim()} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2">
                   {isCancelling ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Ban className="w-4 h-4" />Confirmer</>}
                 </button>
@@ -1734,7 +1704,7 @@ const sortedOrders = useMemo(() => {
             <div className="bg-amber-600 text-white px-6 py-4 flex items-center justify-between sticky top-0 z-10">
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2">
-                  🍕 Personnaliser votre pizza
+                  ðŸ• Personnaliser votre pizza
                 </h3>
                 <p className="text-sm opacity-90 mt-1">
                   {selectedPizza.name} - {Number(selectedPizza.price).toLocaleString('fr-FR')} F
@@ -1751,7 +1721,7 @@ const sortedOrders = useMemo(() => {
             <div className="p-6 space-y-4">
               <div>
                 <h4 className="font-semibold text-slate-900 mb-3">
-                  ➕ Choisissez vos suppl�ments (optionnel)
+                  âž• Choisissez vos supplÃ©ments (optionnel)
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   {supplements.map(sup => {
@@ -1779,7 +1749,7 @@ const sortedOrders = useMemo(() => {
               {selectedSupplements.length > 0 && (
                 <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
                   <div className="font-semibold text-amber-900 mb-2">
-                    Suppl�ments s�lectionn�s ({selectedSupplements.length})
+                    SupplÃ©ments sÃ©lectionnÃ©s ({selectedSupplements.length})
                   </div>
                   <div className="space-y-1">
                     {selectedSupplements.map(sup => (
@@ -1790,7 +1760,7 @@ const sortedOrders = useMemo(() => {
                     ))}
                   </div>
                   <div className="mt-3 pt-3 border-t border-amber-200 flex justify-between font-bold text-amber-900">
-                    <span>Total avec suppl�ments :</span>
+                    <span>Total avec supplÃ©ments :</span>
                     <span>
                       {Number(
                         selectedPizza.price + 
@@ -1806,7 +1776,7 @@ const sortedOrders = useMemo(() => {
                   onClick={() => setShowSupplementsModal(false)} 
                   className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg"
                 >
-                  Annuléer
+                  Annuler
                 </button>
                 <button 
                   onClick={confirmPizzaWithSupplements}
@@ -1823,7 +1793,3 @@ const sortedOrders = useMemo(() => {
     </div>
   );
 }
-
-// Force rebuild Vercel 11/05/2026 11:35:30
-
-// Rebuild Vercel 20261105-130021
