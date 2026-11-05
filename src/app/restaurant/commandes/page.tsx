@@ -16,7 +16,7 @@ interface MenuItem {
   name: string;
   category: string;
   price: number;
-  stock: number; // ? AJOUTÉ : Niveau de stock
+  stock: number; // ? AJOUTï¿½ : Niveau de stock
   destination?: string;
 }
 
@@ -80,13 +80,13 @@ interface Employee {
 
 const getDestination = (item: { name?: string; category?: string; destination?: string }): string => {
   if (item.destination) return item.destination;
-  const barCategories = ['Boissons', 'Cocktails', 'Vins', 'Bières', 'Softs', 'Cafés', 'Jus'];
+  const barCategories = ['Boissons', 'Cocktails', 'Vins', 'Biï¿½res', 'Softs', 'Cafï¿½s', 'Jus'];
   const name = (item.name || '').toLowerCase();
   const category = (item.category || '').toLowerCase();
 
   if (barCategories.some(cat => category.includes(cat.toLowerCase())) ||
     name.includes('jus') || name.includes('eau') || name.includes('coca') ||
-    name.includes('mojito') || name.includes('bière') || name.includes('vin') ||
+    name.includes('mojito') || name.includes('biï¿½re') || name.includes('vin') ||
     name.includes('sobra') || name.includes('bissap')) {
     return 'BAR';
   }
@@ -129,7 +129,7 @@ export default function CommandesPage() {
   const [selectedSupplements, setSelectedSupplements] = useState<MenuItem[]>([]);
   const [supplements, setSupplements] = useState<MenuItem[]>([]);
   
-  // ? NOUVEAU : Chambres occupées avec infos de séjour (pour type ROOM_SERVICE)
+  // ? NOUVEAU : Chambres occupï¿½es avec infos de sï¿½jour (pour type ROOM_SERVICE)
   const [occupiedRooms, setOccupiedRooms] = useState<any[]>([]);
   const [mainTab, setMainTab] = useState<'active' | 'history'>('active');
 
@@ -152,7 +152,7 @@ export default function CommandesPage() {
       loadMenu();
       loadEmployees();
       loadSupplements();
-      loadOccupiedRooms(); // ? Chargement des chambres occupées
+      loadOccupiedRooms(); // ? Chargement des chambres occupï¿½es
     }
   }, [siteId, editingOrderId]);
 
@@ -161,7 +161,7 @@ export default function CommandesPage() {
       const { data } = await supabase.from('restaurant_employees').select('id, first_name, last_name, role').eq('site_id', siteId).eq('is_active', true).order('first_name', { ascending: true });
       setEmployees(data || []);
     } catch (error) {
-      console.error('Erreur chargement employés:', error);
+      console.error('Erreur chargement employï¿½s:', error);
       setEmployees([]);
     }
   };
@@ -183,7 +183,7 @@ export default function CommandesPage() {
         .order('number', { ascending: true });
 
       if (error) {
-        console.error('Erreur chargement chambres occupées:', error);
+        console.error('Erreur chargement chambres occupï¿½es:', error);
         setOccupiedRooms([]);
         return;
       }
@@ -200,7 +200,7 @@ export default function CommandesPage() {
 
       setOccupiedRooms(formatted);
     } catch (error) {
-      console.error('Erreur chargement chambres occupées:', error);
+      console.error('Erreur chargement chambres occupï¿½es:', error);
       setOccupiedRooms([]);
     }
   };
@@ -279,7 +279,7 @@ export default function CommandesPage() {
 
     // 2. Pour chaque article du menu, calculer le stock disponible
     const menuItemsWithStock = await Promise.all(menuData.map(async (menuItem) => {
-      // Charger les ingrédients de cet article
+      // Charger les ingrï¿½dients de cet article
       const { data: recipes } = await supabase
         .from('item_recipes')
         .select(`
@@ -301,18 +301,18 @@ export default function CommandesPage() {
         };
       }
 
-      // Calculer le stock maximum possible basé sur les ingrédients
+      // Calculer le stock maximum possible basï¿½ sur les ingrï¿½dients
       let maxPossibleStock = Infinity;
 
       for (const recipe of recipes) {
-        // ? CORRECTION : stock_items est un tableau, on prend le premier élément
+        // ? CORRECTION : stock_items est un tableau, on prend le premier ï¿½lï¿½ment
         const currentStock = recipe.stock_items?.[0]?.current_stock || 0;
         const requiredQty = recipe.quantity || 1;
         
-        // Combien de fois on peut produire cet article avec cet ingrédient ?
+        // Combien de fois on peut produire cet article avec cet ingrï¿½dient ?
         const possibleWithThisIngredient = Math.floor(currentStock / requiredQty);
         
-        // Le stock max est limité par l'ingrédient le plus restrictif
+        // Le stock max est limitï¿½ par l'ingrï¿½dient le plus restrictif
         if (possibleWithThisIngredient < maxPossibleStock) {
           maxPossibleStock = possibleWithThisIngredient;
         }
@@ -338,23 +338,23 @@ export default function CommandesPage() {
   try {
     const { data } = await supabase
       .from('restaurant_items')
-      .select('id, name, category:restaurant_categories(name), price, destination, stock') // ? AJOUTÉ 'stock'
+      .select('id, name, category:restaurant_categories(name), price, destination, stock') // ? AJOUTï¿½ 'stock'
       .eq('site_id', siteId)
       .eq('is_available', true)
-      .eq('restaurant_categories.name', 'SUPPLÉMENTS');
+      .eq('restaurant_categories.name', 'SUPPLï¿½MENTS');
     
     if (data && data.length > 0) {
       setSupplements(data.map(item => ({
         id: item.id,
         name: item.name,
-        category: (item as any).category?.name || 'Suppléments',
+        category: (item as any).category?.name || 'Supplï¿½ments',
         price: item.price,
         destination: 'KITCHEN',
-        stock: item.stock || 0 // ? AJOUTÉ
+        stock: item.stock || 0 // ? AJOUTï¿½
       })));
     }
   } catch (error) {
-    console.error('Erreur chargement suppléments:', error);
+    console.error('Erreur chargement supplï¿½ments:', error);
   }
 };
 
@@ -388,7 +388,7 @@ export default function CommandesPage() {
   const getStatusConfig = (status: string, orderType?: string) => {
   switch (status) {
     case 'DRAFT': 
-      // ? Si c'est du room service, on affiche un badge spécifique
+      // ? Si c'est du room service, on affiche un badge spï¿½cifique
       if (orderType === 'ROOM_SERVICE') {
         return { 
           label: 'Brouillon (Folio)', 
@@ -400,13 +400,13 @@ export default function CommandesPage() {
         };
       }
       return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
-    case 'SENT': return { label: 'Envoyée', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
-    case 'PREPARING': return { label: 'En prép.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
-    case 'READY': return { label: 'Prête', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
+    case 'SENT': return { label: 'Envoyï¿½e', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
+    case 'PREPARING': return { label: 'En prï¿½p.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
+    case 'READY': return { label: 'Prï¿½te', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
     // ? MODIFICATION ICI : nextStatus est maintenant null
     case 'SERVED': return { label: 'Servie', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200', cardBg: 'bg-purple-50', cardBorder: 'border-purple-300', icon: Users, nextStatus: null }; 
-    case 'PAID': return { label: 'Payée', badgeColor: 'bg-green-100 text-green-800 border-green-200', cardBg: 'bg-green-50', cardBorder: 'border-green-300', icon: DollarSign, nextStatus: null };
-    case 'CANCELLED': return { label: 'Annulée', badgeColor: 'bg-red-100 text-red-800 border-red-200', cardBg: 'bg-red-50', cardBorder: 'border-red-300', icon: Ban, nextStatus: null };
+    case 'PAID': return { label: 'Payï¿½e', badgeColor: 'bg-green-100 text-green-800 border-green-200', cardBg: 'bg-green-50', cardBorder: 'border-green-300', icon: DollarSign, nextStatus: null };
+    case 'CANCELLED': return { label: 'Annulï¿½e', badgeColor: 'bg-red-100 text-red-800 border-red-200', cardBg: 'bg-red-50', cardBorder: 'border-red-300', icon: Ban, nextStatus: null };
     default: return { label: status, badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: null };
   }
 };
@@ -415,7 +415,7 @@ export default function CommandesPage() {
     const t = type || 'DINE_IN';
     switch (t) {
       case 'DINE_IN': return 'Sur place';
-      case 'TAKEAWAY': return 'À emporter';
+      case 'TAKEAWAY': return 'ï¿½ emporter';
       case 'DELIVERY': return 'Livraison';
       case 'ROOM_SERVICE': return 'Chambre';
       default: return 'Sur place';
@@ -434,9 +434,9 @@ export default function CommandesPage() {
   };
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
-    // ? NOUVEAU : Empêcher le passage direct à PAYÉE depuis cette page
+    // ? NOUVEAU : Empï¿½cher le passage direct ï¿½ PAYï¿½E depuis cette page
   if (newStatus === 'PAID') {
-    alert('?? Impossible de passer une commande en statut "Payée" directement ici.\n\nVeuillez utiliser le module "Caisse" pour encaisser le paiement, imprimer le ticket et libérer la table.');
+    alert('?? Impossible de passer une commande en statut "Payï¿½e" directement ici.\n\nVeuillez utiliser le module "Caisse" pour encaisser le paiement, imprimer le ticket et libï¿½rer la table.');
     return;
   }
     if (!confirm(`Changer le statut vers "${getStatusConfig(newStatus).label}" ?`)) return;
@@ -478,7 +478,7 @@ export default function CommandesPage() {
       setSelectedOrder(null);
       loadOrders();
       loadTables();
-      alert('? Commande annulée.');
+      alert('? Commande annulï¿½e.');
     } catch (error) {
       alert('Erreur lors de l\'annulation.');
     } finally {
@@ -504,7 +504,7 @@ export default function CommandesPage() {
     
     const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
 
-    // 2. Bloquer si on dépasse le stock disponible
+    // 2. Bloquer si on dï¿½passe le stock disponible
     if (currentQty + 1 > item.stock) {
       alert(`?? Stock insuffisant pour : ${item.name}\nDisponible : ${item.stock}`);
       return prev; // On ne modifie pas le panier
@@ -545,7 +545,7 @@ export default function CommandesPage() {
 
   const openEditOrder = (order: RestaurantOrder) => {
     if (['PAID', 'CANCELLED'].includes(order.status)) {
-      alert('Impossible de modifier une commande payée ou annulée.');
+      alert('Impossible de modifier une commande payï¿½e ou annulï¿½e.');
       return;
     }
     setEditingOrderId(order.id);
@@ -563,7 +563,7 @@ export default function CommandesPage() {
       price: item.unit_price,
       quantity: item.quantity,
       destination: item.destination,
-      stock: 0 // ? AJOUTÉ
+      stock: 0 // ? AJOUTï¿½
     })) || [];
 
     setCart(cartItems);
@@ -574,14 +574,14 @@ export default function CommandesPage() {
 
   const handleCommander = async () => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sélectionnez une table.'); return; }
-    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sélectionnez une chambre.'); return; }
-    if (!selectedServerId) { alert('Sélectionnez un serveur.'); return; }
+    if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sï¿½lectionnez une table.'); return; }
+    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sï¿½lectionnez une chambre.'); return; }
+    if (!selectedServerId) { alert('Sï¿½lectionnez un serveur.'); return; }
 
     setIsSubmittingOrder(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      // ? VÉRIFICATION DE SÉCURITÉ DU STOCK AVANT COMMANDE
+      // ? Vï¿½RIFICATION DE Sï¿½CURITï¿½ DU STOCK AVANT COMMANDE
 
       
       if (editingOrderId) {
@@ -624,9 +624,9 @@ export default function CommandesPage() {
           };
           if (kitchenItemsToPrint.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
           if (barItemsToPrint.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-          alert('? Commande mise à jour et bons imprimés !');
+          alert('? Commande mise ï¿½ jour et bons imprimï¿½s !');
         } else {
-          alert('? Commande mise à jour avec succès !');
+          alert('? Commande mise ï¿½ jour avec succï¿½s !');
         }
 
       } else {
@@ -672,10 +672,10 @@ if (orderType === 'ROOM_SERVICE') {
   const stayId = occupiedRoom?.stay_id;
 
   if (stayId) {
-    // 1. Lier la commande au séjour
+    // 1. Lier la commande au sï¿½jour
     await supabase.from('restaurant_orders').update({ stay_id: stayId }).eq('id', order.id);
     
-    // 2. Ajouter au folio de la chambre (pour la réception)
+    // 2. Ajouter au folio de la chambre (pour la rï¿½ception)
     await supabase.from('room_charges').insert({
       site_id: siteId,
       stay_id: stayId,
@@ -691,7 +691,7 @@ if (orderType === 'ROOM_SERVICE') {
       folio_balance: (occupiedRoom?.folio_balance || 0) + totalAmount 
     }).eq('id', stayId);
     
-    // 3. ? IMPRESSION DES BONS (Cuisine / Bar) MÊME SI DRAFT
+    // 3. ? IMPRESSION DES BONS (Cuisine / Bar) Mï¿½ME SI DRAFT
     const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
     const barItems = cart.filter(i => getDestination(i) === 'BAR');
     
@@ -701,7 +701,7 @@ if (orderType === 'ROOM_SERVICE') {
       table_id: null, 
       room_id: selectedRoomId,
       order_type: 'ROOM_SERVICE', 
-      status: 'DRAFT', // ? Reste en brouillon financièrement
+      status: 'DRAFT', // ? Reste en brouillon financiï¿½rement
       total_amount: totalAmount, 
       created_at: new Date().toISOString(),
       restaurant_tables: null,
@@ -712,7 +712,7 @@ if (orderType === 'ROOM_SERVICE') {
         quantity: item.quantity, 
         unit_price: item.price, 
         total_price: item.quantity * item.price, 
-        status: 'PENDING', // ? Les articles sont en attente de préparation en cuisine
+        status: 'PENDING', // ? Les articles sont en attente de prï¿½paration en cuisine
         destination: getDestination(item) 
       }))
     };
@@ -720,7 +720,7 @@ if (orderType === 'ROOM_SERVICE') {
     if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
     if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
     
-    alert(`? Commande ajoutée au folio de la chambre ${occupiedRoom.number} (Statut: Brouillon).\nLes bons cuisine/bar ont été imprimés pour préparation.`);
+    alert(`? Commande ajoutï¿½e au folio de la chambre ${occupiedRoom.number} (Statut: Brouillon).\nLes bons cuisine/bar ont ï¿½tï¿½ imprimï¿½s pour prï¿½paration.`);
   }
 } else {
           const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
@@ -736,11 +736,11 @@ if (orderType === 'ROOM_SERVICE') {
 
           if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
           if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-          alert(`? Commande ${orderNumber} envoyée et bons imprimés !`);
+          alert(`? Commande ${orderNumber} envoyï¿½e et bons imprimï¿½s !`);
         }
       }
 
-      // 5. Réinitialisation des états
+      // 5. Rï¿½initialisation des ï¿½tats
       setCart([]);
       setSelectedTableId('');
       setSelectedRoomId('');
@@ -764,15 +764,15 @@ if (orderType === 'ROOM_SERVICE') {
 
   const handleValiderPourCaisse = async () => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sélectionnez une table.'); return; }
-    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sélectionnez une chambre.'); return; }
+    if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sï¿½lectionnez une table.'); return; }
+    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sï¿½lectionnez une chambre.'); return; }
     if (orderType === 'ROOM_SERVICE') {
-    alert('?? Les commandes en chambre sont réglées directement à la réception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
+    alert('?? Les commandes en chambre sont rï¿½glï¿½es directement ï¿½ la rï¿½ception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
     return;
   }
   if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (!selectedServerId) { alert('Sélectionnez un serveur.'); return; }
-    if (!confirm('Valider cette commande et l\'envoyer à la caisse ?')) return;
+    if (!selectedServerId) { alert('Sï¿½lectionnez un serveur.'); return; }
+    if (!confirm('Valider cette commande et l\'envoyer ï¿½ la caisse ?')) return;
 
     setIsSubmittingOrder(true);
     try {
@@ -790,7 +790,7 @@ if (orderType === 'ROOM_SERVICE') {
         const currentTotal = currentOrder?.total_amount || 0;
         const addedTotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         await supabase.from('restaurant_orders').update({ total_amount: currentTotal + addedTotal, status: 'SERVED' }).eq('id', editingOrderId);
-        alert('? Commande validée et envoyée à la caisse !');
+        alert('? Commande validï¿½e et envoyï¿½e ï¿½ la caisse !');
       } else {
         const orderNumber = `CMD-${Date.now().toString().slice(-6)}`;
         const orderData: any = {
@@ -817,7 +817,7 @@ if (orderType === 'ROOM_SERVICE') {
         if (orderType === 'DINE_IN' && selectedTableId) {
           await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
         }
-        alert(`? Commande ${orderNumber} validée et envoyée à la caisse !`);
+        alert(`? Commande ${orderNumber} validï¿½e et envoyï¿½e ï¿½ la caisse !`);
       }
       setCart([]); 
       setSelectedTableId(''); 
@@ -839,7 +839,7 @@ if (orderType === 'ROOM_SERVICE') {
   const getLocationLabel = (order: RestaurantOrder) => {
     if (order.order_type === 'DINE_IN') return `Table ${order.restaurant_tables?.number || '-'}`;
     if (order.order_type === 'ROOM_SERVICE') return `Ch. ${order.room_number || order.rooms?.number || '-'}`;
-    if (order.order_type === 'TAKEAWAY') return 'À emporter';
+    if (order.order_type === 'TAKEAWAY') return 'ï¿½ emporter';
     if (order.order_type === 'DELIVERY') return 'Livraison';
     return '-';
   };
@@ -862,7 +862,7 @@ if (orderType === 'ROOM_SERVICE') {
       <div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p>
       <p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div>
       <div class="info">
-        <div><span>N°:</span><span>${order.order_number}</span></div>
+        <div><span>Nï¿½:</span><span>${order.order_number}</span></div>
         <div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div>
         <div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}</span></div>
       </div>
@@ -902,13 +902,13 @@ if (orderType === 'ROOM_SERVICE') {
       <div class="header"><h1>????? BON DE CUISINE</h1><p>LA VIDA-LOCA Restaurant</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
-        <div class="info-box"><label>N° Commande</label><strong>${order.order_number}</strong></div>
+        <div class="info-box"><label>Nï¿½ Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></div>
         <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
       <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>
-      <div class="footer"><p><strong>?? À préparer immédiatement</strong></p><p class="timestamp">Imprimé le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
+      <div class="footer"><p><strong>?? ï¿½ prï¿½parer immï¿½diatement</strong></p><p class="timestamp">Imprimï¿½ le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
     `);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
@@ -942,13 +942,13 @@ if (orderType === 'ROOM_SERVICE') {
       <div class="header"><h1>?? BON DE BAR</h1><p>Gentlemen Lounge</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
-        <div class="info-box"><label>N° Commande</label><strong>${order.order_number}</strong></div>
+        <div class="info-box"><label>Nï¿½ Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></div>
         <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
       <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>
-      <div class="footer"><p><strong>?? À préparer immédiatement</strong></p><p class="timestamp">Imprimé le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
+      <div class="footer"><p><strong>?? ï¿½ prï¿½parer immï¿½diatement</strong></p><p class="timestamp">Imprimï¿½ le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
     `);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
@@ -960,17 +960,17 @@ if (orderType === 'ROOM_SERVICE') {
     doc.setFontSize(20); doc.setTextColor(79, 70, 229);
     doc.text('LA VIDA LOCA', 105, 20, { align: 'center' });
     doc.setFontSize(12); doc.setTextColor(100, 100, 100);
-    doc.text('Happiness - Hotel • Resto • Lounge', 105, 28, { align: 'center' });
+    doc.text('Happiness - Hotel ï¿½ Resto ï¿½ Lounge', 105, 28, { align: 'center' });
     doc.setDrawColor(200, 200, 200); doc.line(20, 35, 190, 35);
     doc.setFontSize(10); doc.setTextColor(50, 50, 50);
-    doc.text(`N°: ${order.order_number}`, 20, 45);
+    doc.text(`Nï¿½: ${order.order_number}`, 20, 45);
     doc.text(`Date: ${new Date(order.created_at).toLocaleString('fr-FR')}`, 20, 52);
     doc.text(`Lieu: ${getLocationLabel(order)}`, 20, 59);
     doc.text(`Type: ${getOrderTypeLabel(order.order_type || 'DINE_IN')}`, 20, 66);
     doc.text(`Statut: ${getStatusConfig(order.status).label}`, 20, 73);
     const tableData = items.map(i => [i.item_name, i.quantity.toString(), `${Number(i.unit_price).toLocaleString('fr-FR')} F`, `${Number(i.total_price).toLocaleString('fr-FR')} F`]);
     autoTable(doc, {
-      startY: 80, head: [['Article', 'Qté', 'Prix unit.', 'Total']], body: tableData,
+      startY: 80, head: [['Article', 'Qtï¿½', 'Prix unit.', 'Total']], body: tableData,
       theme: 'striped', headStyles: { fillColor: [79, 70, 229], textColor: 255 },
       styles: { fontSize: 10 },
       columnStyles: { 0: { cellWidth: 80 }, 1: { cellWidth: 30, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' }, 3: { cellWidth: 40, halign: 'right' } }
@@ -1006,7 +1006,7 @@ if (orderType === 'ROOM_SERVICE') {
 
 const sortedOrders = useMemo(() => {
   return [...filteredOrders].sort((a, b) => {
-    // Tri par date de création décroissante
+    // Tri par date de crï¿½ation dï¿½croissante
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 }, [filteredOrders]);
@@ -1049,7 +1049,7 @@ const sortedOrders = useMemo(() => {
           {editingOrderId && (
             <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 bg-amber-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
               <Edit className="w-5 h-5" />
-              <span className="font-semibold">Mode Édition : Commande {orders.find(o => o.id === editingOrderId)?.order_number}</span>
+              <span className="font-semibold">Mode ï¿½dition : Commande {orders.find(o => o.id === editingOrderId)?.order_number}</span>
               <button onClick={() => { setEditingOrderId(null); setCart([]); setSelectedServerId(''); }} className="ml-2 hover:bg-amber-600 px-2 py-1 rounded">
                 <X className="w-4 h-4" />
               </button>
@@ -1064,7 +1064,7 @@ const sortedOrders = useMemo(() => {
                   ??? Sur place
                 </button>
                 <button onClick={() => setOrderType('TAKEAWAY')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'TAKEAWAY' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  ?? À emporter
+                  ?? ï¿½ emporter
                 </button>
                 <button onClick={() => setOrderType('DELIVERY')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'DELIVERY' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
                   ?? Livraison
@@ -1091,17 +1091,17 @@ const sortedOrders = useMemo(() => {
                   )}
                   {orderType === 'ROOM_SERVICE' && (
                     <select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
-                      <option value="">-- Chambre occupée --</option>
+                      <option value="">-- Chambre occupï¿½e --</option>
                       {occupiedRooms.map(r => (
                         <option key={r.id} value={r.id}>
-                          Ch. {r.number} — {r.guest_name}
+                          Ch. {r.number} ï¿½ {r.guest_name}
                         </option>
                       ))}
                     </select>
                   )}
                   {(orderType === 'TAKEAWAY' || orderType === 'DELIVERY') && (
                     <div className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-500 text-sm flex items-center gap-2">
-                      {orderType === 'TAKEAWAY' ? '?? À emporter' : '?? Livraison'}
+                      {orderType === 'TAKEAWAY' ? '?? ï¿½ emporter' : '?? Livraison'}
                     </div>
                   )}
                 </div>
@@ -1139,7 +1139,7 @@ const sortedOrders = useMemo(() => {
                     </div>
                   </div>
                   <p className="text-xs text-indigo-700 mt-2">
-                    ?? Cette commande sera ajoutée au folio du client et payable lors du check-out.
+                    ?? Cette commande sera ajoutï¿½e au folio du client et payable lors du check-out.
                   </p>
                 </div>
               )}
@@ -1207,7 +1207,7 @@ const sortedOrders = useMemo(() => {
               {filteredItems.length === 0 && (
                 <div className="text-center py-8 text-slate-400">
                   <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>Aucun article ne correspond à votre recherche.</p>
+                  <p>Aucun article ne correspond ï¿½ votre recherche.</p>
                 </div>
               )}
             </div>
@@ -1221,7 +1221,7 @@ const sortedOrders = useMemo(() => {
                   Panier
                 </span>
                 <span className="text-xs font-medium text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-sm">
-                  {cart.length} type(s) • {cart.reduce((sum, i) => sum + i.quantity, 0)} qté
+                  {cart.length} type(s) ï¿½ {cart.reduce((sum, i) => sum + i.quantity, 0)} qtï¿½
                 </span>
               </h4>
             </div>
@@ -1262,7 +1262,7 @@ const sortedOrders = useMemo(() => {
                   onClick={handleCommander} 
                   disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
-                  title="Émet les bons de cuisine et de bar"
+                  title="ï¿½met les bons de cuisine et de bar"
                 >
                   {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Send className="w-5 h-5" />Commander</>}
                 </button>
@@ -1270,7 +1270,7 @@ const sortedOrders = useMemo(() => {
                   onClick={handleValiderPourCaisse} 
                   disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
-                  title="Valide et envoie à la caisse pour paiement"
+                  title="Valide et envoie ï¿½ la caisse pour paiement"
                 >
                   {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
                 </button>
@@ -1291,7 +1291,7 @@ const sortedOrders = useMemo(() => {
               <div className="text-2xl font-bold text-blue-900">{stats.active}</div>
             </div>
             <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4 shadow-sm">
-              <div className="text-xs text-emerald-700 mb-1">Payées</div>
+              <div className="text-xs text-emerald-700 mb-1">Payï¿½es</div>
               <div className="text-2xl font-bold text-emerald-900">{stats.paid}</div>
             </div>
             <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4 shadow-sm">
@@ -1332,12 +1332,12 @@ const sortedOrders = useMemo(() => {
             {mainTab === 'history' && (
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-sm cursor-pointer">
                 <option value="ALL">Tous les statuts</option>
-                <option value="PAID">?? Payée</option>
-                <option value="CANCELLED">? Annulée</option>
+                <option value="PAID">?? Payï¿½e</option>
+                <option value="CANCELLED">? Annulï¿½e</option>
               </select>
             )}
 
-            {/* Sélecteur de vue : affiché uniquement pour l'historique pour garder "En cours" strictement en cartes */}
+            {/* Sï¿½lecteur de vue : affichï¿½ uniquement pour l'historique pour garder "En cours" strictement en cartes */}
             {mainTab === 'history' && (
               <div className="flex bg-slate-100 rounded-lg p-1">
                 <button
@@ -1366,7 +1366,7 @@ const sortedOrders = useMemo(() => {
                 Aucune commande {mainTab === 'active' ? 'en cours' : 'dans l\'historique'}
               </h3>
               <p className="text-sm text-slate-500 mt-1">
-                {mainTab === 'active' ? 'Toutes les commandes ont été traitées.' : 'Aucune commande payée ou annulée pour le moment.'}
+                {mainTab === 'active' ? 'Toutes les commandes ont ï¿½tï¿½ traitï¿½es.' : 'Aucune commande payï¿½e ou annulï¿½e pour le moment.'}
               </p>
             </div>
           ) : (
@@ -1418,7 +1418,7 @@ const sortedOrders = useMemo(() => {
                             </span>
                             <span className="flex items-center gap-1">
                               <Box className="w-3.5 h-3.5 text-slate-400" />
-                              Qté: {itemsQty}
+                              Qtï¿½: {itemsQty}
                             </span>
                           </div>
                           {order.restaurant_employees && (
@@ -1447,7 +1447,7 @@ const sortedOrders = useMemo(() => {
                               <button
                                 onClick={() => handleStatusChange(order.id, statusConfig.nextStatus)}
                                 className="p-2 bg-white text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors shadow-sm"
-                                title={`Passer à: ${getStatusConfig(statusConfig.nextStatus).label}`}
+                                title={`Passer ï¿½: ${getStatusConfig(statusConfig.nextStatus).label}`}
                               >
                                 <TrendingUp className="w-4 h-4" />
                               </button>
@@ -1455,7 +1455,7 @@ const sortedOrders = useMemo(() => {
                             <button
                               onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }}
                               className="p-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors shadow-sm"
-                              title="Voir les détails"
+                              title="Voir les dï¿½tails"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
@@ -1480,7 +1480,7 @@ const sortedOrders = useMemo(() => {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
-                          <th className="px-6 py-4">N°</th>
+                          <th className="px-6 py-4">Nï¿½</th>
                           <th className="px-6 py-4">Lieu</th>
                           <th className="px-6 py-4">Serveur</th>
                           <th className="px-6 py-4">Type</th>
@@ -1535,7 +1535,7 @@ const sortedOrders = useMemo(() => {
                                   {canEdit && (
                                     <button onClick={() => openEditOrder(order)} className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg" title="Modifier"><Edit className="w-4 h-4" /></button>
                                   )}
-                                  <button onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }} className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Détail"><Eye className="w-4 h-4" /></button>
+                                  <button onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }} className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Dï¿½tail"><Eye className="w-4 h-4" /></button>
                                   {statusConfig.nextStatus && (
                                     <button onClick={() => handleStatusChange(order.id, statusConfig.nextStatus)} disabled={isUpdating} className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg disabled:opacity-50" title="Avancer"><TrendingUp className="w-4 h-4" /></button>
                                   )}
@@ -1600,7 +1600,7 @@ const sortedOrders = useMemo(() => {
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-slate-100">
-                        <tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">Qté</th><th className="px-4 py-2 text-center">Destination</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr>
+                        <tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">Qtï¿½</th><th className="px-4 py-2 text-center">Destination</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {selectedOrder.restaurant_order_items.map((item) => (
@@ -1662,7 +1662,7 @@ const sortedOrders = useMemo(() => {
               <div className="space-y-3">
   <h4 className="font-semibold text-slate-900">Changer le statut</h4>
   <div className="flex flex-wrap gap-2">
-    {/* ? MODIFICATION ICI : 'PAID' a été retiré du tableau */}
+    {/* ? MODIFICATION ICI : 'PAID' a ï¿½tï¿½ retirï¿½ du tableau */}
     {(['SENT', 'PREPARING', 'READY', 'SERVED', 'CANCELLED'] as const).map(status => {
       const config = getStatusConfig(status);
       const StatusIcon = config.icon;
@@ -1689,7 +1689,7 @@ const sortedOrders = useMemo(() => {
                 <div className="bg-red-50 p-3 rounded-lg border border-red-200 text-sm text-red-900">
                   <div className="font-semibold mb-1 flex items-center gap-1"><Ban className="w-4 h-4" />Motif d'annulation</div>
                   <div>{selectedOrder.cancellation_reason}</div>
-                  {selectedOrder.cancelled_at && <div className="text-xs text-red-700 mt-1">Annulée le {new Date(selectedOrder.cancelled_at).toLocaleString('fr-FR')}</div>}
+                  {selectedOrder.cancelled_at && <div className="text-xs text-red-700 mt-1">Annulï¿½e le {new Date(selectedOrder.cancelled_at).toLocaleString('fr-FR')}</div>}
                 </div>
               )}
             </div>
@@ -1711,7 +1711,7 @@ const sortedOrders = useMemo(() => {
               </div>
               <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-sm text-amber-900 flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <div><strong>Attention :</strong> Action irréversible.</div>
+                <div><strong>Attention :</strong> Action irrï¿½versible.</div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Motif d'annulation *</label>
@@ -1751,7 +1751,7 @@ const sortedOrders = useMemo(() => {
             <div className="p-6 space-y-4">
               <div>
                 <h4 className="font-semibold text-slate-900 mb-3">
-                  ? Choisissez vos suppléments (optionnel)
+                  ? Choisissez vos supplï¿½ments (optionnel)
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   {supplements.map(sup => {
@@ -1779,7 +1779,7 @@ const sortedOrders = useMemo(() => {
               {selectedSupplements.length > 0 && (
                 <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
                   <div className="font-semibold text-amber-900 mb-2">
-                    Suppléments sélectionnés ({selectedSupplements.length})
+                    Supplï¿½ments sï¿½lectionnï¿½s ({selectedSupplements.length})
                   </div>
                   <div className="space-y-1">
                     {selectedSupplements.map(sup => (
@@ -1790,7 +1790,7 @@ const sortedOrders = useMemo(() => {
                     ))}
                   </div>
                   <div className="mt-3 pt-3 border-t border-amber-200 flex justify-between font-bold text-amber-900">
-                    <span>Total avec suppléments :</span>
+                    <span>Total avec supplï¿½ments :</span>
                     <span>
                       {Number(
                         selectedPizza.price + 
