@@ -1,6 +1,5 @@
 //src/app/restaurant/caisse/page.tsx
 'use client';
-
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
