@@ -80,13 +80,13 @@ interface Employee {
 
 const getDestination = (item: { name?: string; category?: string; destination?: string }): string => {
   if (item.destination) return item.destination;
-  const barCategories = ['Boissons', 'Cocktails', 'Vins', 'BiÃ¨res', 'Softs', 'CafÃ©s', 'Jus'];
+  const barCategories = ['Boissons', 'Cocktails', 'Vins', 'BiÃƒÂ¨res', 'Softs', 'CafÃƒÂ©s', 'Jus'];
   const name = (item.name || '').toLowerCase();
   const category = (item.category || '').toLowerCase();
 
   if (barCategories.some(cat => category.includes(cat.toLowerCase())) ||
     name.includes('jus') || name.includes('eau') || name.includes('coca') ||
-    name.includes('mojito') || name.includes('biÃ¨re') || name.includes('vin') ||
+    name.includes('mojito') || name.includes('biÃƒÂ¨re') || name.includes('vin') ||
     name.includes('sobra') || name.includes('bissap')) {
     return 'BAR';
   }
@@ -129,7 +129,7 @@ export default function CommandesPage() {
   const [selectedSupplements, setSelectedSupplements] = useState<MenuItem[]>([]);
   const [supplements, setSupplements] = useState<MenuItem[]>([]);
   
-  // âœ… NOUVEAU : Chambres occupÃ©es avec infos de sÃ©jour (pour type ROOM_SERVICE)
+  // Ã¢Å“â€¦ NOUVEAU : Chambres occupÃƒÂ©es avec infos de sÃƒÂ©jour (pour type ROOM_SERVICE)
   const [occupiedRooms, setOccupiedRooms] = useState<any[]>([]);
   const [mainTab, setMainTab] = useState<'active' | 'history'>('active');
 
@@ -152,7 +152,7 @@ export default function CommandesPage() {
       loadMenu();
       loadEmployees();
       loadSupplements();
-      loadOccupiedRooms(); // âœ… Chargement des chambres occupÃ©es
+      loadOccupiedRooms(); // Ã¢Å“â€¦ Chargement des chambres occupÃƒÂ©es
     }
   }, [siteId, editingOrderId]);
 
@@ -161,7 +161,7 @@ export default function CommandesPage() {
       const { data } = await supabase.from('restaurant_employees').select('id, first_name, last_name, role').eq('site_id', siteId).eq('is_active', true).order('first_name', { ascending: true });
       setEmployees(data || []);
     } catch (error) {
-      console.error('Erreur chargement employÃ©s:', error);
+      console.error('Erreur chargement employÃƒÂ©s:', error);
       setEmployees([]);
     }
   };
@@ -183,7 +183,7 @@ export default function CommandesPage() {
         .order('number', { ascending: true });
 
       if (error) {
-        console.error('Erreur chargement chambres occupÃ©es:', error);
+        console.error('Erreur chargement chambres occupÃƒÂ©es:', error);
         setOccupiedRooms([]);
         return;
       }
@@ -200,7 +200,7 @@ export default function CommandesPage() {
 
       setOccupiedRooms(formatted);
     } catch (error) {
-      console.error('Erreur chargement chambres occupÃ©es:', error);
+      console.error('Erreur chargement chambres occupÃƒÂ©es:', error);
       setOccupiedRooms([]);
     }
   };
@@ -228,7 +228,7 @@ export default function CommandesPage() {
       }
       setOrders(data || []);
     } catch (error: any) {
-      console.error('âŒ Erreur chargement commandes:', error.message);
+      console.error('Ã¢ÂÅ’ Erreur chargement commandes:', error.message);
     } finally {
       setLoading(false);
     }
@@ -300,7 +300,7 @@ export default function CommandesPage() {
         let maxPossibleStock = Infinity;
 
         for (const recipe of recipes) {
-          // âœ… CORRECTION : stock_items est un tableau, on prend le premier Ã©lÃ©ment
+          // Ã¢Å“â€¦ CORRECTION : stock_items est un tableau, on prend le premier ÃƒÂ©lÃƒÂ©ment
           const currentStock = recipe.stock_items?.[0]?.current_stock || 0;
           const requiredQty = recipe.quantity || 1;
           
@@ -334,20 +334,20 @@ export default function CommandesPage() {
         .select('id, name, category:restaurant_categories(name), price, destination, stock')
         .eq('site_id', siteId)
         .eq('is_available', true)
-        .eq('restaurant_categories.name', 'SUPPLÃ‰MENTS');
+        .eq('restaurant_categories.name', 'SUPPLÃƒâ€°MENTS');
       
       if (data && data.length > 0) {
         setSupplements(data.map(item => ({
           id: item.id,
           name: item.name,
-          category: (item as any).category?.name || 'SupplÃ©ments',
+          category: (item as any).category?.name || 'SupplÃƒÂ©ments',
           price: item.price,
           destination: 'KITCHEN',
           stock: item.stock || 0 
         })));
       }
     } catch (error) {
-      console.error('Erreur chargement supplÃ©ments:', error);
+      console.error('Erreur chargement supplÃƒÂ©ments:', error);
     }
   };
 
@@ -392,12 +392,12 @@ export default function CommandesPage() {
           };
         }
         return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
-      case 'SENT': return { label: 'EnvoyÃ©e', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
-      case 'PREPARING': return { label: 'En prÃ©p.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
-      case 'READY': return { label: 'PrÃªte', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
+      case 'SENT': return { label: 'EnvoyÃƒÂ©e', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
+      case 'PREPARING': return { label: 'En prÃƒÂ©p.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
+      case 'READY': return { label: 'PrÃƒÂªte', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
       case 'SERVED': return { label: 'Servie', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200', cardBg: 'bg-purple-50', cardBorder: 'border-purple-300', icon: Users, nextStatus: null }; 
-      case 'PAID': return { label: 'PayÃ©e', badgeColor: 'bg-green-100 text-green-800 border-green-200', cardBg: 'bg-green-50', cardBorder: 'border-green-300', icon: DollarSign, nextStatus: null };
-      case 'CANCELLED': return { label: 'AnnulÃ©e', badgeColor: 'bg-red-100 text-red-800 border-red-200', cardBg: 'bg-red-50', cardBorder: 'border-red-300', icon: Ban, nextStatus: null };
+      case 'PAID': return { label: 'PayÃƒÂ©e', badgeColor: 'bg-green-100 text-green-800 border-green-200', cardBg: 'bg-green-50', cardBorder: 'border-green-300', icon: DollarSign, nextStatus: null };
+      case 'CANCELLED': return { label: 'AnnulÃƒÂ©e', badgeColor: 'bg-red-100 text-red-800 border-red-200', cardBg: 'bg-red-50', cardBorder: 'border-red-300', icon: Ban, nextStatus: null };
       default: return { label: status, badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: null };
     }
   };
@@ -406,7 +406,7 @@ export default function CommandesPage() {
     const t = type || 'DINE_IN';
     switch (t) {
       case 'DINE_IN': return 'Sur place';
-      case 'TAKEAWAY': return 'Ã€ emporter';
+      case 'TAKEAWAY': return 'Ãƒâ‚¬ emporter';
       case 'DELIVERY': return 'Livraison';
       case 'ROOM_SERVICE': return 'Chambre';
       default: return 'Sur place';
@@ -416,17 +416,17 @@ export default function CommandesPage() {
   const getOrderTypeIcon = (type?: string) => {
     const t = type || 'DINE_IN';
     switch (t) {
-      case 'DINE_IN': return 'ðŸ½ï¸';
-      case 'TAKEAWAY': return 'ðŸ¥¡';
-      case 'DELIVERY': return 'ðŸšš';
-      case 'ROOM_SERVICE': return 'ðŸ›Žï¸';
-      default: return 'ðŸ½ï¸';
+      case 'DINE_IN': return 'Ã°Å¸ÂÂ½Ã¯Â¸Â';
+      case 'TAKEAWAY': return 'Ã°Å¸Â¥Â¡';
+      case 'DELIVERY': return 'Ã°Å¸Å¡Å¡';
+      case 'ROOM_SERVICE': return 'Ã°Å¸â€ºÅ½Ã¯Â¸Â';
+      default: return 'Ã°Å¸ÂÂ½Ã¯Â¸Â';
     }
   };
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     if (newStatus === 'PAID') {
-      alert('âš ï¸ Impossible de passer une commande en statut "PayÃ©e" directement ici.\n\nVeuillez utiliser le module "Caisse" pour encaisser le paiement, imprimer le ticket et libÃ©rer la table.');
+      alert('Ã¢Å¡Â Ã¯Â¸Â Impossible de passer une commande en statut "PayÃƒÂ©e" directement ici.\n\nVeuillez utiliser le module "Caisse" pour encaisser le paiement, imprimer le ticket et libÃƒÂ©rer la table.');
       return;
     }
     if (!confirm(`Changer le statut vers "${getStatusConfig(newStatus).label}" ?`)) return;
@@ -468,7 +468,7 @@ export default function CommandesPage() {
       setSelectedOrder(null);
       loadOrders();
       loadTables();
-      alert('âœ… Commande annulÃ©e.');
+      alert('Ã¢Å“â€¦ Commande annulÃƒÂ©e.');
     } catch (error) {
       alert('Erreur lors de l\'annulation.');
     } finally {
@@ -480,7 +480,7 @@ export default function CommandesPage() {
 
   const addToCart = (item: MenuItem) => {
     if (item.stock <= 0) {
-      alert(`âš ï¸ Rupture de stock pour : ${item.name}`);
+      alert(`Ã¢Å¡Â Ã¯Â¸Â Rupture de stock pour : ${item.name}`);
       return;
     }
 
@@ -494,7 +494,7 @@ export default function CommandesPage() {
       const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
 
       if (currentQty + 1 > item.stock) {
-        alert(`âš ï¸ Stock insuffisant pour : ${item.name}\nDisponible : ${item.stock}`);
+        alert(`Ã¢Å¡Â Ã¯Â¸Â Stock insuffisant pour : ${item.name}\nDisponible : ${item.stock}`);
         return prev;
       }
 
@@ -532,7 +532,7 @@ export default function CommandesPage() {
 
   const openEditOrder = (order: RestaurantOrder) => {
     if (['PAID', 'CANCELLED'].includes(order.status)) {
-      alert('Impossible de modifier une commande payÃ©e ou annulÃ©e.');
+      alert('Impossible de modifier une commande payÃƒÂ©e ou annulÃƒÂ©e.');
       return;
     }
     setEditingOrderId(order.id);
@@ -561,9 +561,9 @@ export default function CommandesPage() {
 
   const handleCommander = async () => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (orderType === 'DINE_IN' && !selectedTableId) { alert('SÃ©lectionnez une table.'); return; }
-    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('SÃ©lectionnez une chambre.'); return; }
-    if (!selectedServerId) { alert('SÃ©lectionnez un serveur.'); return; }
+    if (orderType === 'DINE_IN' && !selectedTableId) { alert('SÃƒÂ©lectionnez une table.'); return; }
+    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('SÃƒÂ©lectionnez une chambre.'); return; }
+    if (!selectedServerId) { alert('SÃƒÂ©lectionnez un serveur.'); return; }
 
     setIsSubmittingOrder(true);
     try {
@@ -609,9 +609,9 @@ export default function CommandesPage() {
           };
           if (kitchenItemsToPrint.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
           if (barItemsToPrint.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-          alert('âœ… Commande mise Ã  jour et bons imprimÃ©s !');
+          alert('Ã¢Å“â€¦ Commande mise ÃƒÂ  jour et bons imprimÃƒÂ©s !');
         } else {
-          alert('âœ… Commande mise Ã  jour avec succÃ¨s !');
+          alert('Ã¢Å“â€¦ Commande mise ÃƒÂ  jour avec succÃƒÂ¨s !');
         }
 
       } else {
@@ -620,7 +620,7 @@ export default function CommandesPage() {
           site_id: siteId,
           order_type: orderType,
           order_number: orderNumber,
-          // âœ… MODIFICATION : DRAFT pour chambre, SENT pour le reste
+          // Ã¢Å“â€¦ MODIFICATION : DRAFT pour chambre, SENT pour le reste
           status: orderType === 'ROOM_SERVICE' ? 'DRAFT' : 'SENT', 
           total_amount: totalAmount,
           subtotal: totalAmount,
@@ -651,7 +651,7 @@ export default function CommandesPage() {
           await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
         }
 
-        // âœ… BRANCHEMENT : Facturation sur chambre (ROOM_SERVICE) OU Flux normal
+        // Ã¢Å“â€¦ BRANCHEMENT : Facturation sur chambre (ROOM_SERVICE) OU Flux normal
         if (orderType === 'ROOM_SERVICE' && selectedRoomId && order) {
           const occupiedRoom = occupiedRooms.find(r => r.id === selectedRoomId);
           const stayId = occupiedRoom?.stay_id;
@@ -683,7 +683,7 @@ export default function CommandesPage() {
               table_id: null, 
               room_id: selectedRoomId,
               order_type: 'ROOM_SERVICE', 
-              status: 'DRAFT', // âœ… Reste en brouillon financiÃ¨rement
+              status: 'DRAFT', // Ã¢Å“â€¦ Reste en brouillon financiÃƒÂ¨rement
               total_amount: totalAmount, 
               created_at: new Date().toISOString(),
               restaurant_tables: null,
@@ -694,7 +694,7 @@ export default function CommandesPage() {
                 quantity: item.quantity, 
                 unit_price: item.price, 
                 total_price: item.quantity * item.price, 
-                status: 'PENDING', // âœ… Les articles sont en attente de prÃ©paration en cuisine
+                status: 'PENDING', // Ã¢Å“â€¦ Les articles sont en attente de prÃƒÂ©paration en cuisine
                 destination: getDestination(item) 
               }))
             };
@@ -702,7 +702,7 @@ export default function CommandesPage() {
             if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
             if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
             
-            alert(`âœ… Commande ajoutÃ©e au folio de la chambre ${occupiedRoom.number} (Statut: Brouillon).\nLes bons cuisine/bar ont Ã©tÃ© imprimÃ©s pour prÃ©paration.`);
+            alert(`Ã¢Å“â€¦ Commande ajoutÃƒÂ©e au folio de la chambre ${occupiedRoom.number} (Statut: Brouillon).\nLes bons cuisine/bar ont ÃƒÂ©tÃƒÂ© imprimÃƒÂ©s pour prÃƒÂ©paration.`);
           }
         } else {
           const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
@@ -718,7 +718,7 @@ export default function CommandesPage() {
 
           if (kitchenItems.length > 0) setTimeout(() => handlePrintKitchenBond(tempOrder), 0);
           if (barItems.length > 0) setTimeout(() => handlePrintBarBond(tempOrder), 300);
-          alert(`âœ… Commande ${orderNumber} envoyÃ©e et bons imprimÃ©s !`);
+          alert(`Ã¢Å“â€¦ Commande ${orderNumber} envoyÃƒÂ©e et bons imprimÃƒÂ©s !`);
         }
       }
 
@@ -745,16 +745,16 @@ export default function CommandesPage() {
 
   const handleValiderPourCaisse = async () => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
-    if (orderType === 'DINE_IN' && !selectedTableId) { alert('SÃ©lectionnez une table.'); return; }
-    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('SÃ©lectionnez une chambre.'); return; }
+    if (orderType === 'DINE_IN' && !selectedTableId) { alert('SÃƒÂ©lectionnez une table.'); return; }
+    if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('SÃƒÂ©lectionnez une chambre.'); return; }
     
     if (orderType === 'ROOM_SERVICE') {
-      alert('âš ï¸ Les commandes en chambre sont rÃ©glÃ©es directement Ã  la rÃ©ception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
+      alert('Ã¢Å¡Â Ã¯Â¸Â Les commandes en chambre sont rÃƒÂ©glÃƒÂ©es directement ÃƒÂ  la rÃƒÂ©ception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
       return;
     }
     
-    if (!selectedServerId) { alert('SÃ©lectionnez un serveur.'); return; }
-    if (!confirm('Valider cette commande et l\'envoyer Ã  la caisse ?')) return;
+    if (!selectedServerId) { alert('SÃƒÂ©lectionnez un serveur.'); return; }
+    if (!confirm('Valider cette commande et l\'envoyer ÃƒÂ  la caisse ?')) return;
 
     setIsSubmittingOrder(true);
     try {
@@ -772,7 +772,7 @@ export default function CommandesPage() {
         const currentTotal = currentOrder?.total_amount || 0;
         const addedTotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         await supabase.from('restaurant_orders').update({ total_amount: currentTotal + addedTotal, status: 'SERVED' }).eq('id', editingOrderId);
-        alert('âœ… Commande validÃ©e et envoyÃ©e Ã  la caisse !');
+        alert('Ã¢Å“â€¦ Commande validÃƒÂ©e et envoyÃƒÂ©e ÃƒÂ  la caisse !');
       } else {
         const orderNumber = `CMD-${Date.now().toString().slice(-6)}`;
         const orderData: any = {
@@ -799,7 +799,7 @@ export default function CommandesPage() {
         if (orderType === 'DINE_IN' && selectedTableId) {
           await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
         }
-        alert(`âœ… Commande ${orderNumber} validÃ©e et envoyÃ©e Ã  la caisse !`);
+        alert(`Ã¢Å“â€¦ Commande ${orderNumber} validÃƒÂ©e et envoyÃƒÂ©e ÃƒÂ  la caisse !`);
       }
       setCart([]); 
       setSelectedTableId(''); 
@@ -821,7 +821,7 @@ export default function CommandesPage() {
   const getLocationLabel = (order: RestaurantOrder) => {
     if (order.order_type === 'DINE_IN') return `Table ${order.restaurant_tables?.number || '-'}`;
     if (order.order_type === 'ROOM_SERVICE') return `Ch. ${order.room_number || order.rooms?.number || '-'}`;
-    if (order.order_type === 'TAKEAWAY') return 'Ã€ emporter';
+    if (order.order_type === 'TAKEAWAY') return 'Ãƒâ‚¬ emporter';
     if (order.order_type === 'DELIVERY') return 'Livraison';
     return '-';
   };
@@ -844,7 +844,7 @@ export default function CommandesPage() {
       <div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p>
       <p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div>
       <div class="info">
-        <div><span>NÂ°:</span><span>${order.order_number}</span></div>
+        <div><span>NÃ‚Â°:</span><span>${order.order_number}</span></div>
         <div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div>
         <div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}</span></div>
       </div>
@@ -881,16 +881,16 @@ export default function CommandesPage() {
       .footer{text-align:center;color:#6b7280;font-size:12px;margin-top:20px;}
       .timestamp{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;}
       @media print{body{padding:10px;}}</style></head><body>
-      <div class="header"><h1>ðŸ‘¨â€ðŸ³ BON DE CUISINE</h1><p>LA VIDA-LOCA Restaurant</p></div>
+      <div class="header"><h1>Ã°Å¸â€˜Â¨Ã¢â‚¬ÂÃ°Å¸ÂÂ³ BON DE CUISINE</h1><p>LA VIDA-LOCA Restaurant</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
-        <div class="info-box"><label>NÂ° Commande</label><strong>${order.order_number}</strong></div>
+        <div class="info-box"><label>NÃ‚Â° Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></div>
         <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
       <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>
-      <div class="footer"><p><strong>âš ï¸ Ã€ prÃ©parer immÃ©diatement</strong></p><p class="timestamp">ImprimÃ© le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
+      <div class="footer"><p><strong>Ã¢Å¡Â Ã¯Â¸Â Ãƒâ‚¬ prÃƒÂ©parer immÃƒÂ©diatement</strong></p><p class="timestamp">ImprimÃƒÂ© le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
     `);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
@@ -921,16 +921,16 @@ export default function CommandesPage() {
       .footer{text-align:center;color:#6b7280;font-size:12px;margin-top:20px;}
       .timestamp{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px;}
       @media print{body{padding:10px;}}</style></head><body>
-      <div class="header"><h1>ðŸ¹ BON DE BAR</h1><p>Gentlemen Lounge</p></div>
+      <div class="header"><h1>Ã°Å¸ÂÂ¹ BON DE BAR</h1><p>Gentlemen Lounge</p></div>
       <div class="location"><strong>${location}</strong></div>
       <div class="info">
-        <div class="info-box"><label>NÂ° Commande</label><strong>${order.order_number}</strong></div>
+        <div class="info-box"><label>NÃ‚Â° Commande</label><strong>${order.order_number}</strong></div>
         <div class="info-box"><label>Heure</label><strong>${new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></div>
         <div class="info-box"><label>Type</label><strong>${getOrderTypeIcon(order.order_type || 'DINE_IN')} ${getOrderTypeLabel(order.order_type || 'DINE_IN')}</strong></div>
         <div class="info-box"><label>Articles</label><strong>${items.length}</strong></div>
       </div>
       <div class="items">${items.map(i => `<div class="item"><span class="item-name">${i.item_name}</span><span class="item-qty">x${i.quantity}</span></div>`).join('')}</div>
-      <div class="footer"><p><strong>âš ï¸ Ã€ prÃ©parer immÃ©diatement</strong></p><p class="timestamp">ImprimÃ© le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
+      <div class="footer"><p><strong>Ã¢Å¡Â Ã¯Â¸Â Ãƒâ‚¬ prÃƒÂ©parer immÃƒÂ©diatement</strong></p><p class="timestamp">ImprimÃƒÂ© le ${new Date().toLocaleString('fr-FR')}</p></div></body></html>
     `);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
@@ -942,17 +942,17 @@ export default function CommandesPage() {
     doc.setFontSize(20); doc.setTextColor(79, 70, 229);
     doc.text('LA VIDA LOCA', 105, 20, { align: 'center' });
     doc.setFontSize(12); doc.setTextColor(100, 100, 100);
-    doc.text('Happiness - Hotel â€¢ Resto â€¢ Lounge', 105, 28, { align: 'center' });
+    doc.text('Happiness - Hotel Ã¢â‚¬Â¢ Resto Ã¢â‚¬Â¢ Lounge', 105, 28, { align: 'center' });
     doc.setDrawColor(200, 200, 200); doc.line(20, 35, 190, 35);
     doc.setFontSize(10); doc.setTextColor(50, 50, 50);
-    doc.text(`NÂ°: ${order.order_number}`, 20, 45);
+    doc.text(`NÃ‚Â°: ${order.order_number}`, 20, 45);
     doc.text(`Date: ${new Date(order.created_at).toLocaleString('fr-FR')}`, 20, 52);
     doc.text(`Lieu: ${getLocationLabel(order)}`, 20, 59);
     doc.text(`Type: ${getOrderTypeLabel(order.order_type || 'DINE_IN')}`, 20, 66);
     doc.text(`Statut: ${getStatusConfig(order.status).label}`, 20, 73);
     const tableData = items.map(i => [i.item_name, i.quantity.toString(), `${Number(i.unit_price).toLocaleString('fr-FR')} F`, `${Number(i.total_price).toLocaleString('fr-FR')} F`]);
     autoTable(doc, {
-      startY: 80, head: [['Article', 'QtÃ©', 'Prix unit.', 'Total']], body: tableData,
+      startY: 80, head: [['Article', 'QtÃƒÂ©', 'Prix unit.', 'Total']], body: tableData,
       theme: 'striped', headStyles: { fillColor: [79, 70, 229], textColor: 255 },
       styles: { fontSize: 10 },
       columnStyles: { 0: { cellWidth: 80 }, 1: { cellWidth: 30, halign: 'center' }, 2: { cellWidth: 40, halign: 'right' }, 3: { cellWidth: 40, halign: 'right' } }
@@ -1027,7 +1027,7 @@ export default function CommandesPage() {
           {editingOrderId && (
             <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-40 bg-amber-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3">
               <Edit className="w-5 h-5" />
-              <span className="font-semibold">Mode Ã‰dition : Commande {orders.find(o => o.id === editingOrderId)?.order_number}</span>
+              <span className="font-semibold">Mode Ãƒâ€°dition : Commande {orders.find(o => o.id === editingOrderId)?.order_number}</span>
               <button onClick={() => { setEditingOrderId(null); setCart([]); setSelectedServerId(''); }} className="ml-2 hover:bg-amber-600 px-2 py-1 rounded">
                 <X className="w-4 h-4" />
               </button>
@@ -1039,16 +1039,16 @@ export default function CommandesPage() {
               <label className="block text-sm font-medium text-slate-700 mb-2">Type de commande *</label>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
                 <button onClick={() => setOrderType('DINE_IN')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'DINE_IN' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  ðŸ½ï¸ Sur place
+                  Ã°Å¸ÂÂ½Ã¯Â¸Â Sur place
                 </button>
                 <button onClick={() => setOrderType('TAKEAWAY')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'TAKEAWAY' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  ðŸ¥¡ Ã€ emporter
+                  Ã°Å¸Â¥Â¡ Ãƒâ‚¬ emporter
                 </button>
                 <button onClick={() => setOrderType('DELIVERY')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'DELIVERY' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  ðŸšš Livraison
+                  Ã°Å¸Å¡Å¡ Livraison
                 </button>
                 <button onClick={() => setOrderType('ROOM_SERVICE')} className={`py-2 px-3 rounded-lg font-medium text-sm transition-colors ${orderType === 'ROOM_SERVICE' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-                  ðŸ›Žï¸ Chambre
+                  Ã°Å¸â€ºÅ½Ã¯Â¸Â Chambre
                 </button>
               </div>
 
@@ -1062,24 +1062,24 @@ export default function CommandesPage() {
                       <option value="">-- Table --</option>
                       {tables.map(t => (
                         <option key={t.id} value={t.id}>
-                          Table {t.number} {t.status === 'OCCUPIED' ? 'ðŸ”´' : t.status === 'DIRTY' ? 'ðŸŸ¡' : 'ðŸŸ¢'}
+                          Table {t.number} {t.status === 'OCCUPIED' ? 'Ã°Å¸â€Â´' : t.status === 'DIRTY' ? 'Ã°Å¸Å¸Â¡' : 'Ã°Å¸Å¸Â¢'}
                         </option>
                       ))}
                     </select>
                   )}
                   {orderType === 'ROOM_SERVICE' && (
                     <select value={selectedRoomId} onChange={(e) => setSelectedRoomId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-sm">
-                      <option value="">-- Chambre occupÃ©e --</option>
+                      <option value="">-- Chambre occupÃƒÂ©e --</option>
                       {occupiedRooms.map(r => (
                         <option key={r.id} value={r.id}>
-                          Ch. {r.number} â€” {r.guest_name}
+                          Ch. {r.number} Ã¢â‚¬â€ {r.guest_name}
                         </option>
                       ))}
                     </select>
                   )}
                   {(orderType === 'TAKEAWAY' || orderType === 'DELIVERY') && (
                     <div className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-500 text-sm flex items-center gap-2">
-                      {orderType === 'TAKEAWAY' ? 'ðŸ¥¡ Ã€ emporter' : 'ðŸšš Livraison'}
+                      {orderType === 'TAKEAWAY' ? 'Ã°Å¸Â¥Â¡ Ãƒâ‚¬ emporter' : 'Ã°Å¸Å¡Å¡ Livraison'}
                     </div>
                   )}
                 </div>
@@ -1117,7 +1117,7 @@ export default function CommandesPage() {
                     </div>
                   </div>
                   <p className="text-xs text-indigo-700 mt-2">
-                    ðŸ’¡ Cette commande sera ajoutÃ©e au folio du client et payable lors du check-out.
+                    Ã°Å¸â€™Â¡ Cette commande sera ajoutÃƒÂ©e au folio du client et payable lors du check-out.
                   </p>
                 </div>
               )}
@@ -1171,9 +1171,9 @@ export default function CommandesPage() {
                       
                       <div className={`text-xs mt-2 font-medium flex items-center gap-1 ${isOutOfStock ? 'text-red-600' : 'text-emerald-600'}`}>
                         {isOutOfStock ? (
-                          <>âŒ Indisponible</>
+                          <>Ã¢ÂÅ’ Indisponible</>
                         ) : (
-                          <>âœ… Stock: {item.stock}</>
+                          <>Ã¢Å“â€¦ Stock: {item.stock}</>
                         )}
                       </div>
                     </button>
@@ -1183,7 +1183,7 @@ export default function CommandesPage() {
               {filteredItems.length === 0 && (
                 <div className="text-center py-8 text-slate-400">
                   <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>Aucun article ne correspond Ã  votre recherche.</p>
+                  <p>Aucun article ne correspond ÃƒÂ  votre recherche.</p>
                 </div>
               )}
             </div>
@@ -1197,7 +1197,7 @@ export default function CommandesPage() {
                   Panier
                 </span>
                 <span className="text-xs font-medium text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-sm">
-                  {cart.length} type(s) â€¢ {cart.reduce((sum, i) => sum + i.quantity, 0)} qtÃ©
+                  {cart.length} type(s) Ã¢â‚¬Â¢ {cart.reduce((sum, i) => sum + i.quantity, 0)} qtÃƒÂ©
                 </span>
               </h4>
             </div>
@@ -1238,7 +1238,7 @@ export default function CommandesPage() {
                   onClick={handleCommander} 
                   disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
-                  title="Ã‰met les bons de cuisine et de bar"
+                  title="Ãƒâ€°met les bons de cuisine et de bar"
                 >
                   {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Send className="w-5 h-5" />Commander</>}
                 </button>
@@ -1246,7 +1246,7 @@ export default function CommandesPage() {
                   onClick={handleValiderPourCaisse} 
                   disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
                   className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
-                  title="Valide et envoie Ã  la caisse pour paiement"
+                  title="Valide et envoie ÃƒÂ  la caisse pour paiement"
                 >
                   {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
                 </button>
@@ -1266,7 +1266,7 @@ export default function CommandesPage() {
               <div className="text-2xl font-bold text-blue-900">{stats.active}</div>
             </div>
             <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4 shadow-sm">
-              <div className="text-xs text-emerald-700 mb-1">PayÃ©es</div>
+              <div className="text-xs text-emerald-700 mb-1">PayÃƒÂ©es</div>
               <div className="text-2xl font-bold text-emerald-900">{stats.paid}</div>
             </div>
             <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4 shadow-sm">
@@ -1305,8 +1305,8 @@ export default function CommandesPage() {
             {mainTab === 'history' && (
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-sm cursor-pointer">
                 <option value="ALL">Tous les statuts</option>
-                <option value="PAID">ðŸ’° PayÃ©e</option>
-                <option value="CANCELLED">âŒ AnnulÃ©e</option>
+                <option value="PAID">Ã°Å¸â€™Â° PayÃƒÂ©e</option>
+                <option value="CANCELLED">Ã¢ÂÅ’ AnnulÃƒÂ©e</option>
               </select>
             )}
 
@@ -1337,7 +1337,7 @@ export default function CommandesPage() {
                 Aucune commande {mainTab === 'active' ? 'en cours' : 'dans l\'historique'}
               </h3>
               <p className="text-sm text-slate-500 mt-1">
-                {mainTab === 'active' ? 'Toutes les commandes ont Ã©tÃ© traitÃ©es.' : 'Aucune commande payÃ©e ou annulÃ©e pour le moment.'}
+                {mainTab === 'active' ? 'Toutes les commandes ont ÃƒÂ©tÃƒÂ© traitÃƒÂ©es.' : 'Aucune commande payÃƒÂ©e ou annulÃƒÂ©e pour le moment.'}
               </p>
             </div>
           ) : (
@@ -1389,7 +1389,7 @@ export default function CommandesPage() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Box className="w-3.5 h-3.5 text-slate-400" />
-                              QtÃ©: {itemsQty}
+                              QtÃƒÂ©: {itemsQty}
                             </span>
                           </div>
                           {order.restaurant_employees && (
@@ -1418,7 +1418,7 @@ export default function CommandesPage() {
                               <button
                                 onClick={() => handleStatusChange(order.id, statusConfig.nextStatus)}
                                 className="p-2 bg-white text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors shadow-sm"
-                                title={`Passer Ã : ${getStatusConfig(statusConfig.nextStatus).label}`}
+                                title={`Passer ÃƒÂ : ${getStatusConfig(statusConfig.nextStatus).label}`}
                               >
                                 <TrendingUp className="w-4 h-4" />
                               </button>
@@ -1426,7 +1426,7 @@ export default function CommandesPage() {
                             <button
                               onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }}
                               className="p-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors shadow-sm"
-                              title="Voir les dÃ©tails"
+                              title="Voir les dÃƒÂ©tails"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
@@ -1451,7 +1451,7 @@ export default function CommandesPage() {
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
-                          <th className="px-6 py-4">NÂ°</th>
+                          <th className="px-6 py-4">NÃ‚Â°</th>
                           <th className="px-6 py-4">Lieu</th>
                           <th className="px-6 py-4">Serveur</th>
                           <th className="px-6 py-4">Type</th>
@@ -1506,7 +1506,7 @@ export default function CommandesPage() {
                                   {canEdit && (
                                     <button onClick={() => openEditOrder(order)} className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg" title="Modifier"><Edit className="w-4 h-4" /></button>
                                   )}
-                                  <button onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }} className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="DÃ©tail"><Eye className="w-4 h-4" /></button>
+                                  <button onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }} className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="DÃƒÂ©tail"><Eye className="w-4 h-4" /></button>
                                   {statusConfig.nextStatus && (
                                     <button onClick={() => handleStatusChange(order.id, statusConfig.nextStatus)} disabled={isUpdating} className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg disabled:opacity-50" title="Avancer"><TrendingUp className="w-4 h-4" /></button>
                                   )}
@@ -1571,7 +1571,7 @@ export default function CommandesPage() {
                   <div className="border border-slate-200 rounded-lg overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-slate-100">
-                        <tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">QtÃ©</th><th className="px-4 py-2 text-center">Destination</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr>
+                        <tr><th className="px-4 py-2 text-left">Article</th><th className="px-4 py-2 text-center">QtÃƒÂ©</th><th className="px-4 py-2 text-center">Destination</th><th className="px-4 py-2 text-right">Prix unit.</th><th className="px-4 py-2 text-right">Total</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {selectedOrder.restaurant_order_items.map((item) => (
@@ -1583,7 +1583,7 @@ export default function CommandesPage() {
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-amber-100 text-amber-800'
                                 }`}>
-                                {item.destination === 'KITCHEN' ? 'ðŸ‘¨â€ðŸ³ Cuisine' : 'ðŸ¹ Bar'}
+                                {item.destination === 'KITCHEN' ? 'Ã°Å¸â€˜Â¨Ã¢â‚¬ÂÃ°Å¸ÂÂ³ Cuisine' : 'Ã°Å¸ÂÂ¹ Bar'}
                               </span>
                             </td>
                             <td className="px-4 py-2 text-right">{Number(item.unit_price).toLocaleString('fr-FR')} F</td>
@@ -1659,7 +1659,7 @@ export default function CommandesPage() {
                 <div className="bg-red-50 p-3 rounded-lg border border-red-200 text-sm text-red-900">
                   <div className="font-semibold mb-1 flex items-center gap-1"><Ban className="w-4 h-4" />Motif d'annulation</div>
                   <div>{selectedOrder.cancellation_reason}</div>
-                  {selectedOrder.cancelled_at && <div className="text-xs text-red-700 mt-1">AnnulÃ©e le {new Date(selectedOrder.cancelled_at).toLocaleString('fr-FR')}</div>}
+                  {selectedOrder.cancelled_at && <div className="text-xs text-red-700 mt-1">AnnulÃƒÂ©e le {new Date(selectedOrder.cancelled_at).toLocaleString('fr-FR')}</div>}
                 </div>
               )}
             </div>
@@ -1681,7 +1681,7 @@ export default function CommandesPage() {
               </div>
               <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-sm text-amber-900 flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <div><strong>Attention :</strong> Action irrÃ©versible.</div>
+                <div><strong>Attention :</strong> Action irrÃƒÂ©versible.</div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Motif d'annulation *</label>
@@ -1704,7 +1704,7 @@ export default function CommandesPage() {
             <div className="bg-amber-600 text-white px-6 py-4 flex items-center justify-between sticky top-0 z-10">
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2">
-                  ðŸ• Personnaliser votre pizza
+                  Ã°Å¸Ââ€¢ Personnaliser votre pizza
                 </h3>
                 <p className="text-sm opacity-90 mt-1">
                   {selectedPizza.name} - {Number(selectedPizza.price).toLocaleString('fr-FR')} F
@@ -1721,7 +1721,7 @@ export default function CommandesPage() {
             <div className="p-6 space-y-4">
               <div>
                 <h4 className="font-semibold text-slate-900 mb-3">
-                  âž• Choisissez vos supplÃ©ments (optionnel)
+                  Ã¢Å¾â€¢ Choisissez vos supplÃƒÂ©ments (optionnel)
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   {supplements.map(sup => {
@@ -1749,7 +1749,7 @@ export default function CommandesPage() {
               {selectedSupplements.length > 0 && (
                 <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
                   <div className="font-semibold text-amber-900 mb-2">
-                    SupplÃ©ments sÃ©lectionnÃ©s ({selectedSupplements.length})
+                    SupplÃƒÂ©ments sÃƒÂ©lectionnÃƒÂ©s ({selectedSupplements.length})
                   </div>
                   <div className="space-y-1">
                     {selectedSupplements.map(sup => (
@@ -1760,7 +1760,7 @@ export default function CommandesPage() {
                     ))}
                   </div>
                   <div className="mt-3 pt-3 border-t border-amber-200 flex justify-between font-bold text-amber-900">
-                    <span>Total avec supplÃ©ments :</span>
+                    <span>Total avec supplÃƒÂ©ments :</span>
                     <span>
                       {Number(
                         selectedPizza.price + 
