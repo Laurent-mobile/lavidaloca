@@ -221,6 +221,7 @@ const loadSessionExpenses = async () => {
         restaurant_order_items(item_name, quantity, unit_price, total_price)`)
       .eq('site_id', siteId)
       .in('status', ['DRAFT','SENT','PREPARING','READY','SERVED'])
+      .neq('order_type', 'ROOM_SERVICE')
       .order('created_at', { ascending: false });
     setOrders(o || []);
 
@@ -274,9 +275,16 @@ const loadSessionExpenses = async () => {
 
   const pay = async () => {
     if (!selected || !session) return;
-    if (method === 'CASH' && (Number(received) || 0) < total) {
-      setError('Le montant reçu est inférieur au total.'); return;
-    }
+    
+    // ✅ BLOQUER LES COMMANDES CHAMBRE
+  if (selected.order_type === 'ROOM_SERVICE') {
+    setError('⚠️ Cette commande est facturée au folio de la chambre.\n\nLe paiement se fait lors du check-out à la réception.\n\nNe pas encaisser individuellement en caisse !');
+    return;
+  }
+  
+  if (method === 'CASH' && (Number(received) || 0) < total) {
+    setError('Le montant reçu est inférieur au total.'); return;
+  }
     // ✅ NOUVEAU : Validation obligatoire pour ROOM_CHARGE
     if (method === 'ROOM_CHARGE' && !selectedStayId) {
       setError('Veuillez sélectionner la chambre à facturer.'); return;
@@ -426,19 +434,51 @@ await loadAll(); setBusy(false);
             </div>
             <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
               {filtered.length === 0 && <p className="p-8 text-center text-sm text-slate-400">Aucune commande à encaisser.</p>}
-              {filtered.map(o => (
-                <button key={o.id} onClick={()=>{setSelected(o);setReceived('');setError('');setSelectedStayId('');}}
-                  className={`w-full text-left p-4 hover:bg-slate-50 flex justify-between items-center ${selected?.id===o.id?'bg-emerald-50 border-l-4 border-emerald-600':''}`}>
-                  <div>
-                    <div className="font-bold text-slate-900">{o.order_number}</div>
-                    <div className="text-xs text-slate-500">{locationLabel(o)} · {o.restaurant_order_items?.length || 0} article(s)</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-emerald-700">{money(o.total_amount)} F</div>
-                    <div className="text-[10px] text-slate-400">{o.status}</div>
-                  </div>
-                </button>
-              ))}
+                {filtered.map(o => {
+  const isRoomService = o.order_type === 'ROOM_SERVICE';
+  return (
+    <button 
+      key={o.id} 
+      onClick={() => {
+        if (isRoomService) {
+          setError('⚠️ Commande chambre - Ne pas encaisser ici');
+          return;
+        }
+        setSelected(o);
+        setReceived('');
+        setError('');
+        setSelectedStayId('');
+      }}
+      disabled={isRoomService} // ✅ Désactiver le bouton
+      className={`w-full text-left p-4 hover:bg-slate-50 flex justify-between items-center 
+        ${selected?.id===o.id?'bg-emerald-50 border-l-4 border-emerald-600':''}
+        ${isRoomService ? 'opacity-50 cursor-not-allowed bg-purple-50/30' : ''}`}
+    >
+      <div>
+        <div className="font-bold text-slate-900 flex items-center gap-2">
+          {o.order_number}
+          {isRoomService && (
+            <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+              🏨 Folio
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-slate-500">
+          {locationLabel(o)} · {o.restaurant_order_items?.length || 0} article(s)
+        </div>
+        {isRoomService && (
+          <div className="text-[10px] text-purple-600 mt-1">
+            💳 Facturé au folio - Check-out réception
+          </div>
+        )}
+      </div>
+      <div className="text-right">
+        <div className="font-bold text-emerald-700">{money(o.total_amount)} F</div>
+        <div className="text-[10px] text-slate-400">{o.status}</div>
+      </div>
+    </button>
+  );
+})}
             </div>
           </div>
 
