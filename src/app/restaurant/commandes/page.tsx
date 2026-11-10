@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { 
-  ClipboardList, Search, Eye, X, Clock, ChefHat, 
+import {
+  ClipboardList, Search, Eye, X, Clock, ChefHat,
   CheckCircle, Truck, DollarSign, Users, AlertCircle,
-  TrendingUp, Calendar, Printer, FileDown, Ban, Plus, Minus, 
+  TrendingUp, Calendar, Printer, FileDown, Ban, Plus, Minus,
   ShoppingCart, Wine, LayoutGrid, List, Bed, Edit, Send, CreditCard, Box
 } from 'lucide-react';
 import jsPDF from 'jspdf';
@@ -18,7 +18,7 @@ interface MenuItem {
   name: string;
   category: string;
   price: number;
-  stock: number; 
+  stock: number;
   destination?: string;
 }
 
@@ -130,7 +130,7 @@ export default function CommandesPage() {
   const [selectedPizza, setSelectedPizza] = useState<MenuItem | null>(null);
   const [selectedSupplements, setSelectedSupplements] = useState<MenuItem[]>([]);
   const [supplements, setSupplements] = useState<MenuItem[]>([]);
-  
+
   const [occupiedRooms, setOccupiedRooms] = useState<any[]>([]);
   const [mainTab, setMainTab] = useState<'active' | 'history'>('active');
 
@@ -188,7 +188,7 @@ export default function CommandesPage() {
         number: room.number,
         stay_id: room.stays?.[0]?.id,
         folio_balance: room.stays?.[0]?.folio_balance || 0,
-        guest_name: room.stays?.[0]?.customers 
+        guest_name: room.stays?.[0]?.customers
           ? `${room.stays[0].customers.first_name || ''} ${room.stays[0].customers.last_name || ''}`.trim()
           : 'Client inconnu'
       }));
@@ -249,8 +249,9 @@ export default function CommandesPage() {
     }
   };
 
-  const loadMenu = async () => {
+      const loadMenu = async () => {
     try {
+      // 1. Charger tous les articles du menu disponibles
       const { data: menuData, error: menuError } = await supabase
         .from('restaurant_items')
         .select(`id, name, restaurant_categories(name), price, destination, is_available`)
@@ -264,13 +265,34 @@ export default function CommandesPage() {
         return;
       }
 
-      const menuItemsWithStock = await Promise.all(menuData.map(async (menuItem) => {
-        const { data: recipes } = await supabase
-          .from('item_recipes')
-          .select(`stock_item_id, quantity, stock_items(current_stock, unit)`)
-          .eq('menu_item_id', menuItem.id);
+      // 2. Charger TOUTES les fiches techniques du site
+      const { data: allRecipes } = await supabase
+        .from('item_recipes')
+        .select('menu_item_id, stock_item_id, quantity')
+        .eq('site_id', siteId);
 
-        if (!recipes || recipes.length === 0) {
+      // 3. Charger TOUS les articles de stock avec leur stock actuel
+      const { data: allStockItems } = await supabase
+        .from('stock_items')
+        .select('id, name, current_stock, unit')
+        .eq('site_id', siteId);
+
+      // 4. Créer un map pour accès rapide aux stocks
+      const stockMap = new Map();
+      allStockItems?.forEach(stock => {
+        stockMap.set(stock.id, {
+          current_stock: stock.current_stock || 0,
+          unit: stock.unit
+        });
+      });
+
+      // 5. Calculer le stock pour chaque article du menu
+      const menuItemsWithStock = menuData.map(menuItem => {
+        // Trouver toutes les recettes pour cet article
+        const itemRecipes = allRecipes?.filter(r => r.menu_item_id === menuItem.id) || [];
+
+        // Si pas de fiche technique, stock = 0 (indisponible)
+        if (itemRecipes.length === 0) {
           return {
             id: menuItem.id,
             name: menuItem.name,
@@ -281,14 +303,31 @@ export default function CommandesPage() {
           };
         }
 
+        // Calculer le stock maximum possible basé sur les ingrédients
         let maxPossibleStock = Infinity;
-        for (const recipe of recipes) {
-          const currentStock = recipe.stock_items?.[0]?.current_stock || 0;
+        let hasValidStock = true;
+
+        for (const recipe of itemRecipes) {
+          const stockInfo = stockMap.get(recipe.stock_item_id);
+          
+          if (!stockInfo) {
+            // Ingrédient introuvable dans le stock
+            hasValidStock = false;
+            break;
+          }
+
+          const currentStock = stockInfo.current_stock;
           const requiredQty = recipe.quantity || 1;
           const possibleWithThisIngredient = Math.floor(currentStock / requiredQty);
+          
           if (possibleWithThisIngredient < maxPossibleStock) {
             maxPossibleStock = possibleWithThisIngredient;
           }
+        }
+
+        // Si un ingrédient est introuvable, stock = 0
+        if (!hasValidStock) {
+          maxPossibleStock = 0;
         }
 
         return {
@@ -299,7 +338,7 @@ export default function CommandesPage() {
           destination: menuItem.destination || undefined,
           stock: maxPossibleStock === Infinity ? 0 : maxPossibleStock
         };
-      }));
+      });
 
       setMenuItems(menuItemsWithStock);
     } catch (error) {
@@ -315,7 +354,7 @@ export default function CommandesPage() {
         .eq('site_id', siteId)
         .eq('is_available', true)
         .eq('restaurant_categories.name', 'SUPPLÉMENTS');
-      
+
       if (data && data.length > 0) {
         setSupplements(data.map(item => ({
           id: item.id,
@@ -323,7 +362,7 @@ export default function CommandesPage() {
           category: (item as any).category?.name || 'Suppléments',
           price: item.price,
           destination: 'KITCHEN',
-          stock: item.stock || 0 
+          stock: item.stock || 0
         })));
       }
     } catch (error) {
@@ -356,7 +395,7 @@ export default function CommandesPage() {
 
   const getStatusConfig = (status: string, currentOrderType?: OrderType) => {
     switch (status) {
-      case 'DRAFT': 
+      case 'DRAFT':
         if (currentOrderType === 'ROOM_SERVICE') {
           return { label: 'Brouillon (Folio)', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: Clock, nextStatus: null };
         }
@@ -364,7 +403,7 @@ export default function CommandesPage() {
       case 'SENT': return { label: 'Envoyée', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
       case 'PREPARING': return { label: 'En prép.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
       case 'READY': return { label: 'Prête', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
-      case 'SERVED': return { label: 'Servie', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200', cardBg: 'bg-purple-50', cardBorder: 'border-purple-300', icon: Users, nextStatus: null }; 
+      case 'SERVED': return { label: 'Servie', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200', cardBg: 'bg-purple-50', cardBorder: 'border-purple-300', icon: Users, nextStatus: null };
       case 'PAID': return { label: 'Payée', badgeColor: 'bg-green-100 text-green-800 border-green-200', cardBg: 'bg-green-50', cardBorder: 'border-green-300', icon: DollarSign, nextStatus: null };
       case 'CANCELLED': return { label: 'Annulée', badgeColor: 'bg-red-100 text-red-800 border-red-200', cardBg: 'bg-red-50', cardBorder: 'border-red-300', icon: Ban, nextStatus: null };
       default: return { label: status, badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: null };
@@ -405,7 +444,7 @@ export default function CommandesPage() {
       if (newStatus === 'PAID') updateData.paid_at = new Date().toISOString();
       if (newStatus === 'SENT') updateData.sent_at = new Date().toISOString();
       if (['PAID', 'CANCELLED'].includes(newStatus)) updateData.completed_at = new Date().toISOString();
-      
+
       await supabase.from('restaurant_orders').update(updateData).eq('id', orderId);
       loadOrders();
       if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus });
@@ -480,7 +519,7 @@ export default function CommandesPage() {
 
   const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const categories = ['ALL', ...Array.from(new Set(menuItems.map(i => i.category)))];
-  
+
   const filteredItems = useMemo(() => {
     let items = activeCategory === 'ALL' ? menuItems : menuItems.filter(i => i.category === activeCategory);
     if (itemSearch.trim()) {
@@ -500,7 +539,7 @@ export default function CommandesPage() {
     setSelectedTableId(order.table_id || '');
     setSelectedRoomId(order.room_id || '');
     setSelectedServerId(order.server_id || '');
-    
+
     const cartItems = order.restaurant_order_items?.map(item => ({
       orderItemId: item.id,
       menuItemId: (item as any).menu_item_id || '',
@@ -528,7 +567,7 @@ export default function CommandesPage() {
     setIsSubmittingOrder(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      
+
       if (editingOrderId) {
         const newItems: CartItem[] = [];
         const updatedItems: CartItem[] = [];
@@ -579,7 +618,7 @@ export default function CommandesPage() {
           site_id: siteId,
           order_type: orderType,
           order_number: orderNumber,
-          status: orderType === 'ROOM_SERVICE' ? 'DRAFT' : 'SENT', 
+          status: orderType === 'ROOM_SERVICE' ? 'DRAFT' : 'SENT',
           total_amount: totalAmount,
           subtotal: totalAmount,
           tax_amount: 0,
@@ -621,7 +660,7 @@ export default function CommandesPage() {
               charge_date: new Date().toISOString(), is_voided: false
             });
             await supabase.from('stays').update({ folio_balance: (occupiedRoom?.folio_balance || 0) + totalAmount }).eq('id', stayId);
-            
+
             const kitchenItems = cart.filter(i => getDestination(i) === 'KITCHEN');
             const barItems = cart.filter(i => getDestination(i) === 'BAR');
             const tempOrder: RestaurantOrder = {
@@ -665,12 +704,12 @@ export default function CommandesPage() {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
     if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sélectionnez une table.'); return; }
     if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sélectionnez une chambre.'); return; }
-    
+
     if (orderType === 'ROOM_SERVICE') {
       alert('⚠️ Les commandes en chambre sont réglées directement à la réception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
       return;
     }
-    
+
     if (!selectedServerId) { alert('Sélectionnez un serveur.'); return; }
     if (!confirm('Valider cette commande et l\'envoyer à la caisse ?')) return;
 
@@ -943,7 +982,7 @@ export default function CommandesPage() {
                 ))}
               </div>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredItems.map(item => {
