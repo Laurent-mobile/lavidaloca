@@ -33,7 +33,7 @@ const MENU_ITEMS = [
   {
     section: 'Principal',
     items: [
-      { label: 'Tableau de bord', href: '/restaurant', icon: LayoutDashboard, roles: ['ADMIN', 'MANAGER', 'CASHIER', 'SERVER', 'CHEF', 'STOCK_MANAGER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
+      { label: 'Tableau de bord', href: '/restaurant/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'MANAGER', 'CASHIER', 'SERVER', 'CHEF', 'STOCK_MANAGER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
     ],
   },
   {

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { X, CheckSquare, Square } from 'lucide-react';
+import { X, CheckSquare, Square, Loader2 } from 'lucide-react';
 
 interface SupplierOrder {
   id: string;
@@ -11,6 +11,7 @@ interface SupplierOrder {
   order_date: string;
   total_amount: number;
   status: string;
+  payment_status?: string;
 }
 
 interface Supplier {
@@ -41,6 +42,12 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
     if (isOpen) {
       loadSuppliers();
       generateReferenceNumber();
+      // Reset des états à l'ouverture
+      setSelectedSupplierId('');
+      setOrders([]);
+      setSelectedOrders(new Set());
+      setPaymentAmount('');
+      setNotes('');
     }
   }, [isOpen]);
 
@@ -61,24 +68,27 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
   };
 
   const loadSupplierOrders = async () => {
-    setLoading(true);
-    try {
-      const { data } = await supabase
-        .from('supplier_orders')
-        .select('*, suppliers(name)')
-        .eq('site_id', siteId)
-        .eq('supplier_id', selectedSupplierId)
-        .neq('status', 'CANCELLED')
-        .order('order_date', { ascending: false });
+  setLoading(true);
+  try {
+    const { data } = await supabase
+      .from('supplier_orders')
+      .select('*, suppliers(name)')
+      .eq('site_id', siteId)
+      .eq('supplier_id', selectedSupplierId)
+      .neq('status', 'CANCELLED')
+      // ✅ EXCLURE les commandes déjà payées
+      .neq('payment_status', 'PAYÉ')
+      .neq('payment_status', 'PAID')
+      .order('order_date', { ascending: false });
 
-      setOrders(data || []);
-      setSelectedOrders(new Set());
-    } catch (error) {
-      console.error('Erreur chargement commandes:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setOrders(data || []);
+    setSelectedOrders(new Set());
+  } catch (error) {
+    console.error('Erreur chargement commandes:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const generateReferenceNumber = () => {
     setReferenceNumber(`BULK-${Date.now().toString().slice(-13)}`);
@@ -112,7 +122,8 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
       return;
     }
 
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+    const amount = parseFloat(paymentAmount);
+    if (!paymentAmount || amount <= 0) {
       alert('Veuillez saisir un montant valide');
       return;
     }
@@ -121,35 +132,35 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Créer un enregistrement de paiement groupé
-      const { data: bulkPayment, error } = await supabase
+      // 1. Créer l'enregistrement de paiement groupé
+      const { error: paymentError } = await supabase
         .from('supplier_payments')
         .insert({
           site_id: siteId,
           supplier_id: selectedSupplierId,
           reference_number: referenceNumber,
-          amount: parseFloat(paymentAmount),
+          amount: amount,
           payment_method: paymentMethod,
           notes: notes,
           paid_by: user?.id,
           paid_at: new Date().toISOString(),
           order_ids: Array.from(selectedOrders)
-        })
-        .select()
-        .single();
+        });
 
-      if (error) throw error;
+      if (paymentError) throw paymentError;
 
-      // Mettre à jour le statut des commandes payées
+      // 2. ✅ CORRECTION MAJEURE : Mettre à jour le payment_status, PAS le status de livraison
+      const newPaymentStatus = amount >= totalSelected ? 'PAYÉ' : 'PARTIEL';
+
       for (const orderId of selectedOrders) {
         await supabase
           .from('supplier_orders')
-          .update({ status: 'RECEIVED' })
+          .update({ payment_status: newPaymentStatus }) // ✅ On touche uniquement le paiement
           .eq('id', orderId);
       }
 
-      alert(`✅ Paiement groupé de ${parseFloat(paymentAmount).toLocaleString('fr-FR')} f CFA enregistré avec succès!`);
-      onSuccess();
+      alert(`✅ Paiement groupé de ${amount.toLocaleString('fr-FR')} f CFA enregistré avec succès!`);
+      onSuccess(); // Déclenche le rechargement des données dans la page parent
       onClose();
     } catch (error: any) {
       console.error('Erreur paiement:', error);
@@ -180,18 +191,14 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
             <select
               value={selectedSupplierId}
               onChange={(e) => setSelectedSupplierId(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
             >
               <option value="">-- Choisir un fournisseur --</option>
-              {suppliers.map(supplier => {
-                const supplierOrders = orders.filter(o => o.supplier_id === supplier.id);
-                const totalDue = supplierOrders.reduce((sum, o) => sum + o.total_amount, 0);
-                return (
-                  <option key={supplier.id} value={supplier.id}>
-                    {supplier.name} - Dû: {totalDue.toLocaleString('fr-FR')} f CFA ({supplierOrders.length} commandes)
-                  </option>
-                );
-              })}
+              {suppliers.map(supplier => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -199,71 +206,63 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
           {selectedSupplierId && (
             <div>
               <div className="flex items-center justify-between mb-3">
-                <h4 className="font-semibold text-slate-900">Commandes avec solde dû</h4>
+                <h4 className="font-semibold text-slate-900">Commandes à régler</h4>
                 <div className="flex gap-2">
-                  <button
-                    onClick={selectAll}
-                    className="text-sm text-blue-600 hover:text-blue-800"
-                  >
-                    Tout sélectionner
-                  </button>
-                  <button
-                    onClick={deselectAll}
-                    className="text-sm text-red-600 hover:text-red-800"
-                  >
-                    Tout désélectionner
-                  </button>
+                  <button onClick={selectAll} className="text-sm text-blue-600 hover:text-blue-800 font-medium">Tout sélectionner</button>
+                  <span className="text-slate-300">|</span>
+                  <button onClick={deselectAll} className="text-sm text-red-600 hover:text-red-800 font-medium">Tout désélectionner</button>
                 </div>
               </div>
 
               <div className="border border-slate-200 rounded-lg max-h-64 overflow-y-auto">
-                {orders.map(order => (
-                  <div
-                    key={order.id}
-                    className={`p-3 border-b border-slate-100 flex items-center gap-3 hover:bg-slate-50 ${
-                      selectedOrders.has(order.id) ? 'bg-blue-50' : ''
-                    }`}
-                  >
-                    <button
-                      onClick={() => toggleOrderSelection(order.id)}
-                      className="flex-shrink-0"
-                    >
-                      {selectedOrders.has(order.id) ? (
-                        <CheckSquare className="w-5 h-5 text-blue-600" />
-                      ) : (
-                        <Square className="w-5 h-5 text-slate-400" />
-                      )}
-                    </button>
-                    <div className="flex-1">
-                      <div className="font-medium text-slate-900">{order.order_number}</div>
-                      <div className="text-xs text-slate-500">
-                        {new Date(order.order_date).toLocaleDateString('fr-FR')} • Total: {order.total_amount.toLocaleString('fr-FR')} f CFA
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold text-red-600">
-                        Dû: {order.total_amount.toLocaleString('fr-FR')} f CFA
-                      </div>
-                      <div className="text-xs text-slate-500">Payé: 0 f CFA</div>
-                    </div>
+                {loading ? (
+                  <div className="p-8 text-center text-slate-500 flex items-center justify-center gap-2">
+                    <Loader2 className="w-5 h-5 animate-spin" /> Chargement...
                   </div>
-                ))}
+                ) : orders.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500">Aucune commande pour ce fournisseur.</div>
+                ) : (
+                  orders.map(order => (
+                    <div
+                      key={order.id}
+                      className={`p-3 border-b border-slate-100 flex items-center gap-3 hover:bg-slate-50 transition-colors ${
+                        selectedOrders.has(order.id) ? 'bg-blue-50' : ''
+                      }`}
+                    >
+                      <button onClick={() => toggleOrderSelection(order.id)} className="flex-shrink-0">
+                        {selectedOrders.has(order.id) ? (
+                          <CheckSquare className="w-5 h-5 text-blue-600" />
+                        ) : (
+                          <Square className="w-5 h-5 text-slate-400" />
+                        )}
+                      </button>
+                      <div className="flex-1">
+                        <div className="font-medium text-slate-900">{order.order_number}</div>
+                        <div className="text-xs text-slate-500">
+                          {new Date(order.order_date).toLocaleDateString('fr-FR')} 
+                          {order.payment_status && ` • Statut: ${order.payment_status}`}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-slate-900">
+                          {order.total_amount.toLocaleString('fr-FR')} f CFA
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
               {/* Résumé de la sélection */}
-              <div className="mt-4 bg-slate-50 p-4 rounded-lg">
+              <div className="mt-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <div className="text-sm text-slate-600">Total commandes sélectionnées:</div>
-                    <div className="text-lg font-bold text-slate-900">
-                      {selectedOrders.size} commande(s)
-                    </div>
+                    <div className="text-sm text-slate-600">Commandes sélectionnées:</div>
+                    <div className="text-lg font-bold text-slate-900">{selectedOrders.size}</div>
                   </div>
-                  <div>
+                  <div className="text-right">
                     <div className="text-sm text-slate-600">Total dû sélectionné:</div>
-                    <div className="text-lg font-bold text-emerald-600">
-                      {totalSelected.toLocaleString('fr-FR')} f CFA
-                    </div>
+                    <div className="text-lg font-bold text-emerald-600">{totalSelected.toLocaleString('fr-FR')} f CFA</div>
                   </div>
                 </div>
               </div>
@@ -271,11 +270,9 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
           )}
 
           {/* Formulaire de paiement */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Montant à payer (f CFA) *
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Montant à payer (f CFA) *</label>
               <input
                 type="number"
                 value={paymentAmount}
@@ -284,17 +281,15 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
                 placeholder="0"
               />
               <div className="text-xs text-slate-500 mt-1">
-                Montant dû total: {totalDue.toLocaleString('fr-FR')} f CFA
+                Total global dû: {totalDue.toLocaleString('fr-FR')} f CFA
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Mode de paiement *
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Mode de paiement *</label>
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
               >
                 <option value="CASH">Espèces</option>
                 <option value="BANK_TRANSFER">Virement bancaire</option>
@@ -305,9 +300,7 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Numéro de référence
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Numéro de référence</label>
             <input
               type="text"
               value={referenceNumber}
@@ -318,15 +311,13 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Notes (optionnel)
-            </label>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Notes (optionnel)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full border border-slate-300 rounded-lg px-3 py-2"
-              rows={3}
-              placeholder="Notes sur ce paiement groupé..."
+              rows={2}
+              placeholder="Ex: Paiement de la facture de mars..."
             />
           </div>
 
@@ -334,22 +325,20 @@ export default function BulkPaymentModal({ siteId, isOpen, onClose, onSuccess }:
           <div className="flex gap-3 pt-4 border-t border-slate-200">
             <button
               onClick={onClose}
-              className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg"
+              disabled={loading}
+              className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg disabled:opacity-50"
             >
               Annuler
             </button>
             <button
               onClick={handlePayment}
               disabled={loading || selectedOrders.size === 0}
-              className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
+              className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
             >
               {loading ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <><Loader2 className="w-5 h-5 animate-spin" /> Traitement...</>
               ) : (
-                <>
-                  <CheckSquare className="w-5 h-5" />
-                  Effectuer le paiement
-                </>
+                <><CheckSquare className="w-5 h-5" /> Effectuer le paiement</>
               )}
             </button>
           </div>

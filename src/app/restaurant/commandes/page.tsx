@@ -778,7 +778,7 @@ export default function CommandesPage() {
     const printWindow = window.open('', '_blank', 'width=400,height=600');
     if (!printWindow) { alert('Autorisez les popups.'); return; }
     const items = order.restaurant_order_items || [];
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>Ticket ${order.order_number}</title><style>body{font-family:'Courier New',monospace;font-size:12px;padding:10px;max-width:300px;margin:0 auto;}.header{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px;margin-bottom:10px;}.header h1{font-size:16px;margin:0;}.header p{margin:2px 0;font-size:11px;}.info{margin:10px 0;font-size:11px;}.info div{display:flex;justify-content:space-between;}.items{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:10px 0;margin:10px 0;}.item{display:flex;justify-content:space-between;margin:4px 0;}.total{display:flex;justify-content:space-between;font-weight:bold;font-size:14px;margin-top:10px;}.footer{text-align:center;margin-top:20px;font-size:10px;}</style></head><body><div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p><p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div><div class="info"><div><span>N°:</span><span>${order.order_number}</span></div><div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div><div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}</span></div></div><div class="items">${items.map(i => `<div class="item"><span>${i.item_name} x${i.quantity}</span><span>${Number(i.total_price).toLocaleString('fr-FR')} F</span></div>`).join('')}</div><div class="total"><span>TOTAL</span><span>${Number(order.total_amount).toLocaleString('fr-FR')} F</span></div><div class="footer"><p>Merci de votre visite !</p></div></body></html>`);
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Ticket ${order.order_number}</title><style>body{font-family:'Courier New',monospace;font-size:12px;padding:10px;max-width:300px;margin:0 auto;}.header{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px;margin-bottom:10px;}.header h1{font-size:16px;margin:0;}.header p{margin:2px 0;font-size:11px;}.info{margin:10px 0;font-size:11px;}.info div{display:flex;justify-content:space-between;}.items{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:10px 0;margin:10px 0;}.item{display:flex;justify-content:space-between;margin:4px 0;}.total{display:flex;justify-content:space-between;font-weight:bold;font-size:14px;margin-top:10px;}.footer{text-align:center;margin-top:20px;font-size:10px;}</style></head><body><div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p><p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div><div class="info"><div><span>N°:</span><span>${order.order_number}</span></div><div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div><div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}${order.order_type === 'ROOM_SERVICE' ? ' (Folio)' : ''}</span></div></div><div class="items">${items.map(i => `<div class="item"><span>${i.item_name} x${i.quantity}</span><span>${Number(i.total_price).toLocaleString('fr-FR')} F</span></div>`).join('')}</div><div class="total"><span>TOTAL</span><span>${Number(order.total_amount).toLocaleString('fr-FR')} F</span></div><div class="footer"><p>Merci de votre visite !</p></div></body></html>`);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
   };
@@ -1043,14 +1043,33 @@ export default function CommandesPage() {
                 <span>Total</span>
                 <span className="text-indigo-600">{Number(totalAmount).toLocaleString('fr-FR')} F</span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={handleCommander} disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors" title="Émet les bons de cuisine et de bar">
-                  {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Send className="w-5 h-5" />Commander</>}
-                </button>
-                <button onClick={handleValiderPourCaisse} disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors" title="Valide et envoie à la caisse pour paiement">
-                  {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
-                </button>
-              </div>
+                <div className="grid grid-cols-2 gap-2">
+  <button 
+    onClick={handleCommander} 
+    disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || (orderType === 'ROOM_SERVICE' && !selectedRoomId) || !selectedServerId} 
+    className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
+    title={orderType === 'ROOM_SERVICE' ? "Envoie les bons en cuisine/bar (facturé au folio)" : "Émet les bons de cuisine et de bar"}
+  >
+    {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Send className="w-5 h-5" />Commander</>}
+  </button>
+  
+  {/* ✅ BOUTON CAISSE DÉSACTIVÉ POUR ROOM_SERVICE */}
+  {orderType === 'ROOM_SERVICE' ? (
+    <div className="bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-not-allowed" title="Le paiement se fait à la réception lors du check-out">
+      <CreditCard className="w-5 h-5" />
+      <span>Folio Chambre</span>
+    </div>
+  ) : (
+    <button 
+      onClick={handleValiderPourCaisse} 
+      disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || !selectedServerId} 
+      className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
+      title="Valide et envoie à la caisse pour paiement"
+    >
+      {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
+    </button>
+  )}
+</div>
             </div>
           </div>
         </div>
@@ -1163,7 +1182,15 @@ export default function CommandesPage() {
                           <div className="text-xl font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} F</div>
                           <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                             {canEdit && <button onClick={() => openEditOrder(order)} className="p-2 bg-white text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors shadow-sm" title="Modifier la commande"><Edit className="w-4 h-4" /></button>}
-                            {canAdvance && <button onClick={() => handleStatusChange(order.id, statusConfig.nextStatus!)} className="p-2 bg-white text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors shadow-sm" title={`Passer à: ${getStatusConfig(statusConfig.nextStatus!).label}`}><TrendingUp className="w-4 h-4" /></button>}
+                            {canAdvance && order.order_type !== 'ROOM_SERVICE' && (
+  <button
+    onClick={() => handleStatusChange(order.id, statusConfig.nextStatus)}
+    className="p-2 bg-white text-emerald-600 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors shadow-sm"
+    title={`Passer à: ${getStatusConfig(statusConfig.nextStatus).label}`}
+  >
+    <TrendingUp className="w-4 h-4" />
+  </button>
+)}
                             <button onClick={() => { setSelectedOrder(order); setIsDetailOpen(true); }} className="p-2 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors shadow-sm" title="Voir les détails"><Eye className="w-4 h-4" /></button>
                             {!isFinished && <button onClick={() => openCancelModal(order)} className="p-2 bg-white text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors shadow-sm" title="Annuler"><Ban className="w-4 h-4" /></button>}
                           </div>

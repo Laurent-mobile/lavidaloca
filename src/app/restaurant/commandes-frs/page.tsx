@@ -12,6 +12,7 @@ import MonthlySummaryModal from './components/MonthlySummaryModal';
 import BulkPaymentModal from './components/BulkPaymentModal';
 import NewSupplierOrderModal from './components/NewSupplierOrderModal';
 import QuickCreateItemModal from './components/QuickCreateItemModal';
+import SimplePaymentModal from './components/SimplePaymentModal';
 
 interface SupplierOrder {
   id: string;
@@ -22,6 +23,7 @@ interface SupplierOrder {
   expected_date?: string;
   status: string;
   total_amount: number;
+  payment_status: string;
   notes?: string;
   created_at: string;
 }
@@ -33,6 +35,22 @@ interface Stats {
   paymentRate: number;
 }
 
+const getPaymentStatusConfig = (status: string) => {
+  switch (status?.toUpperCase()) {
+    case 'PAYÉ':
+    case 'PAID':
+      return { label: 'Payé', color: 'bg-emerald-100 text-emerald-800 border-emerald-200' };
+    case 'PARTIEL':
+    case 'PARTIAL':
+      return { label: 'Partiel', color: 'bg-amber-100 text-amber-800 border-amber-200' };
+    case 'NON_PAYÉ':
+    case 'UNPAID':
+      return { label: 'Non payé', color: 'bg-red-100 text-red-800 border-red-200' };
+    default:
+      return { label: status || 'Inconnu', color: 'bg-slate-100 text-slate-800 border-slate-200' };
+  }
+};
+
 export default function CommandesFournisseursPage() {
   const supabase = createClient();
   const [siteId, setSiteId] = useState<string>('');
@@ -41,6 +59,7 @@ export default function CommandesFournisseursPage() {
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [paymentFilter, setPaymentFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   
   // Modals
@@ -56,6 +75,8 @@ const [searchForNew, setSearchForNew] = useState(''); // Pour pré-remplir le no
 //const [stockItems, setStockItems] = useState<MenuItem[]>([]);
 const [orderItems, setOrderItems] = useState<Record<string, any[]>>({});
 const [receptions, setReceptions] = useState<Record<string, any[]>>({});
+const [showSimplePayment, setShowSimplePayment] = useState(false);
+const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<SupplierOrder | null>(null);
   
   const [stats, setStats] = useState<Stats>({
     totalMonth: 0,
@@ -74,6 +95,7 @@ const [receptions, setReceptions] = useState<Record<string, any[]>>({});
     }
   }, [siteId, statusFilter]);
 
+  
   const loadSiteId = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
@@ -85,6 +107,9 @@ const [receptions, setReceptions] = useState<Record<string, any[]>>({});
       if (profile) setSiteId(profile.site_id || '');
     }
   };
+
+  
+
 const loadStockItems = async () => {
   try {
     const { data, error } = await supabase
@@ -133,10 +158,11 @@ const loadStockItems = async () => {
     const { data, error } = await query;
     if (error) throw error;
 
+    console.log('📥 Commandes chargées:', data?.length || 0);
     setOrders(data || []);
     
     // ✅ Calculer les stats avec les vraies données
-    await calculateStats(data || []);
+    calculateStats(data || []);
     
     // Charger les articles et réceptions pour chaque commande
     if (data && data.length > 0) {
@@ -181,52 +207,53 @@ const loadStockItems = async () => {
   }
 };
 
-  const calculateStats = async (ordersData: SupplierOrder[]) => {
+const calculateStats = (ordersData: SupplierOrder[]) => {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  
-  // Filtrer les commandes du mois en cours
-  const monthOrders = ordersData.filter(o => 
-    new Date(o.order_date) >= startOfMonth
-  );
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(now.getDate() - 30); // Fenêtre de 30 jours glissants
 
-  const totalMonth = monthOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+  let totalPeriod = 0;
+  let paidPeriod = 0;
+  let globalUnpaid = 0; // L'impayé est global, peu importe la date de la commande
 
-  // ✅ Récupérer les vrais paiements depuis la table supplier_payments
-  try {
-    const { data: paymentsData, error: paymentsError } = await supabase
-      .from('supplier_payments')
-      .select('amount, paid_at')
-      .eq('site_id', siteId)
-      .gte('paid_at', startOfMonth.toISOString());
+  ordersData.forEach(o => {
+    const orderDate = new Date(o.order_date);
+    const amount = o.total_amount || 0;
+    const status = (o.payment_status || '').toUpperCase();
 
-    if (paymentsError) {
-      console.error('Erreur chargement paiements:', paymentsError);
+    // 1. Calculer le global des impayés (une dette d'octobre est toujours une dette aujourd'hui)
+    if (status !== 'PAYÉ' && status !== 'PAID') {
+      globalUnpaid += amount;
     }
 
-    const paidMonth = paymentsData?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
-    const unpaidMonth = totalMonth - paidMonth;
-    const paymentRate = totalMonth > 0 ? (paidMonth / totalMonth) * 100 : 0;
+    // 2. Calculer l'activité des 30 derniers jours
+    if (orderDate >= thirtyDaysAgo) {
+      totalPeriod += amount;
+      if (status === 'PAYÉ' || status === 'PAID') {
+        paidPeriod += amount;
+      }
+    }
+  });
 
-    setStats({ 
-      totalMonth, 
-      paidMonth, 
-      unpaidMonth, 
-      paymentRate 
-    });
-  } catch (error) {
-    console.error('Erreur calcul stats:', error);
-    // Fallback en cas d'erreur
-    setStats({ 
-      totalMonth, 
-      paidMonth: 0, 
-      unpaidMonth: totalMonth, 
-      paymentRate: 0 
-    });
-  }
+  const paymentRate = totalPeriod > 0 ? (paidPeriod / totalPeriod) * 100 : 0;
+
+  console.log('💰 Stats (30 derniers jours & Impayé global):', { 
+    totalPeriod: totalPeriod.toLocaleString('fr-FR'), 
+    paidPeriod: paidPeriod.toLocaleString('fr-FR'), 
+    globalUnpaid: globalUnpaid.toLocaleString('fr-FR'), 
+    paymentRate: paymentRate.toFixed(1) + '%' 
+  });
+
+  // On injecte les valeurs dans les états existants
+  setStats({ 
+    totalMonth: totalPeriod, 
+    paidMonth: paidPeriod, 
+    unpaidMonth: globalUnpaid, // ✅ Affiche TOUT l'impayé, c'est plus logique pour la trésorerie
+    paymentRate 
+  });
 };
 
-  const filteredOrders = useMemo(() => {
+    const filteredOrders = useMemo(() => {
     return orders.filter(order => {
       const matchesSearch = 
         order.order_number.toLowerCase().includes(search.toLowerCase()) ||
@@ -235,9 +262,12 @@ const loadStockItems = async () => {
       const matchesDateFrom = dateFrom ? new Date(order.order_date) >= new Date(dateFrom) : true;
       const matchesDateTo = dateTo ? new Date(order.order_date) <= new Date(dateTo) : true;
       
-      return matchesSearch && matchesDateFrom && matchesDateTo;
+      // ✅ NOUVEAU : Filtrer par statut de paiement
+      const matchesPayment = paymentFilter === 'ALL' || (order.payment_status || '').toUpperCase() === paymentFilter.toUpperCase();
+      
+      return matchesSearch && matchesDateFrom && matchesDateTo && matchesPayment;
     });
-  }, [orders, search, dateFrom, dateTo]);
+  }, [orders, search, dateFrom, dateTo, paymentFilter]);
 
   const handleOpenReception = (orderId: string) => {
     setSelectedOrderId(orderId);
@@ -322,7 +352,11 @@ const loadStockItems = async () => {
     `);
     printWindow.document.close();
   };
-
+  const handleSinglePayment = (order: SupplierOrder) => {
+  // ✅ Ouvrir le modal de paiement simple pour cette commande spécifique
+  setSelectedOrderForPayment(order);
+  setShowSimplePayment(true);
+};
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'RECEIVED': return 'bg-emerald-100 text-emerald-800';
@@ -333,6 +367,17 @@ const loadStockItems = async () => {
     }
   };
 
+  const getOrderReceptionStatus = (order: SupplierOrder) => {
+  const items = orderItems[order.id] || [];
+  const totalOrdered = items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalReceived = items.reduce((sum, item) => sum + (item.received_quantity || 0), 0);
+  
+  if (totalOrdered === 0) return { label: 'En attente', color: 'bg-slate-100 text-slate-800' };
+  if (totalReceived === 0) return { label: 'En attente', color: 'bg-slate-100 text-slate-800' };
+  if (totalReceived >= totalOrdered) return { label: 'Reçue', color: 'bg-emerald-100 text-emerald-800' };
+  return { label: 'Partielle', color: 'bg-amber-100 text-amber-800' };
+};
+
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'RECEIVED': return 'Reçue';
@@ -342,6 +387,27 @@ const loadStockItems = async () => {
       case 'DRAFT': return 'Brouillon';
       default: return status;
     }
+  };
+
+    // ✅ NOUVEAU : Calculer le statut de réception réel basé sur les quantités
+  const getReceptionStatus = (order: any) => {
+    const items = orderItems[order.id] || [];
+    if (items.length === 0) {
+      return order.status === 'RECEIVED' 
+        ? { label: 'Reçue', color: 'bg-emerald-100 text-emerald-800' }
+        : { label: 'En attente', color: 'bg-slate-100 text-slate-800' };
+    }
+    
+    const totalOrdered = items.reduce((sum: any, item: any) => sum + (item.quantity || 0), 0);
+    const totalReceived = items.reduce((sum: any, item: any) => sum + (item.received_quantity || 0), 0);
+    
+    if (totalReceived >= totalOrdered && totalOrdered > 0) {
+      return { label: 'Reçue', color: 'bg-emerald-100 text-emerald-800' };
+    } else if (totalReceived > 0) {
+      return { label: 'Partielle', color: 'bg-amber-100 text-amber-800' };
+    }
+    
+    return { label: 'En attente', color: 'bg-slate-100 text-slate-800' };
   };
 
   return (
@@ -367,32 +433,32 @@ const loadStockItems = async () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-          <div className="text-xs text-slate-500 mb-1">Montant Total ce Mois</div>
-          <div className="text-2xl font-bold text-slate-900">
-            {stats.totalMonth.toLocaleString('fr-FR')} f CFA
-          </div>
-        </div>
-        <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4 shadow-sm">
-          <div className="text-xs text-emerald-700 mb-1">Payé ce Mois</div>
-          <div className="text-2xl font-bold text-emerald-900">
-            {stats.paidMonth.toLocaleString('fr-FR')} f CFA
-          </div>
-        </div>
-        <div className="bg-red-50 rounded-xl border border-red-200 p-4 shadow-sm">
-          <div className="text-xs text-red-700 mb-1">Impayé ce Mois</div>
-          <div className="text-2xl font-bold text-red-900">
-            {stats.unpaidMonth.toLocaleString('fr-FR')} f CFA
-          </div>
-        </div>
-        <div className="bg-purple-50 rounded-xl border border-purple-200 p-4 shadow-sm">
-          <div className="text-xs text-purple-700 mb-1">Taux de Paiement</div>
-          <div className="text-2xl font-bold text-purple-900">
-            {stats.paymentRate.toFixed(0)}%
-          </div>
-        </div>
-      </div>
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+  <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+    <div className="text-xs text-slate-500 mb-1">Commandes (30 derniers jours)</div>
+    <div className="text-2xl font-bold text-slate-900">
+      {stats.totalMonth.toLocaleString('fr-FR')} f CFA
+    </div>
+  </div>
+  <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4 shadow-sm">
+    <div className="text-xs text-emerald-700 mb-1">Payé (30 derniers jours)</div>
+    <div className="text-2xl font-bold text-emerald-900">
+      {stats.paidMonth.toLocaleString('fr-FR')} f CFA
+    </div>
+  </div>
+  <div className="bg-red-50 rounded-xl border border-red-200 p-4 shadow-sm">
+    <div className="text-xs text-red-700 mb-1">Reste à payer (Global)</div>
+    <div className="text-2xl font-bold text-red-900">
+      {stats.unpaidMonth.toLocaleString('fr-FR')} f CFA
+    </div>
+  </div>
+  <div className="bg-purple-50 rounded-xl border border-purple-200 p-4 shadow-sm">
+    <div className="text-xs text-purple-700 mb-1">Taux de règlement (30j)</div>
+    <div className="text-2xl font-bold text-purple-900">
+      {stats.paymentRate.toFixed(0)}%
+    </div>
+  </div>
+</div>
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -443,6 +509,19 @@ const loadStockItems = async () => {
               <option value="CANCELLED">Annulée</option>
             </select>
           </div>
+                    <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Statut paiement</label>
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="ALL">Tous les paiements</option>
+              <option value="NON_PAYÉ">Non payé</option>
+              <option value="PARTIEL">Partiel</option>
+              <option value="PAYÉ">Payé</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2 pt-2">
@@ -488,13 +567,15 @@ const loadStockItems = async () => {
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">DATE</th>
                 <th className="px-4 py-3 text-right font-semibold text-slate-700">MONTANT</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-700">STATUT</th>
+                {/* ✅ NOUVELLE COLONNE */}
+                <th className="px-4 py-3 text-center font-semibold text-slate-700">PAIEMENT</th>
                 <th className="px-4 py-3 text-center font-semibold text-slate-700">ACTIONS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center">
+                  <td colSpan={7} className="px-4 py-8 text-center">
                     <div className="flex items-center justify-center gap-2 text-slate-500">
                       <RefreshCw className="w-5 h-5 animate-spin" />
                       Chargement...
@@ -503,12 +584,16 @@ const loadStockItems = async () => {
                 </tr>
               ) : filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                     Aucune commande trouvée
                   </td>
                 </tr>
               ) : (
-                filteredOrders.map((order) => (
+                                filteredOrders.map((order) => {
+                  // ✅ Récupérer la config du badge de paiement
+                  const paymentConfig = getPaymentStatusConfig(order.payment_status);
+                  
+                  return (
                   <tr key={order.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
                       <div className="font-medium text-slate-900">{order.order_number}</div>
@@ -525,34 +610,64 @@ const loadStockItems = async () => {
                     <td className="px-4 py-3 text-right font-medium text-slate-900">
                       {order.total_amount.toLocaleString('fr-FR')} f CFA
                     </td>
+                      {/* Dans la colonne STATUT */}
                     <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                        <CheckCircle className="w-3 h-3" />
-                        {getStatusLabel(order.status)}
+                      {(() => {
+                        // Utilise le nouveau calcul intelligent
+                        const receptionStatus = getReceptionStatus(order);
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${receptionStatus.color}`}>
+                            <CheckCircle className="w-3 h-3" />
+                            {receptionStatus.label}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    
+                    {/* ✅ NOUVELLE CELLULE DE PAIEMENT */}
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${paymentConfig.color}`}>
+                        {paymentConfig.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => handleViewDetails(order)}
-                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"
-                          title="Voir détails"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {order.status !== 'RECEIVED' && order.status !== 'CANCELLED' && (
-                          <button
-                            onClick={() => handleOpenReception(order.id)}
-                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"
-                            title="Enregistrer réception"
-                          >
-                            <Package className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
+
+                      <td className="px-4 py-3">
+  <div className="flex items-center justify-center gap-2">
+    {/* Bouton Voir détails */}
+    <button
+      onClick={() => handleViewDetails(order)}
+      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"
+      title="Voir détails"
+    >
+      <Eye className="w-4 h-4" />
+    </button>
+    
+    {/* ✅ NOUVEAU : Bouton Réception */}
+    {order.status !== 'RECEIVED' && order.status !== 'CANCELLED' && (
+      <button
+        onClick={() => handleOpenReception(order.id)}
+        className="p-1.5 text-amber-600 hover:bg-amber-50 rounded"
+        title="Enregistrer réception"
+      >
+        <Package className="w-4 h-4" />
+      </button>
+    )}
+    
+    {/* Bouton Payer (si commande non payée) */}
+    {order.payment_status !== 'PAYÉ' && order.payment_status !== 'PAID' && (
+      <button
+        onClick={() => handleSinglePayment(order)}
+        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"
+        title="Payer cette commande"
+      >
+        <CreditCard className="w-4 h-4" />
+      </button>
+    )}
+  </div>
+</td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -753,6 +868,16 @@ const loadStockItems = async () => {
     </div>
   </div>
 )}
+<SimplePaymentModal
+  siteId={siteId}
+  order={selectedOrderForPayment}
+  isOpen={showSimplePayment}
+  onClose={() => setShowSimplePayment(false)}
+  onSuccess={() => {
+    loadOrders();
+    setShowSimplePayment(false);
+  }}
+/>
     </div>
   );
 }

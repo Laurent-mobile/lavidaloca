@@ -143,17 +143,31 @@ export default function MenuManagementPage() {
   };
 
   // --- Gestion des Fiches Techniques (Recettes) ---
-  const openRecipeModal = async (item: MenuItem) => {
+    const openRecipeModal = async (item: MenuItem) => {
     setSelectedMenuItem(item);
-    await loadStockItems();
     
-    const { data: recipes } = await supabase.from('item_recipes').select('*').eq('menu_item_id', item.id).eq('site_id', siteId);
+    // 1. Charger les articles du stock et garder la donnée dans une variable locale
+    const { data: stockData } = await supabase
+      .from('stock_items')
+      .select('id, name, unit')
+      .eq('site_id', siteId)
+      .order('name');
     
-    // On enrichit les données avec le nom du stock localement pour éviter les erreurs de jointure
+    // Mettre à jour l'état pour le dropdown (sera disponible au prochain rendu)
+    setStockItems(stockData || []);
+    
+    // 2. Charger les recettes
+    const { data: recipes } = await supabase
+      .from('item_recipes')
+      .select('*')
+      .eq('menu_item_id', item.id)
+      .eq('site_id', siteId);
+    
+    // 3. Enrichir avec la variable locale `stockData` (et non l'état `stockItems`)
     const enriched = recipes?.map(r => ({
       ...r,
-      stock_name: stockItems.find(s => s.id === r.stock_item_id)?.name || 'Chargement...',
-      stock_unit: stockItems.find(s => s.id === r.stock_item_id)?.unit || ''
+      stock_name: stockData?.find(s => s.id === r.stock_item_id)?.name || 'Inconnu',
+      stock_unit: stockData?.find(s => s.id === r.stock_item_id)?.unit || ''
     })) || [];
     
     setRecipeIngredients(enriched);
