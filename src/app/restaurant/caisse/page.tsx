@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   DollarSign, Search, CreditCard, Banknote, Smartphone, BedDouble,
   ArrowRightLeft, Printer, X, CheckCircle2, Lock, History,
-  TrendingUp, TrendingDown, Download, RefreshCw, ReceiptText, AlertCircle, Play, Plus, Receipt, Hotel
+  TrendingUp, TrendingDown, Download, RefreshCw, ReceiptText, AlertCircle, Play, Plus, Receipt, Hotel, Check, Clock
 } from 'lucide-react';
 import NewCashExpenseModal from './components/NewCashExpenseModal';
 
@@ -149,9 +149,10 @@ const loadReconciliations = async () => {
 // Charger les réconciliations quand on active l'onglet
 useEffect(() => {
   if (tab === 'reconciliations') {
-    loadReconciliations();
+    loadPendingReconciliations(); // ✅ Nouvelle fonction
   }
 }, [tab]);
+
    const loadActiveStays = async () => {
   try {
     console.log('🔍 Chargement des séjours actifs...');
@@ -238,6 +239,133 @@ const loadSessionExpenses = async () => {
     await loadSession();
   await loadSessionExpenses();
   };
+// ✅ NOUVEAU : Charger les commandes chambre en attente de réconciliation
+const loadPendingReconciliations = async () => {
+  try {
+    // 1. Récupérer toutes les commandes ROOM_SERVICE non encore réconciliées
+    const { data: orders, error } = await supabase
+      .from('restaurant_orders')
+      .select(`
+        *,
+        restaurant_order_items(item_name, quantity, unit_price, total_price),
+        rooms(number),
+        stays!inner(
+          id, 
+          folio_balance, 
+          status,
+          customers(first_name, last_name),
+          check_in_at,
+          check_out_at
+        )
+      `)
+      .eq('site_id', siteId)
+      .eq('order_type', 'ROOM_SERVICE')
+      .in('status', ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED'])
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // 2. Classifier chaque commande
+    const classified = orders?.map(order => {
+      const stay = order.stays;
+      let reconciliationStatus: 'paid' | 'pending' | 'anomaly' = 'pending';
+      let reconciliationDate: string | null = null;
+
+      // Si le séjour est CHECKED_OUT et le folio est à 0 (payé)
+      if (stay?.status === 'CHECKED_OUT' && stay.folio_balance === 0) {
+        reconciliationStatus = 'paid';
+        reconciliationDate = stay.check_out_at;
+      }
+      // Si le séjour est CHECKED_OUT mais folio > 0 (impayé)
+      else if (stay?.status === 'CHECKED_OUT' && stay.folio_balance > 0) {
+        reconciliationStatus = 'anomaly';
+      }
+      // Sinon, en attente (client encore sur place)
+      else {
+        reconciliationStatus = 'pending';
+      }
+
+      return {
+        ...order,
+        reconciliationStatus,
+        reconciliationDate,
+        guest_name: stay?.customers 
+          ? `${stay.customers.first_name} ${stay.customers.last_name}` 
+          : 'Client inconnu',
+        stay_status: stay?.status || 'UNKNOWN',
+        folio_balance: stay?.folio_balance || 0
+      };
+    }) || [];
+
+    setReconciliations(classified);
+  } catch (error) {
+    console.error('Erreur chargement réconciliations:', error);
+  }
+};
+
+// ✅ NOUVEAU : Réconcilier manuellement une commande
+const reconcileOrder = async (orderId: string) => {
+  if (!confirm('Confirmer la réconciliation de cette commande avec la caisse réception ?')) return;
+  
+  try {
+    // 1. Marquer la commande comme payée
+    await supabase.from('restaurant_orders')
+      .update({ 
+        status: 'PAID', 
+        paid_at: new Date().toISOString() 
+      })
+      .eq('id', orderId);
+
+    // 2. Créer une trace dans la table de réconciliation
+    await supabase.from('payment_reconciliation').insert({
+      site_id: siteId,
+      order_id: orderId,
+      reconciliation_date: new Date().toISOString(),
+      reconciled_by: userId,
+      notes: 'Réconcilié manuellement - Paiement confirmé par la réception'
+    });
+
+    setSuccess('✅ Commande réconciliée avec succès !');
+    await loadPendingReconciliations();
+    await loadAll();
+  } catch (error: any) {
+    setError('Erreur : ' + error.message);
+  }
+};
+
+// ✅ NOUVEAU : Réconcilier automatiquement toutes les commandes dont le séjour est payé
+const autoReconcile = async () => {
+  if (!confirm('Réconcilier automatiquement toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0 ?')) return;
+  
+  try {
+    const ordersToReconcile = reconciliations.filter(r => r.reconciliationStatus === 'paid');
+    
+    if (ordersToReconcile.length === 0) {
+      setSuccess('Aucune commande à réconcilier automatiquement.');
+      return;
+    }
+
+    for (const order of ordersToReconcile) {
+      await supabase.from('restaurant_orders')
+        .update({ status: 'PAID', paid_at: order.reconciliationDate || new Date().toISOString() })
+        .eq('id', order.id);
+
+      await supabase.from('payment_reconciliation').insert({
+        site_id: siteId,
+        order_id: order.id,
+        reconciliation_date: new Date().toISOString(),
+        reconciled_by: userId,
+        notes: 'Réconciliation automatique - Séjour CHECKED_OUT avec folio réglé'
+      });
+    }
+
+    setSuccess(`✅ ${ordersToReconcile.length} commande(s) réconciliée(s) automatiquement !`);
+    await loadPendingReconciliations();
+    await loadAll();
+  } catch (error: any) {
+    setError('Erreur : ' + error.message);
+  }
+};
 
   const openSession = async () => {
     setBusy(true); setError('');
@@ -896,73 +1024,176 @@ await loadAll(); setBusy(false);
   </div>
 )}
 
-      {tab === 'reconciliations' && (
-  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-    <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-      <div>
-        <h3 className="font-bold text-slate-900 flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-          Réconciliations Réception → Restaurant
-        </h3>
-        <p className="text-sm text-slate-500 mt-1">
-          Commandes restaurant payées via la caisse de l'hôtel (réception)
-        </p>
+          {tab === 'reconciliations' && (
+  <div className="space-y-6">
+    {/* Header avec stats */}
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-slate-900 flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+            Réconciliation Hôtel ↔ Restaurant
+          </h3>
+          <p className="text-sm text-slate-500 mt-1">
+            Commandes chambre facturées au folio - Statut des paiements
+          </p>
+        </div>
+        <button 
+          onClick={autoReconcile}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+        >
+          <RefreshCw className="w-4 h-4" /> Réconcilier automatiquement
+        </button>
       </div>
-      <button 
-        onClick={loadReconciliations}
-        className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg text-sm"
-      >
-        <RefreshCw className="w-4 h-4" /> Rafraîchir
-      </button>
+
+      {/* Stats rapides */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+          <div className="text-xs text-emerald-700">✅ Payées (réconciliées)</div>
+          <div className="text-xl font-bold text-emerald-900">
+            {reconciliations.filter(r => r.reconciliationStatus === 'paid').length}
+          </div>
+          <div className="text-xs text-emerald-700">
+            {money(reconciliations.filter(r => r.reconciliationStatus === 'paid').reduce((s, r) => s + Number(r.total_amount), 0))} F
+          </div>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <div className="text-xs text-amber-700">⏳ En attente (client sur place)</div>
+          <div className="text-xl font-bold text-amber-900">
+            {reconciliations.filter(r => r.reconciliationStatus === 'pending').length}
+          </div>
+          <div className="text-xs text-amber-700">
+            {money(reconciliations.filter(r => r.reconciliationStatus === 'pending').reduce((s, r) => s + Number(r.total_amount), 0))} F
+          </div>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <div className="text-xs text-red-700">❌ Anomalies (check-out impayé)</div>
+          <div className="text-xl font-bold text-red-900">
+            {reconciliations.filter(r => r.reconciliationStatus === 'anomaly').length}
+          </div>
+          <div className="text-xs text-red-700">
+            {money(reconciliations.filter(r => r.reconciliationStatus === 'anomaly').reduce((s, r) => s + Number(r.total_amount), 0))} F
+          </div>
+        </div>
+        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+          <div className="text-xs text-indigo-700">Total commandes chambre</div>
+          <div className="text-xl font-bold text-indigo-900">{reconciliations.length}</div>
+          <div className="text-xs text-indigo-700">
+            {money(reconciliations.reduce((s, r) => s + Number(r.total_amount), 0))} F
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
-          <tr>
-            <th className="px-4 py-3 text-left">DATE RÉCONCILIATION</th>
-            <th className="px-4 py-3 text-left">COMMANDE</th>
-            <th className="px-4 py-3 text-left">MONTANT</th>
-            <th className="px-4 py-3 text-left">PAYÉ LE</th>
-            <th className="px-4 py-3 text-left">RÉCONCILIÉ PAR</th>
-            <th className="px-4 py-3 text-left">NOTES</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {reconciliations.map((recon) => (
-            <tr key={recon.id} className="hover:bg-slate-50">
-              <td className="px-4 py-3 text-slate-600">
-                {new Date(recon.reconciliation_date).toLocaleString('fr-FR')}
-              </td>
-              <td className="px-4 py-3 font-medium text-slate-900">
-                {recon.restaurant_orders?.order_number || 'N/A'}
-              </td>
-              <td className="px-4 py-3 text-right font-bold text-emerald-700">
-                {money(recon.restaurant_orders?.total_amount || 0)} f CFA
-              </td>
-              <td className="px-4 py-3 text-slate-600">
-                {recon.restaurant_payments?.paid_at 
-                  ? new Date(recon.restaurant_payments.paid_at).toLocaleString('fr-FR')
-                  : 'N/A'
-                }
-              </td>
-              <td className="px-4 py-3 text-slate-600">
-                {recon.reconciled_by ? 'Réception' : 'Système'}
-              </td>
-              <td className="px-4 py-3 text-slate-500 text-xs">
-                {recon.notes}
-              </td>
-            </tr>
-          ))}
-          {reconciliations.length === 0 && (
+    {/* Tableau des commandes */}
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="p-4 border-b border-slate-200">
+        <h4 className="font-semibold text-slate-900">Détail des commandes chambre</h4>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
             <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                Aucune réconciliation enregistrée
-              </td>
+              <th className="px-4 py-3 text-left">DATE</th>
+              <th className="px-4 py-3 text-left">N° COMMANDE</th>
+              <th className="px-4 py-3 text-left">CHAMBRE</th>
+              <th className="px-4 py-3 text-left">CLIENT</th>
+              <th className="px-4 py-3 text-left">STATUT SÉJOUR</th>
+              <th className="px-4 py-3 text-right">MONTANT</th>
+              <th className="px-4 py-3 text-center">RÉCONCILIATION</th>
+              <th className="px-4 py-3 text-center">ACTIONS</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {reconciliations.map((recon) => (
+              <tr key={recon.id} className={`hover:bg-slate-50 ${
+                recon.reconciliationStatus === 'paid' ? 'bg-emerald-50/30' :
+                recon.reconciliationStatus === 'anomaly' ? 'bg-red-50/30' : ''
+              }`}>
+                <td className="px-4 py-3 text-slate-600">
+                  {new Date(recon.created_at).toLocaleDateString('fr-FR')}
+                </td>
+                <td className="px-4 py-3 font-medium text-slate-900">
+                  {recon.order_number}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  Ch. {recon.rooms?.number || 'N/A'}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  {recon.guest_name}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                    recon.stay_status === 'CHECKED_OUT' 
+                      ? 'bg-slate-200 text-slate-700'
+                      : recon.stay_status === 'IN_HOUSE'
+                      ? 'bg-blue-100 text-blue-800'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}>
+                    {recon.stay_status === 'CHECKED_OUT' ? '🚪 Sorti' : 
+                     recon.stay_status === 'IN_HOUSE' ? '🏨 Sur place' : recon.stay_status}
+                  </span>
+                  {recon.stay_status === 'CHECKED_OUT' && recon.folio_balance > 0 && (
+                    <div className="text-[10px] text-red-600 mt-1">
+                      Solde: {money(recon.folio_balance)} F
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right font-bold text-slate-900">
+                  {money(recon.total_amount)} F
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {recon.reconciliationStatus === 'paid' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                      <CheckCircle2 className="w-3 h-3" /> Payé
+                    </span>
+                  )}
+                  {recon.reconciliationStatus === 'pending' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                      <Clock className="w-3 h-3" /> En attente
+                    </span>
+                  )}
+                  {recon.reconciliationStatus === 'anomaly' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                      <AlertCircle className="w-3 h-3" /> Anomalie
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {recon.reconciliationStatus !== 'paid' && (
+                    <button 
+                      onClick={() => reconcileOrder(recon.id)}
+                      className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium"
+                    >
+                      <CheckCircle2 className="w-3 h-3" /> Valider
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {reconciliations.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                  Aucune commande chambre à réconcilier
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {/* Légende explicative */}
+    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+      <h4 className="font-semibold text-indigo-900 mb-2 flex items-center gap-2">
+        <AlertCircle className="w-4 h-4" /> Comment ça marche ?
+      </h4>
+      <ul className="text-sm text-indigo-800 space-y-1 list-disc pl-5">
+        <li><b>✅ Payé</b> : Le client a fait son check-out et réglé son folio à la réception. La commande est automatiquement marquée comme réconciliée.</li>
+        <li><b>⏳ En attente</b> : Le client est encore dans l'hôtel. La commande sera réconciliée automatiquement lors du check-out.</li>
+        <li><b>❌ Anomalie</b> : Le client a fait son check-out mais le folio n'est pas réglé. Action requise avec la réception.</li>
+        <li>Le bouton <b>"Réconcilier automatiquement"</b> traite toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0.</li>
+      </ul>
     </div>
   </div>
 )}
