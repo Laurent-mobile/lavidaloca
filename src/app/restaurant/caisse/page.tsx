@@ -8,6 +8,7 @@ import {
   TrendingUp, TrendingDown, Download, RefreshCw, ReceiptText, AlertCircle, Play, Plus, Receipt, Hotel, Check, Clock
 } from 'lucide-react';
 import NewCashExpenseModal from './components/NewCashExpenseModal';
+import { useReconciliationAlert } from '@/hooks/useReconciliationAlert';
 
 interface OrderItem {
   item_name: string;
@@ -79,8 +80,6 @@ export default function CaissePage() {
   const [cashExpenses, setCashExpenses] = useState<any[]>([]);
 const [loadingExpenses, setLoadingExpenses] = useState(false);
   
-
-
   const [search, setSearch] = useState('');
   const [method, setMethod] = useState('CASH');
   const [received, setReceived] = useState('');
@@ -90,6 +89,8 @@ const [loadingExpenses, setLoadingExpenses] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  // ✅ NOUVEAU : Alerte de réconciliation
+const { alert: reconciliationAlert, loadAlert } = useReconciliationAlert(siteId);
 
   useEffect(() => {
     (async () => {
@@ -131,19 +132,59 @@ useEffect(() => {
     setSessionPayments(p || []);
   } else setSessionPayments([]);
 };
-// Fonction de chargement
 const loadReconciliations = async () => {
-  const { data } = await supabase
-    .from('payment_reconciliation')
-    .select(`
-      *,
-      restaurant_orders(order_number, total_amount),
-      restaurant_payments(paid_at)
-    `)
-    .order('reconciliation_date', { ascending: false })
-    .limit(50);
+  // Utilise maintenant le hook pour les stats
+  await loadAlert();
   
-  setReconciliations(data || []);
+  // Charge aussi le détail pour l'affichage
+  try {
+    const { data: orders, error } = await supabase
+      .from('restaurant_orders')
+      .select(`
+        *,
+        restaurant_order_items(item_name, quantity, unit_price, total_price),
+        rooms(number),
+        stays!inner(
+          id, folio_balance, status,
+          customers(first_name, last_name),
+          check_in_at, check_out_at
+        )
+      `)
+      .eq('site_id', siteId)
+      .eq('order_type', 'ROOM_SERVICE')
+      .in('status', ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED'])
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const classified = orders?.map(order => {
+      const stay = order.stays as any;
+      let reconciliationStatus: 'paid' | 'pending' | 'anomaly' = 'pending';
+      let reconciliationDate: string | null = null;
+
+      if (stay?.status === 'CHECKED_OUT' && stay.folio_balance === 0) {
+        reconciliationStatus = 'paid';
+        reconciliationDate = stay.check_out_at;
+      } else if (stay?.status === 'CHECKED_OUT' && stay.folio_balance > 0) {
+        reconciliationStatus = 'anomaly';
+      }
+
+      return {
+        ...order,
+        reconciliationStatus,
+        reconciliationDate,
+        guest_name: stay?.customers 
+          ? `${stay.customers.first_name} ${stay.customers.last_name}` 
+          : 'Client inconnu',
+        stay_status: stay?.status || 'UNKNOWN',
+        folio_balance: stay?.folio_balance || 0
+      };
+    }) || [];
+
+    setReconciliations(classified);
+  } catch (error) {
+    console.error('Erreur chargement réconciliations:', error);
+  }
 };
 
 // Charger les réconciliations quand on active l'onglet
@@ -532,14 +573,32 @@ await loadAll(); setBusy(false);
     ['historique','Historique',History], 
     ['reconciliations','Réconciliations',CheckCircle2], // ✅ NOUVEL ONGLET
     ['cloture','Clôture',Lock]
-  ] as const).map(([k,l,Icon]) => (
-    <button key={k} onClick={() => setTab(k)}
-      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium ${
+  ] as const).map(([k,l,Icon]) => {
+  // ✅ NOUVEAU : Badge pour l'onglet Réconciliations
+  const hasAnomaly = k === 'reconciliations' && reconciliationAlert.anomaly > 0;
+  const hasPending = k === 'reconciliations' && reconciliationAlert.pending > 0;
+  
+  return (
+    <button key={k} onClick={() => { setTab(k); if (k === 'reconciliations') loadReconciliations(); }}
+      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium relative ${
         tab===k?'border-b-2 border-emerald-600 text-emerald-700':'text-slate-500'
       }`}>
       <Icon className="w-4 h-4" /> {l}
+      
+      {/* ✅ Badge d'alerte */}
+      {hasAnomaly && (
+        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+          {reconciliationAlert.anomaly}
+        </span>
+      )}
+      {hasPending && !hasAnomaly && (
+        <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+          {reconciliationAlert.pending}
+        </span>
+      )}
     </button>
-  ))}
+  );
+})}
 </div>
 
       {(error || success) && (
@@ -1084,6 +1143,43 @@ await loadAll(); setBusy(false);
         </div>
       </div>
     </div>
+
+    {/* ✅ NOUVEAU : Bannière d'alerte réconciliation */}
+{reconciliationAlert.anomaly > 0 && (
+  <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 flex items-start gap-3 animate-pulse">
+    <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+    <div className="flex-1">
+      <h4 className="font-bold text-red-900">
+        ⚠️ {reconciliationAlert.anomaly} commande(s) chambre non réconciliée(s)
+      </h4>
+      <p className="text-sm text-red-700 mt-1">
+        Des clients ont fait leur check-out mais leur folio n'est pas réglé. 
+        Montant total en risque : <b>{money(reconciliationAlert.anomalyAmount)} F</b>
+      </p>
+      <p className="text-xs text-red-600 mt-2">
+        → Contactez immédiatement la réception pour régulariser ces situations.
+      </p>
+    </div>
+    <button 
+      onClick={() => setTab('reconciliations')}
+      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex-shrink-0"
+    >
+      Voir les détails
+    </button>
+  </div>
+)}
+
+{/* Alerte douce pour les commandes en attente */}
+{reconciliationAlert.pending > 0 && reconciliationAlert.anomaly === 0 && (
+  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+    <Clock className="w-5 h-5 text-amber-600" />
+    <div className="flex-1">
+      <p className="text-sm text-amber-800">
+        <b>{reconciliationAlert.pending} commande(s) chambre</b> en attente de check-out client.
+      </p>
+    </div>
+  </div>
+)}
 
     {/* Tableau des commandes */}
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
