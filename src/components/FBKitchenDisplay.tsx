@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { X, ChefHat, CheckCircle, Clock } from 'lucide-react';
+import { X, ChefHat, CheckCircle, Clock, Hotel } from 'lucide-react';
 
 interface Props {
   siteId: string;
@@ -27,13 +27,14 @@ export default function FBKitchenDisplay({ siteId, isOpen, onClose, destination 
     const { data } = await supabase
       .from('restaurant_orders')
       .select(`
-        id, order_number, table_id, status, created_at, server_id,
+        id, order_number, table_id, order_type, status, created_at, server_id,
         restaurant_tables(number),
+        stays(rooms(number)),
         restaurant_order_items(id, item_name, quantity, notes, status, destination),
         restaurant_employees(first_name, last_name)
       `)
       .eq('site_id', siteId)
-      .in('status', ['SENT', 'PREPARING', 'READY'])
+      .in('status', ['SENT', 'PREPARING', 'READY', 'ROOM_CHARGE'])
       .order('created_at', { ascending: true });
 
     if (data) {
@@ -85,7 +86,7 @@ export default function FBKitchenDisplay({ siteId, isOpen, onClose, destination 
 
   const pendingCount = orders.filter(o => o.status === 'SENT').length;
   const preparingCount = orders.filter(o => o.status === 'PREPARING').length;
-  const readyCount = orders.filter(o => o.status === 'READY').length;
+  const readyCount = orders.filter(o => o.status === 'READY' || o.status === 'ROOM_CHARGE').length;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -121,7 +122,17 @@ export default function FBKitchenDisplay({ siteId, isOpen, onClose, destination 
                 <div key={order.id} className={`border-2 rounded-lg p-4 ${order.status === 'SENT' ? 'bg-amber-50 border-amber-300' : order.status === 'PREPARING' ? 'bg-blue-50 border-blue-300' : 'bg-emerald-50 border-emerald-300'}`}>
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <div className="font-bold text-lg">{order.restaurant_tables?.number ? `Table ${order.restaurant_tables.number}` : 'Room Service'}</div>
+                      {/* ✅ AFFICHAGE CLAIR DU NUMÉRO DE CHAMBRE */}
+                      <div className="font-bold text-lg flex items-center gap-2">
+                        {order.order_type === 'ROOM_SERVICE' ? (
+                          <>
+                            <Hotel className="w-5 h-5 text-indigo-600" />
+                            Chambre {order.stays?.[0]?.rooms?.[0]?.number || 'N/A'}
+                          </>
+                        ) : (
+                          order.restaurant_tables?.number ? `Table ${order.restaurant_tables.number}` : 'À emporter'
+                        )}
+                      </div>
                       <div className="text-xs text-slate-600">#{order.order_number} • {order.restaurant_employees?.first_name} {order.restaurant_employees?.last_name}</div>
                       <div className="text-xs text-slate-500 mt-1"><Clock className="w-3 h-3 inline" /> {new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
                     </div>
@@ -149,7 +160,7 @@ export default function FBKitchenDisplay({ siteId, isOpen, onClose, destination 
                     ))}
                   </div>
 
-                  {order.status === 'READY' && (
+                  {(order.status === 'READY' || order.status === 'ROOM_CHARGE') && (
                     <button onClick={() => handleMarkServed(order.id)} className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2">
                       <CheckCircle className="w-4 h-4" /> Marquer comme servie
                     </button>

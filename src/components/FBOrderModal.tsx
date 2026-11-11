@@ -10,11 +10,14 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  mode?: 'RESTAURANT' | 'ROOM_SERVICE'; // ✅ NOUVEAU : Mode dédié pour l'hôtel
 }
 
-export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, onSuccess }: Props) {
+export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, onSuccess, mode = 'RESTAURANT' }: Props) {
   const supabase = createClient();
   const modalContentRef = useRef<HTMLDivElement>(null);
+
+  const isRoomService = mode === 'ROOM_SERVICE';
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -56,13 +59,11 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
 
   useEffect(() => {
     if (isOpen) {
-      console.log('🟢 Modal ouvert - orderId:', orderId, 'table:', table?.number);
-      
       setCurrentOrder(null);
       setLocalOrderItems([]);
       setSelectedServer('');
       setServerName('');
-      setChargeToRoom(false);
+      setChargeToRoom(isRoomService);
       setSelectedStay(null);
       setPrintedQuantities(new Map());
       setAllTicketsPrinted(false);
@@ -73,10 +74,16 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       setError('');
       isSavingDraftRef.current = false;
       
-      if (table) {
+      // ✅ Gestion automatique du type de commande selon le mode
+      if (isRoomService) {
+        setOrderType('ROOM_SERVICE');
+        setChargeToRoom(true);
+      } else if (table) {
         setOrderType('DINE_IN');
+        setChargeToRoom(false);
       } else {
         setOrderType('DINE_IN');
+        setChargeToRoom(false);
       }
       
       loadData();
@@ -84,7 +91,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       
       if (orderId) {
         loadExistingOrderById(orderId);
-      } else if (table?.id) {
+      } else if (table?.id && !isRoomService) {
         loadExistingOrderByTable(table.id);
       }
       
@@ -94,7 +101,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
         }
       }, 100);
     }
-  }, [isOpen, orderId, table?.id]);
+  }, [isOpen, orderId, table?.id, isRoomService]);
 
   useEffect(() => {
     if (isOpen) {
@@ -142,9 +149,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
 
   const toggleFavorite = (itemId: string) => {
     setFavorites(prev => {
-      if (prev.includes(itemId)) {
-        return prev.filter(id => id !== itemId);
-      }
+      if (prev.includes(itemId)) return prev.filter(id => id !== itemId);
       return [...prev, itemId];
     });
   };
@@ -184,7 +189,6 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       if (error) throw error;
 
       if (data) {
-        console.log('✅ Commande chargée par ID:', data.order_number);
         setCurrentOrder(data);
         const normalizedItems = normalizeCart(data.restaurant_order_items || []);
         setLocalOrderItems(normalizedItems);
@@ -200,24 +204,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
         setAllTicketsPrinted(true);
         
         const emp = data.restaurant_employees?.[0];
-        if (emp) {
-          setServerName(`${emp.first_name} ${emp.last_name}`);
-        }
-
-        if (data.notes) {
-          console.log('📝 Notes de la commande:', data.notes);
-          let address = '';
-          if (data.notes.includes('📍 Livraison:')) {
-            address = data.notes.split('📍 Livraison:')[1].trim();
-          } else if (data.notes.includes('Livraison:')) {
-            address = data.notes.split('Livraison:')[1].trim();
-          }
-          
-          if (address) {
-            setDeliveryAddress(address);
-            console.log('📍 Adresse chargée:', address);
-          }
-        }
+        if (emp) setServerName(`${emp.first_name} ${emp.last_name}`);
       }
     } catch (err) {
       console.error('❌ Erreur chargement par orderId:', err);
@@ -242,7 +229,6 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       if (error) throw error;
 
       if (data) {
-        console.log('✅ Commande chargée par table:', data.order_number);
         setCurrentOrder(data);
         const normalizedItems = normalizeCart(data.restaurant_order_items || []);
         setLocalOrderItems(normalizedItems);
@@ -259,8 +245,6 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
 
         const emp = data.restaurant_employees?.[0];
         if (emp) setServerName(`${emp.first_name} ${emp.last_name}`);
-      } else {
-        console.log('ℹ️ Aucune commande pour cette table');
       }
     } catch (err) {
       console.error('❌ Erreur chargement par table:', err);
@@ -283,12 +267,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
   };
 
   const saveDraftOrder = useCallback(async () => {
-    if (isSavingDraftRef.current) {
-      console.log('⏭️ saveDraftOrder ignoré (déjà en cours)');
-      return null;
-    }
-
-    if (table || chargeToRoom) return null;
+    if (isSavingDraftRef.current || table || chargeToRoom) return null;
     
     const items = localOrderItemsRef.current;
     const server = selectedServerRef.current;
@@ -296,19 +275,15 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
     const address = deliveryAddressRef.current;
     const order = currentOrderRef.current;
 
-    if (items.length === 0) return null;
-    if (!server) return null;
+    if (items.length === 0 || !server) return null;
 
     isSavingDraftRef.current = true;
-    console.log('💾 Début saveDraftOrder...', { itemsCount: items.length, server, type, address });
-    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const orderNumber = order?.order_number || `CMD-${Date.now().toString().slice(-6)}`;
       let orderIdToUse = order?.id;
 
       if (!orderIdToUse) {
-        console.log('📝 Création d\'un nouveau brouillon...');
         const { data: newOrder, error: orderError } = await supabase
           .from('restaurant_orders')
           .insert({
@@ -325,55 +300,30 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
           .select('id')
           .single();
 
-        if (orderError) {
-          console.error('❌ Erreur création brouillon:', orderError);
-          isSavingDraftRef.current = false;
-          return null;
-        }
-        
+        if (orderError) throw orderError;
         orderIdToUse = newOrder.id;
         setCurrentOrder({ ...newOrder, order_number: orderNumber });
-        console.log('✅ Brouillon créé:', orderIdToUse);
       } else {
-        console.log('🔄 Mise à jour du brouillon existant:', orderIdToUse);
-        const { error: updateError } = await supabase.from('restaurant_orders').update({
+        await supabase.from('restaurant_orders').update({
           total_amount: items.reduce((sum, item) => sum + item.total_price, 0),
           order_type: type,
           notes: type === 'DELIVERY' && address ? `📍 Livraison: ${address}` : (order?.notes || ''),
         }).eq('id', orderIdToUse);
-
-        if (updateError) {
-          console.error('❌ Erreur update brouillon:', updateError);
-          isSavingDraftRef.current = false;
-          return null;
-        }
       }
 
       for (const item of items) {
-        const { error: itemError } = await supabase
-          .from('restaurant_order_items')
-          .upsert({
-            order_id: orderIdToUse,
-            menu_item_id: item.menu_item_id,
-            item_name: item.item_name,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total_price: item.total_price,
-            notes: item.notes,
-            destination: item.destination,
-            status: 'PENDING',
-          }, {
-            onConflict: 'order_id,menu_item_id'
-          });
-
-        if (itemError) {
-          console.error('❌ Erreur upsert item:', itemError);
-          isSavingDraftRef.current = false;
-          return null;
-        }
+        await supabase.from('restaurant_order_items').upsert({
+          order_id: orderIdToUse,
+          menu_item_id: item.menu_item_id,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          notes: item.notes,
+          destination: item.destination,
+          status: 'PENDING',
+        }, { onConflict: 'order_id,menu_item_id' });
       }
-
-      console.log('✅ Brouillon sauvegardé avec succès');
       return orderIdToUse;
     } catch (err: any) {
       console.error('❌ Erreur saveDraftOrder:', err);
@@ -385,10 +335,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
 
   useEffect(() => {
     if (orderType === 'DELIVERY' && !table && !chargeToRoom && localOrderItems.length > 0 && deliveryAddress.trim()) {
-      const timer = setTimeout(() => {
-        console.log('💾 Sauvegarde auto de l\'adresse de livraison...');
-        saveDraftOrder();
-      }, 1000);
+      const timer = setTimeout(() => saveDraftOrder(), 1000);
       return () => clearTimeout(timer);
     }
   }, [deliveryAddress, orderType, table, chargeToRoom, localOrderItems.length, saveDraftOrder]);
@@ -416,12 +363,8 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       }
       
       if (!table && !chargeToRoom) {
-        setTimeout(() => {
-          console.log('⏰ Appel de saveDraftOrder après ajout...');
-          saveDraftOrder();
-        }, 500);
+        setTimeout(() => saveDraftOrder(), 500);
       }
-      
       return newCart;
     });
   };
@@ -481,13 +424,11 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
         const isKitchen = ticket.type === 'kitchen';
         const locationText = table 
           ? `Table ${table.number}` 
-          : (chargeToRoom && selectedStay ? `Chambre ${selectedStay.rooms?.number}` : 'À emporter');
+          : (isRoomService && selectedStay ? `Chambre ${selectedStay.rooms?.number}` : 'À emporter');
 
         const orderNumber = currentOrder?.order_number || lastOrderNumber || 'Nouvelle';
         const server = servers.find(s => s.id === selectedServer);
-        const serverDisplayName = server 
-          ? `${server.first_name} ${server.last_name}` 
-          : (serverName || 'Non spécifié');
+        const serverDisplayName = server ? `${server.first_name} ${server.last_name}` : (serverName || 'Non spécifié');
 
         doc.open();
         doc.write(`
@@ -521,7 +462,6 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
               <div class="info-row"><span>Destination:</span><span><strong>${locationText}</strong></span></div>
               <div class="info-row"><span>Serveur:</span><span><strong>${serverDisplayName}</strong></span></div>
               <div class="info-row"><span>Heure:</span><span><strong>${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</strong></span></div>
-              ${orderType === 'DELIVERY' ? `<div class="info-row"><span>Livraison:</span><span><strong>${deliveryAddress}</strong></span></div>` : ''}
             </div>
             <div class="items">
               ${ticket.items.map((item: any) => `
@@ -556,18 +496,10 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
   };
 
   const handleValidateAndSendToCashier = async () => {
-    if (localOrderItems.length === 0) { 
-      setError('Ajoutez au moins un article.'); 
-      return; 
-    }
-    if (!selectedServer) { 
-      setError('Veuillez sélectionner un serveur.'); 
-      return; 
-    }
-    if (orderType === 'DELIVERY' && !deliveryAddress.trim()) {
-      setError('Veuillez saisir l\'adresse de livraison.');
-      return;
-    }
+    if (localOrderItems.length === 0) { setError('Ajoutez au moins un article.'); return; }
+    if (!selectedServer) { setError('Veuillez sélectionner un serveur.'); return; }
+    if (isRoomService && !selectedStay) { setError('Veuillez sélectionner une chambre.'); return; }
+    if (orderType === 'DELIVERY' && !deliveryAddress.trim()) { setError('Veuillez saisir l\'adresse de livraison.'); return; }
 
     setLoading(true);
     setError('');
@@ -577,15 +509,8 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       const orderNumber = currentOrder?.order_number || `CMD-${Date.now().toString().slice(-6)}`;
       let orderIdToUse = currentOrder?.id;
 
-      const finalStatus = chargeToRoom ? 'ROOM_CHARGE' : 'READY';
-
-      console.log('🔄 Début de la validation...', {
-        orderIdToUse,
-        itemsCount: localOrderItems.length,
-        cartTotal,
-        isRoomCharge: chargeToRoom,
-        finalStatus
-      });
+      // ✅ CORRECTION : Une commande en chambre ou imputée passe directement en ROOM_CHARGE
+const finalStatus = (isRoomService || chargeToRoom) ? 'ROOM_CHARGE' : 'READY';
 
       if (!orderIdToUse) {
         const { data: newOrder, error: orderError } = await supabase
@@ -593,14 +518,14 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
           .insert({
             site_id: siteId,
             order_number: orderNumber,
-            table_id: table?.id || null,
-            room_id: chargeToRoom ? selectedStay?.rooms?.id : null,
-            stay_id: chargeToRoom ? selectedStay?.id : null,
+            table_id: isRoomService ? null : (table?.id || null),
+            room_id: (isRoomService || chargeToRoom) ? selectedStay?.rooms?.id : null,
+            stay_id: (isRoomService || chargeToRoom) ? selectedStay?.id : null,
             server_id: selectedServer,
-            order_type: orderType,
+            order_type: isRoomService ? 'ROOM_SERVICE' : orderType,
             status: finalStatus,
             total_amount: cartTotal,
-            notes: orderType === 'DELIVERY' ? `📍 Livraison: ${deliveryAddress}` : (currentOrder?.notes || ''),
+            notes: isRoomService ? `Room Service - Chambre ${selectedStay?.rooms?.number}` : (orderType === 'DELIVERY' ? `📍 Livraison: ${deliveryAddress}` : (currentOrder?.notes || '')),
             created_by: user?.id,
             sent_at: new Date().toISOString(),
           })
@@ -609,52 +534,34 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
 
         if (orderError) throw new Error(`Erreur création commande: ${orderError.message}`);
         orderIdToUse = newOrder.id;
-        console.log('✅ Nouvelle commande créée:', orderIdToUse);
       } else {
-        const { error: updateError } = await supabase
-          .from('restaurant_orders')
-          .update({
-            total_amount: cartTotal,
-            status: finalStatus,
-            order_type: orderType,
-            notes: orderType === 'DELIVERY' ? `📍 Livraison: ${deliveryAddress}` : (currentOrder?.notes || ''),
-            sent_at: new Date().toISOString(),
-          })
-          .eq('id', orderIdToUse);
-
-        if (updateError) throw new Error(`Erreur update commande: ${updateError.message}`);
+        await supabase.from('restaurant_orders').update({
+          total_amount: cartTotal,
+          status: finalStatus,
+          order_type: isRoomService ? 'ROOM_SERVICE' : orderType,
+          notes: isRoomService ? `Room Service - Chambre ${selectedStay?.rooms?.number}` : (orderType === 'DELIVERY' ? `📍 Livraison: ${deliveryAddress}` : (currentOrder?.notes || '')),
+          sent_at: new Date().toISOString(),
+        }).eq('id', orderIdToUse);
       }
 
       for (let i = 0; i < localOrderItems.length; i++) {
         const item = localOrderItems[i];
-        const { error: itemError } = await supabase
-          .from('restaurant_order_items')
-          .upsert({
-            order_id: orderIdToUse,
-            menu_item_id: item.menu_item_id,
-            item_name: item.item_name,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            total_price: item.total_price,
-            notes: item.notes,
-            destination: item.destination,
-            status: 'PENDING',
-          }, {
-            onConflict: 'order_id,menu_item_id'
-          });
-
-        if (itemError) {
-          console.error('Erreur insertion article:', itemError);
-          throw new Error(`Erreur insertion article: ${itemError.message}`);
-        }
+        await supabase.from('restaurant_order_items').upsert({
+          order_id: orderIdToUse,
+          menu_item_id: item.menu_item_id,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          notes: item.notes,
+          destination: item.destination,
+          status: 'PENDING',
+        }, { onConflict: 'order_id,menu_item_id' });
       }
 
-      if (chargeToRoom && selectedStay && orderIdToUse) {
+      if ((isRoomService || chargeToRoom) && selectedStay && orderIdToUse) {
         const newFolioBalance = (selectedStay.folio_balance || 0) + cartTotal;
-        
-        await supabase.from('stays').update({ 
-          folio_balance: newFolioBalance 
-        }).eq('id', selectedStay.id);
+        await supabase.from('stays').update({ folio_balance: newFolioBalance }).eq('id', selectedStay.id);
 
         await supabase.from('room_charges').insert({
           site_id: siteId,
@@ -667,26 +574,15 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
           charge_date: new Date().toISOString().split('T')[0],
           charged_by: user?.id
         });
-        console.log('✅ Room Charge imputé au folio');
       }
 
-      if (table) {
-        const newTableStatus = chargeToRoom ? 'DIRTY' : 'OCCUPIED';
-        
-        await supabase.from('restaurant_tables').update({
-          status: newTableStatus,
-        }).eq('id', table.id);
-        
-        console.log(`🪑 Table ${table.number} → statut ${newTableStatus}`);
+      if (table && !isRoomService) {
+        await supabase.from('restaurant_tables').update({ status: chargeToRoom ? 'DIRTY' : 'OCCUPIED' }).eq('id', table.id);
       }
 
-      if (!chargeToRoom) {
+      if (!isRoomService && !chargeToRoom) {
         const paymentEvent = new CustomEvent('navigate-to-payment', {
-          detail: { 
-            orderId: orderIdToUse, 
-            tableNumber: table?.number, 
-            orderNumber: orderNumber 
-          }
+          detail: { orderId: orderIdToUse, tableNumber: table?.number, orderNumber: orderNumber }
         });
         window.dispatchEvent(paymentEvent);
       }
@@ -696,8 +592,8 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       setLoading(false);
       onSuccess();
       
-      if (chargeToRoom) {
-        alert(`✅ Commande imputée à la chambre ${selectedStay?.rooms?.number} !\n\nN° ${orderNumber}\nMontant : ${Number(cartTotal).toLocaleString('fr-FR')} F\n\nLe paiement se fera au check-out du client.`);
+      if (isRoomService || chargeToRoom) {
+        alert(`✅ Commande envoyée en cuisine et imputée à la chambre ${selectedStay?.rooms?.number} !\n\nN° ${orderNumber}\nMontant : ${Number(cartTotal).toLocaleString('fr-FR')} F\n\nLe paiement se fera au check-out du client.`);
       } else {
         alert(`✅ Commande validée et envoyée à la caisse !\n\nN° ${orderNumber}\nMontant : ${Number(cartTotal).toLocaleString('fr-FR')} F`);
       }
@@ -710,20 +606,11 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
   };
 
   const handlePrintAllTickets = async () => {
-    if (localOrderItems.length === 0) {
-      setError('Aucun article à imprimer.');
-      return;
-    }
-    if (allTicketsPrinted) {
-      setError('⚠️ Les tickets ont déjà été imprimés. Utilisez "Imprimer les ajouts".');
-      return;
-    }
+    if (localOrderItems.length === 0) { setError('Aucun article à imprimer.'); return; }
+    if (allTicketsPrinted) { setError('⚠️ Les tickets ont déjà été imprimés.'); return; }
 
     const itemsToPrint = getItemsToPrint('all');
-    if (itemsToPrint.length === 0) {
-      setError('Aucun article à imprimer.');
-      return;
-    }
+    if (itemsToPrint.length === 0) { setError('Aucun article à imprimer.'); return; }
 
     const kitchenItems = itemsToPrint.filter(i => i.destination === 'KITCHEN' || i.destination === 'BOTH');
     const barItems = itemsToPrint.filter(i => i.destination === 'BAR' || i.destination === 'BOTH');
@@ -734,23 +621,18 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
 
     if (ticketsToPrint.length > 0) {
       printTickets(ticketsToPrint);
-      
       const newPrintedQuantities = new Map<string, number>();
       localOrderItems.forEach(item => newPrintedQuantities.set(item.menu_item_id, item.quantity));
       setPrintedQuantities(newPrintedQuantities);
       setAllTicketsPrinted(true);
       setPrintSuccess(true);
-      
-      alert(`✅ Tous les tickets imprimés !\n👨‍🍳 Cuisine: ${kitchenItems.reduce((sum, i) => sum + i.quantity, 0)}\n🍹 Bar: ${barItems.reduce((sum, i) => sum + i.quantity, 0)}`);
+      alert(`✅ Tous les tickets imprimés !`);
     }
   };
 
   const handlePrintNewItems = async () => {
     const newItems = getItemsToPrint('new');
-    if (newItems.length === 0) {
-      setError('Aucun nouvel article ou augmentation à imprimer.');
-      return;
-    }
+    if (newItems.length === 0) { setError('Aucun nouvel article à imprimer.'); return; }
 
     const kitchenItems = newItems.filter(i => i.destination === 'KITCHEN' || i.destination === 'BOTH');
     const barItems = newItems.filter(i => i.destination === 'BAR' || i.destination === 'BOTH');
@@ -761,7 +643,6 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
 
     if (ticketsToPrint.length > 0) {
       printTickets(ticketsToPrint);
-      
       const updatedPrintedQuantities = new Map(printedQuantities);
       newItems.forEach(item => {
         const currentPrinted = updatedPrintedQuantities.get(item.menu_item_id) || 0;
@@ -769,8 +650,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
       });
       setPrintedQuantities(updatedPrintedQuantities);
       setPrintSuccess(true);
-      
-      alert(`✅ Nouveaux articles imprimés !\n👨‍🍳 Cuisine: ${kitchenItems.reduce((sum, i) => sum + i.quantity, 0)}\n🍹 Bar: ${barItems.reduce((sum, i) => sum + i.quantity, 0)}`);
+      alert(`✅ Nouveaux articles imprimés !`);
     }
   };
 
@@ -781,12 +661,11 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
     (!menuSearchTerm || i.name.toLowerCase().includes(menuSearchTerm.toLowerCase()))
   );
   const isPaid = currentOrder?.status === 'PAID';
-  const isRoomCharge = chargeToRoom && selectedStay;
-  const isAlreadyAtCashier = currentOrder?.status === 'READY' || currentOrder?.status === 'PAID';
+  const isAlreadyAtCashier = currentOrder?.status === 'READY' || currentOrder?.status === 'PAID' || currentOrder?.status === 'SENT';
 
-  const locationText = table 
-    ? (isRoomCharge ? `Table ${table.number} ➔ Chambre ${selectedStay?.rooms?.number}` : `Table ${table.number}`)
-    : (isRoomCharge ? `Chambre ${selectedStay?.rooms?.number}` : 'Commande directe');
+  const locationText = isRoomService 
+    ? `Room Service - Chambre ${selectedStay?.rooms?.number || 'Non sélectionnée'}`
+    : (table ? `Table ${table.number}` : 'Commande directe');
 
   const itemsWithNewQty = getItemsToPrint('new');
   const newItemsCount = itemsWithNewQty.length;
@@ -796,7 +675,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col">
         <div className={`px-6 py-4 flex items-center justify-between rounded-t-xl z-10 text-white flex-shrink-0 ${
-          isRoomCharge ? 'bg-gradient-to-r from-indigo-600 to-purple-700' :
+          isRoomService ? 'bg-gradient-to-r from-indigo-600 to-purple-700' :
           isPaid ? 'bg-gradient-to-r from-emerald-600 to-green-700' :
           'bg-gradient-to-r from-amber-600 to-orange-700'
         }`}>
@@ -805,16 +684,10 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
               <ShoppingCart className="w-6 h-6" />
               {locationText}
               {currentOrder && <span className="text-sm bg-white/20 px-2 py-0.5 rounded ml-2">#{currentOrder.order_number}</span>}
-              {isRoomCharge && (
-                <span className="text-xs bg-white/30 px-2 py-1 rounded ml-2 flex items-center gap-1">
-                  <Hotel className="w-3 h-3" />
-                  Chambre {selectedStay?.rooms?.number}
-                </span>
-              )}
             </h2>
             <p className="text-xs opacity-90">
               {currentOrder ? `Statut: ${currentOrder.status} • ${serverName}` : 'Nouvelle commande'}
-              {isRoomCharge && ` • Client: ${selectedStay?.customers?.first_name} ${selectedStay?.customers?.last_name}`}
+              {isRoomService && selectedStay && ` • Client: ${selectedStay?.customers?.first_name} ${selectedStay?.customers?.last_name}`}
             </p>
           </div>
           <button onClick={onClose} className="hover:bg-white/20 p-2 rounded-lg">
@@ -836,10 +709,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                 <CheckCircle className="w-5 h-5 text-emerald-700" />
                 <div className="flex-1">
                   <div className="font-semibold text-emerald-900 text-sm">✅ Commande envoyée {printSuccess ? '& imprimée' : ''} !</div>
-                  <div className="text-xs text-emerald-700">
-                    N° {lastOrderNumber}
-                    {isRoomCharge && ` • Imputée à la chambre ${selectedStay?.rooms?.number}`}
-                  </div>
+                  <div className="text-xs text-emerald-700">N° {lastOrderNumber}</div>
                 </div>
               </div>
             )}
@@ -860,66 +730,53 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Type de commande</label>
-                <div className="flex gap-1 flex-wrap">
-                  <button
-                    onClick={() => { setOrderType('DINE_IN'); setChargeToRoom(false); }}
-                    disabled={!!table}
-                    className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
-                      orderType === 'DINE_IN' && !chargeToRoom 
-                        ? 'border-amber-500 bg-amber-50 text-amber-900' 
-                        : 'border-slate-200 bg-white text-slate-600'
-                    } ${!!table ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-50'}`}
-                  >
-                    🍽️ Sur place
-                  </button>
-
-                  <button
-                    onClick={() => { setOrderType('TAKEAWAY'); setChargeToRoom(false); }}
-                    disabled={!!table}
-                    className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
-                      orderType === 'TAKEAWAY' 
-                        ? 'border-amber-500 bg-amber-50 text-amber-900' 
-                        : 'border-slate-200 bg-white text-slate-600'
-                    } ${!!table ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-50'}`}
-                  >
-                    🥡 À emporter
-                  </button>
-
-                  <button
-                    onClick={() => { setOrderType('DELIVERY'); setChargeToRoom(false); }}
-                    disabled={!!table}
-                    className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
-                      orderType === 'DELIVERY' 
-                        ? 'border-amber-500 bg-amber-50 text-amber-900' 
-                        : 'border-slate-200 bg-white text-slate-600'
-                    } ${!!table ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-50'}`}
-                  >
-                    🛵 À livrer
-                  </button>
-
-                  <button
-                    onClick={() => { setOrderType('ROOM_SERVICE'); setChargeToRoom(true); }}
-                    className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
-                      chargeToRoom 
-                        ? 'border-indigo-500 bg-indigo-50 text-indigo-900' 
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    🛎️ Chambre
-                  </button>
+              
+              {/* ✅ Masquer les types de commande si on est en mode Room Service */}
+              {!isRoomService && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Type de commande</label>
+                  <div className="flex gap-1 flex-wrap">
+                    <button
+                      onClick={() => { setOrderType('DINE_IN'); setChargeToRoom(false); }}
+                      disabled={!!table}
+                      className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
+                        orderType === 'DINE_IN' && !chargeToRoom ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'
+                      } ${!!table ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-50'}`}
+                    >
+                      🍽️ Sur place
+                    </button>
+                    <button
+                      onClick={() => { setOrderType('TAKEAWAY'); setChargeToRoom(false); }}
+                      disabled={!!table}
+                      className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
+                        orderType === 'TAKEAWAY' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'
+                      } ${!!table ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-50'}`}
+                    >
+                      🥡 À emporter
+                    </button>
+                    <button
+                      onClick={() => { setOrderType('DELIVERY'); setChargeToRoom(false); }}
+                      disabled={!!table}
+                      className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
+                        orderType === 'DELIVERY' ? 'border-amber-500 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'
+                      } ${!!table ? 'opacity-60 cursor-not-allowed' : 'hover:bg-slate-50'}`}
+                    >
+                      🛵 À livrer
+                    </button>
+                    <button
+                      onClick={() => { setOrderType('ROOM_SERVICE'); setChargeToRoom(true); }}
+                      className={`flex-1 min-w-[80px] text-xs py-2 rounded border-2 transition-colors ${
+                        chargeToRoom ? 'border-indigo-500 bg-indigo-50 text-indigo-900' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      🛎️ Chambre
+                    </button>
+                  </div>
                 </div>
-                
-                {table && (
-                  <p className="text-xs text-amber-700 mt-1.5 flex items-center gap-1 bg-amber-50 px-2 py-1 rounded border border-amber-200">
-                    ℹ️ Type <strong>"Sur place"</strong> sélectionné automatiquement pour la table {table.number}.
-                  </p>
-                )}
-              </div>
+              )}
             </div>
 
-            {orderType === 'DELIVERY' && (
+            {orderType === 'DELIVERY' && !isRoomService && (
               <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3 mt-2">
                 <label className="block text-xs font-medium text-blue-900 mb-1">📍 Adresse de livraison *</label>
                 <input
@@ -927,16 +784,19 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                   value={deliveryAddress}
                   onChange={(e) => setDeliveryAddress(e.target.value)}
                   placeholder="Ex: Ouaga 2000, Secteur 15, Maison n°42..."
-                  className="w-full border border-blue-300 rounded px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full border border-blue-300 rounded px-3 py-2 text-sm bg-white"
                 />
               </div>
             )}
 
-            {chargeToRoom && (
+            {/* ✅ Section Chambre toujours visible si Room Service ou ChargeToRoom */}
+            {(chargeToRoom || isRoomService) && (
               <div className="bg-indigo-50 border-2 border-indigo-200 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Hotel className="w-5 h-5 text-indigo-700" />
-                  <h3 className="font-semibold text-indigo-900">Sélectionner la chambre du client</h3>
+                  <h3 className="font-semibold text-indigo-900">
+                    {isRoomService ? 'Sélectionner la chambre du client *' : 'Sélectionner la chambre du client'}
+                  </h3>
                 </div>
 
                 <input
@@ -960,12 +820,14 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                         </div>
                       </div>
                     </div>
-                    <button
-                      onClick={() => { setSelectedStay(null); setChargeToRoom(false); }}
-                      className="mt-2 text-xs text-red-600 hover:text-red-800"
-                    >
-                      ✕ Changer de chambre
-                    </button>
+                    {!isRoomService && (
+                      <button
+                        onClick={() => { setSelectedStay(null); setChargeToRoom(false); }}
+                        className="mt-2 text-xs text-red-600 hover:text-red-800"
+                      >
+                        ✕ Changer de chambre
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="max-h-48 overflow-y-auto space-y-1">
@@ -976,10 +838,10 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                         className="w-full text-left p-2 bg-white hover:bg-indigo-100 rounded border border-slate-200 hover:border-indigo-400 transition"
                       >
                         <div className="font-semibold text-sm text-slate-900">🛏️ Chambre {stay.rooms?.number}</div>
-                        <div className="text-xs text-slate-600"> {stay.customers?.first_name} {stay.customers?.last_name}</div>
+                        <div className="text-xs text-slate-600">👤 {stay.customers?.first_name} {stay.customers?.last_name}</div>
                       </button>
                     ))}
-                    {occupiedRooms.length === 0 && (
+                    {occupiedRooms.filter(r => r.rooms?.number?.toLowerCase().includes(searchRoom.toLowerCase())).length === 0 && (
                       <div className="text-center py-4 text-sm text-slate-500">Aucune chambre occupée trouvée</div>
                     )}
                   </div>
@@ -1051,7 +913,6 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                           className={`absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center text-xs ${
                             favorites.includes(item.id) ? 'bg-amber-400 text-white' : 'bg-slate-200 text-slate-400 hover:bg-slate-300'
                           }`}
-                          title={favorites.includes(item.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
                         >
                           {favorites.includes(item.id) ? '★' : '☆'}
                         </button>
@@ -1059,7 +920,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                     ))}
                     {(showFavoritesOnly ? menuItems.filter(item => favorites.includes(item.id)) : currentCategoryItems).length === 0 && (
                       <div className="col-span-full text-center py-8 text-slate-500 text-sm">
-                        {showFavoritesOnly ? 'Aucun favori. Cliquez sur ☆ pour en ajouter.' : 'Aucun article trouvé'}
+                        {showFavoritesOnly ? 'Aucun favori.' : 'Aucun article trouvé'}
                       </div>
                     )}
                   </div>
@@ -1073,18 +934,12 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                     Panier ({localOrderItems.reduce((sum, i) => sum + i.quantity, 0)} articles)
                     {isAlreadyAtCashier && (
                       <span className="ml-auto text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded flex items-center gap-1">
-                        <Lock className="w-3 h-3" /> Envoyée en caisse
+                        <Lock className="w-3 h-3" /> Envoyée
                       </span>
                     )}
-
                     {!isAlreadyAtCashier && newItemsCount > 0 && (
                       <span className="ml-auto text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded flex items-center gap-1">
                         🆕 {newTotalQty} à imprimer
-                      </span>
-                    )}
-                    {allTicketsPrinted && newItemsCount === 0 && (
-                      <span className="ml-auto text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded flex items-center gap-1">
-                        <Lock className="w-3 h-3" /> Tous imprimés
                       </span>
                     )}
                   </h3>
@@ -1113,11 +968,6 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                                 {hasNewQty && (
                                   <span className="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded">
                                     {printedQty > 0 ? `+${newQty}` : `${newQty} nouveau`}
-                                  </span>
-                                )}
-                                {printedQty > 0 && !hasNewQty && (
-                                  <span className="text-xs bg-slate-300 text-slate-700 px-1.5 py-0.5 rounded">
-                                    ✓ imprimé
                                   </span>
                                 )}
                               </div>
@@ -1162,9 +1012,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                       onClick={handlePrintAllTickets}
                       disabled={loading || localOrderItems.length === 0 || allTicketsPrinted}
                       className={`font-semibold py-2 px-2 rounded-lg disabled:opacity-50 flex flex-col items-center justify-center gap-1 text-xs ${
-                        allTicketsPrinted
-                          ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        allTicketsPrinted ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'
                       }`}
                     >
                       {allTicketsPrinted ? <><Lock className="w-4 h-4" /><span>Déjà imprimé</span></> : <><Printer className="w-4 h-4" /><span>Imprimer tout</span></>}
@@ -1187,27 +1035,18 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
                         loading || 
                         localOrderItems.length === 0 || 
                         !selectedServer || 
-                        (chargeToRoom && !selectedStay) ||
+                        (isRoomService && !selectedStay) ||
                         (orderType === 'DELIVERY' && !deliveryAddress.trim()) ||
                         isAlreadyAtCashier
                       }
                       className={`font-semibold py-2 px-2 rounded-lg flex flex-col items-center justify-center gap-1 text-xs transition-colors ${
-                        isAlreadyAtCashier
-                          ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                          : 'bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50'
+                        isAlreadyAtCashier ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50'
                       }`}
-                      title={isAlreadyAtCashier ? "Cette commande a déjà été envoyée à la caisse et ne peut plus être modifiée." : "Valider et envoyer à la caisse"}
                     >
                       {isAlreadyAtCashier ? (
-                        <>
-                          <Lock className="w-4 h-4" />
-                          <span>Déjà en caisse</span>
-                        </>
+                        <><Lock className="w-4 h-4" /><span>Déjà envoyé</span></>
                       ) : (
-                        <>
-                          <DollarSign className="w-4 h-4" />
-                          <span>Valider & Caisse</span>
-                        </>
+                        <><Send className="w-4 h-4" /><span>Envoyer en Cuisine</span></>
                       )}
                     </button>
                   </div>
@@ -1215,10 +1054,7 @@ export default function FBOrderModal({ siteId, table, orderId, isOpen, onClose, 
               </div>
             </div>
 
-            <button 
-              onClick={onClose} 
-              className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2 rounded-lg"
-            >
+            <button onClick={onClose} className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2 rounded-lg">
               Fermer
             </button>
           </div>

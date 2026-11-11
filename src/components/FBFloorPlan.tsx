@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { X, Plus, Users, Coffee, Utensils, Clock,DollarSign, CheckCircle, ShoppingCart, FileText, Truck, Hotel, Filter, ChevronRight, AlertCircle } from 'lucide-react';
+import { X, Plus, Users, Coffee, Utensils, Clock, DollarSign, CheckCircle, ShoppingCart, FileText, Truck, Hotel, Filter, ChevronRight, AlertCircle } from 'lucide-react';
 import FBOrderModal from './FBOrderModal';
 
 interface Props {
@@ -22,8 +22,6 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [activeOrders, setActiveOrders] = useState<any[]>([]);
   const [filterType, setFilterType] = useState<'ALL' | 'TABLE' | 'TAKEAWAY' | 'DELIVERY' | 'ROOM_SERVICE'>('ALL');
-  
-  // ✅ NOUVEAU : Commande sélectionnée pour le panneau de détails
   const [selectedOrderDetail, setSelectedOrderDetail] = useState<any>(null);
 
   useEffect(() => {
@@ -88,9 +86,8 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
 
       if (error) throw error;
 
-            const formatted = (data || []).map(order => ({
+      const formatted = (data || []).map(order => ({
         ...order,
-        // ✅ CORRECTION : Ajout de [0] pour les jointures Supabase
         table_number: order.restaurant_tables?.[0]?.number || null,
         server_name: order.restaurant_employees?.[0]
           ? `${order.restaurant_employees[0].first_name} ${order.restaurant_employees[0].last_name}`
@@ -171,13 +168,13 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
     }
   };
 
-  const handleDirectOrder = () => {
+  // ✅ MODIFIÉ : Ouvre directement en mode Room Service
+  const handleRoomServiceOrder = () => {
     setSelectedTable(null);
     setSelectedOrderId(null);
     setShowOrderModal(true);
   };
 
-  // ✅ NOUVEAU : Clic sur une commande dans la liste pour voir les détails
   const handleOrderClick = (order: any) => {
     setSelectedOrderDetail(order);
     if (order.table_id) {
@@ -189,12 +186,6 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
     setSelectedOrderId(order.id);
   };
 
-  const handleEditOrder = () => {
-    if (selectedOrderDetail) {
-      setShowOrderModal(true);
-    }
-  };
-
   if (!isOpen) return null;
 
   const currentZoneTables = activeZone ? tables.filter(t => t.zone_id === activeZone) : tables;
@@ -202,7 +193,6 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl max-h-[95vh] overflow-hidden flex flex-col">
-        {/* En-tête */}
         <div className="bg-gradient-to-r from-amber-600 to-orange-700 text-white px-6 py-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
             <Utensils className="w-6 h-6" />
@@ -214,18 +204,16 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handleDirectOrder} className="bg-white/20 hover:bg-white/30 text-white text-sm px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 border border-white/30">
-              <Plus className="w-4 h-4" /> Commande directe
+            {/* ✅ BOUTON ROOM SERVICE DÉDIÉ */}
+            <button onClick={handleRoomServiceOrder} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 border border-indigo-500 shadow-sm">
+              <Hotel className="w-4 h-4" /> Room Service
             </button>
             <button onClick={onClose} className="hover:bg-white/20 p-2 rounded-lg"><X className="w-5 h-5" /></button>
           </div>
         </div>
 
-        {/* ✅ SPLIT-VIEW : Deux colonnes */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Colonne GAUCHE : Plan de salle (60%) */}
           <div className="w-3/5 border-r border-slate-200 overflow-y-auto p-6 space-y-4">
-            {/* Filtres de zones */}
             {zones.length > 0 && (
               <div className="flex gap-2 border-b border-slate-200 pb-2">
                 <button onClick={() => setActiveZone(null)} className={`px-4 py-2 font-medium text-sm ${activeZone === null ? 'border-b-2 border-amber-600 text-amber-600' : 'text-slate-600 hover:text-slate-900'}`}>
@@ -239,7 +227,6 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
               </div>
             )}
 
-            {/* Statistiques */}
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-3">
                 <div className="text-xs font-medium text-emerald-700">🟢 Libres</div>
@@ -255,7 +242,6 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
               </div>
             </div>
 
-            {/* Grille des tables */}
             <div className="bg-slate-50 rounded-lg border-2 border-slate-200 p-6">
               {currentZoneTables.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
@@ -296,9 +282,7 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
             </div>
           </div>
 
-          {/* Colonne DROITE : Liste des commandes + Détails (40%) */}
           <div className="w-2/5 flex flex-col overflow-hidden">
-            {/* Filtres par type */}
             <div className="flex flex-wrap gap-2 items-center bg-slate-50 p-3 border-b border-slate-200">
               <Filter className="w-4 h-4 text-slate-500" />
               <span className="text-sm font-medium text-slate-700 mr-2">Filtrer :</span>
@@ -319,7 +303,6 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
               })}
             </div>
 
-            {/* Liste des commandes */}
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {processedOrders.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
@@ -366,100 +349,83 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
               )}
             </div>
 
-   {/* Panneau de détails de la commande sélectionnée */}
-{selectedOrderDetail && (
-  <div className="border-t-2 border-amber-200 bg-amber-50 p-4 flex-shrink-0">
-    <div className="flex items-center justify-between mb-2">
-      <h4 className="font-bold text-amber-900 flex items-center gap-2">
-        <ChevronRight className="w-4 h-4" />
-        Détails de la commande
-      </h4>
-      <button onClick={() => setSelectedOrderDetail(null)} className="text-slate-500 hover:text-slate-700">
-        <X className="w-4 h-4" />
-      </button>
-    </div>
-    
-    <div className="text-sm text-slate-700 mb-3">
-      <div className="font-semibold flex items-center gap-2">
-        #{selectedOrderDetail.order_number}
-        {getUrgencyBadge(selectedOrderDetail.created_at, selectedOrderDetail.status)}
-      </div>
-      <div className="text-xs">{selectedOrderDetail.server_name} • {selectedOrderDetail.items_count} article(s)</div>
-      <div className="text-lg font-bold text-amber-900 mt-1">{Number(selectedOrderDetail.total_amount).toLocaleString('fr-FR')} F</div>
-      
-      {/* ✅ Affichage de l'adresse si livraison */}
-      {selectedOrderDetail.order_type === 'DELIVERY' && selectedOrderDetail.notes?.includes('📍') && (
-        <div className="text-xs mt-2 bg-blue-100 p-2 rounded border border-blue-200 text-blue-900">
-          📍 {selectedOrderDetail.notes.replace('📍 Livraison: ', '').replace(' Livraison: ', '')}
-        </div>
-      )}
-    </div>
+            {selectedOrderDetail && (
+              <div className="border-t-2 border-amber-200 bg-amber-50 p-4 flex-shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-bold text-amber-900 flex items-center gap-2">
+                    <ChevronRight className="w-4 h-4" />
+                    Détails de la commande
+                  </h4>
+                  <button onClick={() => setSelectedOrderDetail(null)} className="text-slate-500 hover:text-slate-700">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                <div className="text-sm text-slate-700 mb-3">
+                  <div className="font-semibold flex items-center gap-2">
+                    #{selectedOrderDetail.order_number}
+                    {getUrgencyBadge(selectedOrderDetail.created_at, selectedOrderDetail.status)}
+                  </div>
+                  <div className="text-xs">{selectedOrderDetail.server_name} • {selectedOrderDetail.items_count} article(s)</div>
+                  <div className="text-lg font-bold text-amber-900 mt-1">{Number(selectedOrderDetail.total_amount).toLocaleString('fr-FR')} F</div>
+                </div>
 
-    <div className="flex gap-2">
-      {/* Bouton Modifier */}
-      <button 
-        onClick={() => {
-          if (selectedOrderDetail.table_id) {
-            const table = tables.find(t => t.id === selectedOrderDetail.table_id);
-            setSelectedTable(table || null);
-          } else {
-            setSelectedTable(null);
-          }
-          setSelectedOrderId(selectedOrderDetail.id);
-          setShowOrderModal(true);
-        }} 
-        className="flex-1 bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm"
-      >
-        <FileText className="w-4 h-4" />
-        Modifier
-      </button>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                      if (selectedOrderDetail.table_id) {
+                        const table = tables.find(t => t.id === selectedOrderDetail.table_id);
+                        setSelectedTable(table || null);
+                      } else {
+                        setSelectedTable(null);
+                      }
+                      setSelectedOrderId(selectedOrderDetail.id);
+                      setShowOrderModal(true);
+                    }} 
+                    className="flex-1 bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm"
+                  >
+                    <FileText className="w-4 h-4" /> Modifier
+                  </button>
 
-      {/* ✅ Bouton Valider & Caisse (visible si DRAFT, SENT ou PREPARING) */}
-      {(selectedOrderDetail.status === 'DRAFT' || selectedOrderDetail.status === 'SENT' || selectedOrderDetail.status === 'PREPARING') && (
-        <button 
-          onClick={() => {
-            if (selectedOrderDetail.table_id) {
-              const table = tables.find(t => t.id === selectedOrderDetail.table_id);
-              setSelectedTable(table || null);
-            } else {
-              setSelectedTable(null);
-            }
-            setSelectedOrderId(selectedOrderDetail.id);
-            setShowOrderModal(true); // Ouvre le modal pour validation finale
-          }}
-          className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm"
-        >
-          <DollarSign className="w-4 h-4" />
-          Valider & Caisse
-        </button>
-      )}
+                  {(selectedOrderDetail.status === 'DRAFT' || selectedOrderDetail.status === 'SENT' || selectedOrderDetail.status === 'PREPARING') && (
+                    <button 
+                      onClick={() => {
+                        if (selectedOrderDetail.table_id) {
+                          const table = tables.find(t => t.id === selectedOrderDetail.table_id);
+                          setSelectedTable(table || null);
+                        } else {
+                          setSelectedTable(null);
+                        }
+                        setSelectedOrderId(selectedOrderDetail.id);
+                        setShowOrderModal(true);
+                      }}
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm"
+                    >
+                      <DollarSign className="w-4 h-4" /> Valider & Caisse
+                    </button>
+                  )}
 
-      {/* Badge En attente */}
-      {selectedOrderDetail.status === 'READY' && (
-        <div className="flex-1 bg-blue-100 text-blue-800 font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm border-2 border-blue-300">
-          <CheckCircle className="w-4 h-4" />
-          En attente de paiement
-        </div>
-      )}
+                  {selectedOrderDetail.status === 'READY' && (
+                    <div className="flex-1 bg-blue-100 text-blue-800 font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm border-2 border-blue-300">
+                      <CheckCircle className="w-4 h-4" /> En attente de paiement
+                    </div>
+                  )}
 
-      {/* Badge Imputée chambre */}
-      {selectedOrderDetail.status === 'ROOM_CHARGE' && (
-        <div className="flex-1 bg-purple-100 text-purple-800 font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm border-2 border-purple-300">
-          <Hotel className="w-4 h-4" />
-          Imputée à la chambre
-        </div>
-      )}
-    </div>
-  </div>
-)}
+                  {selectedOrderDetail.status === 'ROOM_CHARGE' && (
+                    <div className="flex-1 bg-purple-100 text-purple-800 font-semibold py-2 rounded-lg flex items-center justify-center gap-2 text-sm border-2 border-purple-300">
+                      <Hotel className="w-4 h-4" /> Imputée à la chambre
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Modal de commande (pour édition détaillée) */}
       {showOrderModal && (
         <FBOrderModal
-          key={`${selectedTable?.id || 'direct'}-${selectedOrderId || 'new'}`}
+          key={`${selectedTable?.id || 'room-service'}-${selectedOrderId || 'new'}`}
           siteId={siteId}
           table={selectedTable}
           orderId={selectedOrderId}
@@ -469,6 +435,8 @@ export default function FBFloorPlan({ siteId, isOpen, onClose, onSuccess, presel
             setShowOrderModal(false); setSelectedTable(null); setSelectedOrderId(null);
             loadData(); loadActiveOrders(); onSuccess(); 
           }}
+          // ✅ FORCE LE MODE ROOM SERVICE SI AUCUNE TABLE N'EST SÉLECTIONNÉE
+          mode={selectedTable ? 'RESTAURANT' : 'ROOM_SERVICE'}
         />
       )}
     </div>

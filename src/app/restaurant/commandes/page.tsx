@@ -397,9 +397,14 @@ export default function CommandesPage() {
     switch (status) {
       case 'DRAFT':
         if (currentOrderType === 'ROOM_SERVICE') {
-          return { label: 'Brouillon (Folio)', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: Clock, nextStatus: null };
+          return { label: 'Brouillon (Folio)', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: Clock, nextStatus: 'SENT' };
         }
         return { label: 'Brouillon', badgeColor: 'bg-slate-100 text-slate-800 border-slate-200', cardBg: 'bg-slate-50', cardBorder: 'border-slate-300', icon: ClipboardList, nextStatus: 'SENT' };
+      
+      // ✅ NOUVEAU : Gestion du statut ROOM_CHARGE
+      case 'ROOM_CHARGE':
+        return { label: 'Imputé au folio', badgeColor: 'bg-purple-100 text-purple-800 border-purple-200', cardBg: 'bg-purple-50', cardBorder: 'border-purple-300', icon: Bed, nextStatus: null };
+      
       case 'SENT': return { label: 'Envoyée', badgeColor: 'bg-blue-100 text-blue-800 border-blue-200', cardBg: 'bg-blue-50', cardBorder: 'border-blue-300', icon: Truck, nextStatus: 'PREPARING' };
       case 'PREPARING': return { label: 'En prép.', badgeColor: 'bg-amber-100 text-amber-800 border-amber-200', cardBg: 'bg-amber-50', cardBorder: 'border-amber-300', icon: ChefHat, nextStatus: 'READY' };
       case 'READY': return { label: 'Prête', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', cardBg: 'bg-emerald-50', cardBorder: 'border-emerald-300', icon: CheckCircle, nextStatus: 'SERVED' };
@@ -836,7 +841,7 @@ export default function CommandesPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
-      const isActive = ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED'].includes(order.status);
+      const isActive = ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED', 'ROOM_CHARGE'].includes(order.status);
       const isHistory = ['PAID', 'CANCELLED'].includes(order.status);
       if (mainTab === 'active' && !isActive) return false;
       if (mainTab === 'history' && !isHistory) return false;

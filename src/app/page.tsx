@@ -12,6 +12,13 @@ import {
   Clock,
   LogIn,
   Bell,
+  Utensils,
+  ChefHat,
+  Wrench,
+  Settings,
+  DollarSign,
+  FileText,
+  Moon,
 } from "lucide-react";
 import LogoutButton from "@/components/LogoutButton";
 import ReservationModal from "@/components/ReservationModal";
@@ -21,15 +28,11 @@ import NetworkStatusIndicator from "@/components/NetworkStatusIndicator";
 import WaitlistAlert from '@/components/WaitlistAlert';
 import MaintenanceModal from '@/components/MaintenanceModal';
 import AdminModal from '@/components/AdminModal';
-import { Wrench, Settings } from 'lucide-react';
-import CashierModal from '@/components/CashierModal'; // au lieu de CashRegisterModal
-import { DollarSign } from 'lucide-react';
+import CashierModal from '@/components/CashierModal';
 import DailyReportModal from '@/components/DailyReportModal';
 import NightAuditModal from '@/components/NightAuditModal';
-import { FileText, Moon } from 'lucide-react';
-import FBFloorPlan from '@/components/FBFloorPlan';
 import FBKitchenDisplay from '@/components/FBKitchenDisplay';
-import { Utensils, ChefHat } from 'lucide-react';
+import RoomServiceModal from '@/components/RoomServiceModal'; // ✅ NOUVEAU IMPORT
 
 const statusConfig: Record<
   string,
@@ -76,15 +79,17 @@ export default function HomePage() {
   const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
   const [waitlistCount, setWaitlistCount] = useState(0);
   const [showWaitlistAlert, setShowWaitlistAlert] = useState(false);
-const [waitlistMatchesCount, setWaitlistMatchesCount] = useState(0);
-const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
-const [isAdminOpen, setIsAdminOpen] = useState(false);
-const [maintenanceRoomId, setMaintenanceRoomId] = useState<string | undefined>();
-const [isCashOpen, setIsCashOpen] = useState(false);
-const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
-const [isNightAuditOpen, setIsNightAuditOpen] = useState(false);
-const [isFBOpen, setIsFBOpen] = useState(false);
-const [isKitchenOpen, setIsKitchenOpen] = useState(false);
+  const [waitlistMatchesCount, setWaitlistMatchesCount] = useState(0);
+  const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [maintenanceRoomId, setMaintenanceRoomId] = useState<string | undefined>();
+  const [isCashOpen, setIsCashOpen] = useState(false);
+  const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
+  const [isNightAuditOpen, setIsNightAuditOpen] = useState(false);
+  
+  // ✅ MODIFIÉ : État pour le Room Service (remplace isFBOpen)
+  const [isRoomServiceOpen, setIsRoomServiceOpen] = useState(false);
+  const [isKitchenOpen, setIsKitchenOpen] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -216,7 +221,6 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
       console.error('Erreur chargement waitlist:', err);
     }
 
-        // 4. Compter les correspondances liste d'attente
     try {
       const { data: vacantRooms } = await supabase
         .from('rooms')
@@ -276,7 +280,6 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
     return acc;
   }, {});
 
-  // Séparer les réservations en 2 catégories
   const upcomingReservations = reservations.filter(r => r.status === 'CONFIRMED');
   const currentStays = reservations.filter(r => r.status === 'CHECKED_IN');
 
@@ -303,7 +306,8 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
               </span>
             )}
           </button>
-                    {waitlistMatchesCount > 0 && (
+          
+          {waitlistMatchesCount > 0 && (
             <button
               onClick={() => setShowWaitlistAlert(true)}
               className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors relative animate-pulse"
@@ -317,7 +321,8 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
               </span>
             </button>
           )}
-                    <button
+          
+          <button
             onClick={() => setIsMaintenanceOpen(true)}
             className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
             title="Maintenance"
@@ -339,14 +344,17 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
             <span>Nouvelle Réservation</span>
           </button>
           <NetworkStatusIndicator />
-                    <button
-            onClick={() => setIsFBOpen(true)}
-            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
-            title="Restaurant & Bar"
+          
+          {/* ✅ BOUTON ROOM SERVICE (Remplace F&B Plan de Salle) */}
+          <button
+            onClick={() => setIsRoomServiceOpen(true)}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
+            title="Room Service"
           >
             <Utensils className="w-5 h-5" />
-            <span className="hidden sm:inline">F&B</span>
+            <span className="hidden sm:inline">Room Service</span>
           </button>
+          
           <button
             onClick={() => setIsKitchenOpen(true)}
             className="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
@@ -355,7 +363,8 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
             <ChefHat className="w-5 h-5" />
             <span className="hidden sm:inline">Cuisine</span>
           </button>
-                    <button
+          
+          <button
             onClick={() => setIsCashOpen(true)}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
             title="Caisse"
@@ -363,7 +372,8 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
             <DollarSign className="w-5 h-5" />
             <span className="hidden sm:inline">Caisse</span>
           </button>
-                    <button
+          
+          <button
             onClick={() => setIsDailyReportOpen(true)}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
             title="Rapport de fin de journée"
@@ -427,7 +437,7 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
                   {byFloor[floor].map((room: any) => {
                     const cfg = statusConfig[room.status] || statusConfig.VACANT;
                     return (
-                                            <button
+                      <button
                         key={room.id}
                         onClick={() => {
                           setSelectedRoom(room);
@@ -440,7 +450,6 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
                         }}
                         className={`rounded-lg border-2 p-2 text-left hover:shadow-md transition-all cursor-pointer relative group ${cfg.color}`}
                       >
-                        {/* Badge maintenance si OUT_OF_ORDER */}
                         {room.status === 'OUT_OF_ORDER' && (
                           <div className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">
                             🔧
@@ -456,7 +465,6 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
                         <div className="text-[10px] mt-1 font-semibold">
                           {Number(room.room_categories?.base_price || 0).toLocaleString("fr-FR")} F
                         </div>
-                        {/* Info maintenance au survol */}
                         {room.out_of_order_reason && (
                           <div className="absolute bottom-full left-0 right-0 mb-1 bg-red-900 text-white text-[10px] p-1 rounded hidden group-hover:block z-10">
                              {room.out_of_order_reason}
@@ -470,10 +478,7 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
             ))}
           </div>
 
-          {/* COLONNE DROITE : 2 sections séparées */}
           <div className="lg:col-span-1 space-y-4">
-            
-            {/* Section 1 : Réservations à venir */}
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
               <div className="bg-amber-100 px-3 py-2 border-b border-amber-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -523,7 +528,6 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
               )}
             </div>
 
-            {/* Section 2 : Clients en séjour */}
             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
               <div className="bg-blue-100 px-3 py-2 border-b border-blue-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -569,7 +573,6 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
                             🚪 Chambre {res.rooms.number}
                           </div>
                         )}
-                        {/* Indicateur de progression du séjour */}
                         <div className="mt-1 pt-1 border-t border-blue-200/50">
                           <div className="flex justify-between text-[10px] text-slate-500">
                             <span>Nuit {nightsStayed}/{totalNights}</span>
@@ -588,7 +591,6 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
                 </div>
               )}
             </div>
-
           </div>
         </div>
       </div>
@@ -614,7 +616,8 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
         onClose={() => setIsWaitlistOpen(false)}
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
-            <MaintenanceModal
+      
+      <MaintenanceModal
         siteId={siteId}
         rooms={rooms}
         isOpen={isMaintenanceOpen}
@@ -630,18 +633,20 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
 
-            <WaitlistAlert
+      <WaitlistAlert
         siteId={siteId}
         isOpen={showWaitlistAlert}
         onClose={() => setShowWaitlistAlert(false)}
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
-            <CashierModal
-  siteId={siteId}
-  isOpen={isCashOpen}
-  onClose={() => setIsCashOpen(false)}
-  onSuccess={() => setRefreshKey((k) => k + 1)}
-/>
+      
+      <CashierModal
+        siteId={siteId}
+        isOpen={isCashOpen}
+        onClose={() => setIsCashOpen(false)}
+        onSuccess={() => setRefreshKey((k) => k + 1)}
+      />
+      
       <DailyReportModal
         siteId={siteId}
         isOpen={isDailyReportOpen}
@@ -656,10 +661,12 @@ const [isKitchenOpen, setIsKitchenOpen] = useState(false);
         onClose={() => setIsNightAuditOpen(false)}
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
-            <FBFloorPlan
+      
+      {/* ✅ MODAL ROOM SERVICE (Remplace FBFloorPlan) */}
+      <RoomServiceModal
         siteId={siteId}
-        isOpen={isFBOpen}
-        onClose={() => setIsFBOpen(false)}
+        isOpen={isRoomServiceOpen}
+        onClose={() => setIsRoomServiceOpen(false)}
         onSuccess={() => setRefreshKey((k) => k + 1)}
       />
 
