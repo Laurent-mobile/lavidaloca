@@ -10,6 +10,7 @@ import {
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import PayrollDetailModal from './components/PayrollDetailModal';
+import PayslipPreviewModal from './components/PayslipPreviewModal';
 
 interface Employee {
   id: string;
@@ -54,6 +55,9 @@ export default function GestionEmployesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
+  const [showPayPeriodModal, setShowPayPeriodModal] = useState(false);
+const [payingPayroll, setPayingPayroll] = useState<Payroll | null>(null);
+const [payMethod, setPayMethod] = useState('BANK_TRANSFER');
   
   // Filtres
   const [search, setSearch] = useState('');
@@ -81,6 +85,10 @@ export default function GestionEmployesPage() {
   const [selectedPayroll, setSelectedPayroll] = useState<Payroll | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [showEmployeeDetailModal, setShowEmployeeDetailModal] = useState(false);
+  const [showPayslipModal, setShowPayslipModal] = useState(false);
+const [selectedEmployeeForPayslip, setSelectedEmployeeForPayslip] = useState<any>(null);
+const [selectedPeriodMonth, setSelectedPeriodMonth] = useState(new Date().getMonth() + 1);
+const [selectedPeriodYear, setSelectedPeriodYear] = useState(new Date().getFullYear());
 
   // ✅ Formulaires corrigés (valeurs par défaut '' au lieu de null/undefined)
   const [newEmployeeForm, setNewEmployeeForm] = useState({
@@ -133,34 +141,98 @@ const [selectedPayrollDetail, setSelectedPayrollDetail] = useState<any>(null);
       loadPayrolls();
     }
   }, [siteId, activeTab]);
-const handleViewPayrollDetails = (payroll: any) => {
-  // Simulez les données détaillées (à remplacer par un appel Supabase réel)
-  const mockData = {
-    id: payroll.id,
-    period_start: payroll.period_start,
-    period_end: payroll.period_end,
-    status: payroll.status || 'PAID',
-    total_brut: 1265000,
-    total_deductions: 0,
-    total_net: 1265000,
-    employee_count: 20,
-    employees: employees.map(emp => ({
-      employee_id: emp.id,
-      employee_name: `${emp.first_name} ${emp.last_name}`,
-      employee_matricule: emp.matricule || `EMP${emp.id.slice(0, 8)}`,
-      base_salary: emp.salary || 0,
-      overtime_hours: 0,
-      overtime_amount: 0,
-      bonuses: 0,
-      advances: 0,
-      deductions: 0,
-      gross_salary: emp.salary || 0,
-      net_salary: emp.salary || 0
-    }))
+
+  const handleViewPayrollDetails = async (payroll: any) => {
+  try {
+    const startDate = new Date(payroll.period_start);
+    const periodMonth = startDate.getMonth() + 1;
+    const periodYear = startDate.getFullYear();
+
+    // 1. Charger les bulletins de paie existants (seulement ceux qui ont été créés)
+    const { data: payslips, error } = await supabase
+      .from('employee_payslips')
+      .select('*')
+      .eq('site_id', siteId)
+      .eq('period_month', periodMonth)
+      .eq('period_year', periodYear);
+
+    if (error) {
+      console.error('Erreur chargement bulletins:', error);
+      throw error;
+    }
+
+    // 2. Créer un map pour accès rapide : employee_id -> payslip
+    const payslipMap = new Map<string, any>();
+    payslips?.forEach(p => payslipMap.set(p.employee_id, p));
+
+    // 3. ✅ UTILISER TOUS LES EMPLOYÉS ACTIFS (pas seulement ceux avec bulletin)
+    let totalBrut = 0;
+    let totalDeductions = 0;
+    let totalNet = 0;
+
+    const employeesData = employees
+      .filter(emp => emp.is_active !== false) // Seulement les actifs
+      .map(emp => {
+        const payslip = payslipMap.get(emp.id);
+        
+        // Si un bulletin existe, utiliser ses données (avec primes/avances)
+        // Sinon, utiliser le salaire de base
+        const baseSalary = payslip ? payslip.base_salary : (emp.salary || 0);
+        const bonuses = payslip?.bonuses || 0;
+        const deductions = payslip?.deductions || 0;
+        const advances = payslip?.advances || 0;
+        const netSalary = payslip ? payslip.net_salary : (emp.salary || 0);
+
+        totalBrut += baseSalary + bonuses;
+        totalDeductions += deductions + advances;
+        totalNet += netSalary;
+
+        return {
+          employee_id: emp.id,
+          employee_name: `${emp.first_name} ${emp.last_name}`,
+          employee_matricule: emp.matricule || `EMP${emp.id.slice(0, 8)}`,
+          base_salary: baseSalary,
+          overtime_hours: 0,
+          overtime_amount: 0,
+          bonuses: bonuses,
+          advances: advances,
+          deductions: deductions,
+          gross_salary: baseSalary + bonuses,
+          net_salary: netSalary,
+          has_payslip: !!payslip // Pour savoir si un bulletin existe
+        };
+      });
+
+    // 4. Construire les données pour le modal
+    const realData = {
+      id: payroll.id,
+      period_start: payroll.period_start,
+      period_end: payroll.period_end,
+      status: payroll.status || 'PENDING',
+      total_brut: totalBrut,
+      total_deductions: totalDeductions,
+      total_net: totalNet,
+      employee_count: employeesData.length,
+      employees: employeesData
+    };
+
+    setSelectedPayrollDetail(realData);
+    setShowPayrollDetail(true);
+
+  } catch (error: any) {
+    console.error('Erreur chargement détails paie:', error);
+    alert(`Erreur: ${error.message || 'Impossible de charger les détails de la paie'}`);
+  }
+};
+
+const handleOpenPayslip = (employee: any) => {
+  // On mappe 'salary' vers 'base_salary' pour que le modal comprenne la donnée
+  const payslipEmployee = {
+    ...employee,
+    base_salary: employee.salary || 0
   };
-  
-  setSelectedPayrollDetail(mockData);
-  setShowPayrollDetail(true);
+  setSelectedEmployeeForPayslip(payslipEmployee);
+  setShowPayslipModal(true);
 };
   const loadEmployees = async () => {
     try {
@@ -351,47 +423,136 @@ const handleViewPayrollDetails = (payroll: any) => {
     }
   };
 
-    const handleCalculatePayroll = async () => {
-    if (!payrollPeriod.start_date || !payrollPeriod.end_date) {
-      alert('Veuillez sélectionner une période');
+   const handleCalculatePayroll = async () => {
+  if (!payrollPeriod.start_date || !payrollPeriod.end_date) {
+    alert('Veuillez sélectionner une période');
+    return;
+  }
+
+  try {
+    // 1. Vérification d'unicité et blocage si PAYÉ/VALIDÉ
+    const { data: existingPayroll, error: fetchError } = await supabase
+      .from('payroll_periods')
+      .select('id, status, total_amount')
+      .eq('site_id', siteId)
+      .eq('period_start', payrollPeriod.start_date)
+      .eq('period_end', payrollPeriod.end_date)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
+    if (existingPayroll && (existingPayroll.status === 'PAID' || existingPayroll.status === 'VALIDATED')) {
+      alert(`⛔ IMPOSSIBLE DE RECALCULER !\n\nLa paie pour cette période est déjà ${existingPayroll.status}.\n\nPour modifier une paie clôturée, contactez l'administrateur.`);
       return;
     }
 
-    if (!confirm(`Calculer la paie pour la période du ${new Date(payrollPeriod.start_date).toLocaleDateString('fr-FR')} au ${new Date(payrollPeriod.end_date).toLocaleDateString('fr-FR')} ?`)) {
+    if (!confirm(`Calculer/Recalculer la paie pour la période du ${new Date(payrollPeriod.start_date).toLocaleDateString('fr-FR')} au ${new Date(payrollPeriod.end_date).toLocaleDateString('fr-FR')} ?`)) {
       return;
     }
 
-    try {
-      const activeEmployees = employees.filter(e => e.is_active !== false);
-      const totalAmount = activeEmployees.reduce((sum, e) => sum + (e.salary || 0), 0);
+    // 2. Extraire le mois et l'année de la période
+    const startDate = new Date(payrollPeriod.start_date);
+    const periodMonth = startDate.getMonth() + 1; // 1-12
+    const periodYear = startDate.getFullYear();
 
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      const { data, error } = await supabase.from('payroll_periods').insert({
-        site_id: siteId,
-        period_start: payrollPeriod.start_date,
-        period_end: payrollPeriod.end_date,
-        total_amount: totalAmount,
-        employee_count: activeEmployees.length,
-        status: 'PENDING',
-        created_by: user?.id
-      }).select();
+    // 3. Récupérer les employés actifs
+    const activeEmployees = employees.filter(e => e.is_active !== false);
 
-      if (error) {
-        console.error('Détail de l\'erreur Supabase:', error);
-        throw error;
+    // 4. ✅ NOUVEAU : Récupérer TOUS les bulletins de paie pour cette période
+    const { data: payslips, error: payslipError } = await supabase
+      .from('employee_payslips')
+      .select('employee_id, net_salary, status')
+      .eq('site_id', siteId)
+      .eq('period_month', periodMonth)
+      .eq('period_year', periodYear);
+
+    if (payslipError) {
+      console.error('Erreur chargement bulletins:', payslipError);
+      throw payslipError;
+    }
+
+    // Créer un map pour accès rapide : employee_id -> net_salary
+    const payslipMap = new Map<string, number>();
+    payslips?.forEach(p => payslipMap.set(p.employee_id, p.net_salary || 0));
+
+    // 5. ✅ Calculer le total en utilisant les bulletins s'ils existent
+    let totalAmount = 0;
+    let employeesWithPayslip = 0;
+    let employeesWithBaseSalary = 0;
+
+    activeEmployees.forEach(emp => {
+      if (payslipMap.has(emp.id)) {
+        // Un bulletin existe (avec primes/déductions/avances déjà saisies)
+        totalAmount += payslipMap.get(emp.id) || 0;
+        employeesWithPayslip++;
+      } else {
+        // Pas de bulletin : utiliser le salaire de base
+        totalAmount += emp.salary || 0;
+        employeesWithBaseSalary++;
       }
+    });
 
-      loadPayrolls();
-      alert(`✅ Paie calculée avec succès !\nTotal: ${totalAmount.toLocaleString('fr-FR')} f CFA\nEmployés: ${activeEmployees.length}`);
-    } catch (error: any) {
-      console.error('Erreur calcul paie détaillée:', error);
-      // ✅ Affiche le message, les détails ou l'indice fourni par Supabase
-      const errorMsg = error?.message || error?.details || error?.hint || "Erreur inconnue (vérifiez l'onglet Réseau de la console)";
-      alert(`❌ Erreur lors du calcul de la paie :\n\n${errorMsg}`);
-    }
-  };
+    const { data: { user } } = await supabase.auth.getUser();
 
+    const payrollData = {
+      site_id: siteId,
+      period_start: payrollPeriod.start_date,
+      period_end: payrollPeriod.end_date,
+      total_amount: totalAmount,
+      employee_count: activeEmployees.length,
+      status: 'PENDING',
+      created_by: user?.id
+    };
+
+    // 6. Insertion ou mise à jour (upsert)
+    const { data, error } = await supabase
+      .from('payroll_periods')
+      .upsert(payrollData, {
+        onConflict: 'site_id,period_start,period_end',
+        ignoreDuplicates: false
+      })
+      .select();
+
+    if (error) throw error;
+
+    loadPayrolls();
+    
+    // Message détaillé pour comprendre ce qui a été pris en compte
+    alert(
+      `✅ Paie ${existingPayroll ? 'recalculée' : 'calculée'} avec succès !\n\n` +
+      `💰 Total: ${totalAmount.toLocaleString('fr-FR')} f CFA\n` +
+      `👥 Employés: ${activeEmployees.length}\n` +
+      `   • ${employeesWithPayslip} avec bulletin individuel (primes/avances incluses)\n` +
+      `   • ${employeesWithBaseSalary} avec salaire de base uniquement\n\n` +
+      `💡 Les avances de 5 000 f CFA ont bien été déduites !`
+    );
+
+  } catch (error: any) {
+    console.error('Erreur calcul paie:', error);
+    const errorMsg = error?.message || error?.details || error?.hint || "Erreur inconnue";
+    alert(`❌ Erreur :\n\n${errorMsg}`);
+  }
+};
+
+const handleConfirmPayPeriod = async () => {
+  if (!payingPayroll) return;
+  try {
+    const { error } = await supabase
+      .from('payroll_periods')
+      .update({ status: 'PAID' })
+      .eq('id', payingPayroll.id);
+
+    if (error) throw error;
+
+    alert('✅ Période de paie marquée comme PAYÉE avec succès !');
+    setShowPayPeriodModal(false);
+    setPayingPayroll(null);
+    loadPayrolls(); // Rafraîchit la liste
+  } catch (error: any) {
+    console.error('Erreur paiement période:', error);
+    alert(`Erreur: ${error.message}`);
+  }
+};
   const handleViewEmployee = (employee: Employee) => {
     setSelectedEmployee(employee);
     setShowEmployeeDetailModal(true);
@@ -646,18 +807,28 @@ const handleViewPayrollDetails = (payroll: any) => {
                         </td>
                         <td className="px-4 py-3 text-center">{getStatusBadge(employee.is_active)}</td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-1">
-                            <button onClick={() => handleViewEmployee(employee)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Voir">
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => handleEditEmployee(employee)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" title="Modifier">
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => handleDeleteEmployee(employee)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Supprimer">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
+  <div className="flex items-center justify-center gap-1">
+    <button onClick={() => handleViewEmployee(employee)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Voir">
+      <Eye className="w-4 h-4" />
+    </button>
+    <button onClick={() => handleEditEmployee(employee)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" title="Modifier">
+      <Edit2 className="w-4 h-4" />
+    </button>
+    
+    {/* ✅ NOUVEAU BOUTON : Gérer la paie */}
+    <button 
+      onClick={() => handleOpenPayslip(employee)} 
+      className="p-1.5 text-purple-600 hover:bg-purple-50 rounded" 
+      title="Gérer la paie"
+    >
+      <Calculator className="w-4 h-4" />
+    </button>
+    
+    <button onClick={() => handleDeleteEmployee(employee)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Supprimer">
+      <Trash2 className="w-4 h-4" />
+    </button>
+  </div>
+</td>
                       </tr>
                     ))
                   )}
@@ -793,21 +964,43 @@ const handleViewPayrollDetails = (payroll: any) => {
                         <td className="px-4 py-3 text-right font-medium text-slate-900">{payroll.total_amount.toLocaleString('fr-FR')} f CFA</td>
                         <td className="px-4 py-3 text-center text-slate-600">{payroll.employee_count}</td>
                         <td className="px-4 py-3 text-center">
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">Payé</span>
-                        </td>
+  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+    payroll.status === 'PAID' 
+      ? 'bg-emerald-100 text-emerald-800' 
+      : payroll.status === 'PENDING' 
+      ? 'bg-amber-100 text-amber-800' 
+      : 'bg-slate-100 text-slate-800'
+  }`}>
+    {payroll.status === 'PAID' ? 'Payé' : payroll.status === 'PENDING' ? 'En attente' : payroll.status}
+  </span>
+</td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-1">
-                            <button 
-  onClick={() => handleViewPayrollDetails(payroll)}
-  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded flex items-center gap-1"
->
-  <Eye className="w-3 h-3" /> Détails
-</button>
-                            <button onClick={() => handlePrintPayroll(payroll)} className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded flex items-center gap-1">
-                              <Printer className="w-3 h-3" /> Imprimer
-                            </button>
-                          </div>
-                        </td>
+  <div className="flex items-center justify-center gap-1">
+    <button 
+      onClick={() => handleViewPayrollDetails(payroll)}
+      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded flex items-center gap-1"
+    >
+      <Eye className="w-3 h-3" /> Détails
+    </button>
+    
+    {/* ✅ NOUVEAU : Bouton Payer (visible uniquement si En attente) */}
+    {payroll.status === 'PENDING' && (
+      <button 
+        onClick={() => { setPayingPayroll(payroll); setShowPayPeriodModal(true); }}
+        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded flex items-center gap-1"
+      >
+        <DollarSign className="w-3 h-3" /> Payer
+      </button>
+    )}
+    
+    <button 
+      onClick={() => handlePrintPayroll(payroll)} 
+      className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded flex items-center gap-1"
+    >
+      <Printer className="w-3 h-3" /> Imprimer
+    </button>
+  </div>
+</td>
                       </tr>
                     ))
                   )}
@@ -1096,6 +1289,81 @@ const handleViewPayrollDetails = (payroll: any) => {
     employees: []
   }}
 />
+
+{/* ✅ NOUVEAU : Modal de prévisualisation et paiement de la paie */}
+      <PayslipPreviewModal
+        siteId={siteId}
+        employee={selectedEmployeeForPayslip}
+        periodMonth={selectedPeriodMonth}
+        periodYear={selectedPeriodYear}
+        isOpen={showPayslipModal}
+        onClose={() => setShowPayslipModal(false)}
+        onSuccess={() => {
+          loadEmployees(); // Rafraîchit les stats si nécessaire
+          setShowPayslipModal(false);
+        }}
+      />
+            {/* ================= MODAL PAIEMENT DE LA PÉRIODE ================= */}
+      {showPayPeriodModal && payingPayroll && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="bg-emerald-600 text-white px-6 py-4 flex items-center justify-between rounded-t-xl">
+              <h3 className="text-lg font-bold">Valider le paiement</h3>
+              <button onClick={() => setShowPayPeriodModal(false)} className="hover:bg-white/20 p-2 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">
+                Vous êtes sur le point de marquer la paie de la période comme <strong>PAYÉE</strong> :<br/>
+                <span className="font-medium text-slate-900">
+                  {new Date(payingPayroll.period_start).toLocaleDateString('fr-FR')} au {new Date(payingPayroll.period_end).toLocaleDateString('fr-FR')}
+                </span>
+              </p>
+              
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <div className="flex justify-between mb-2">
+                  <span className="text-slate-600">Montant total :</span>
+                  <span className="font-bold text-slate-900">{payingPayroll.total_amount.toLocaleString('fr-FR')} f CFA</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Employés concernés :</span>
+                  <span className="font-bold text-slate-900">{payingPayroll.employee_count}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Mode de règlement global</label>
+                <select 
+                  value={payMethod} 
+                  onChange={(e) => setPayMethod(e.target.value)} 
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
+                >
+                  <option value="BANK_TRANSFER">🏦 Virement bancaire global</option>
+                  <option value="CASH">💶 Espèces</option>
+                  <option value="INDIVIDUAL">🔄 Paiements individuels déjà effectués</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-slate-200">
+                <button 
+                  onClick={() => setShowPayPeriodModal(false)} 
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg"
+                >
+                  Annuler
+                </button>
+                <button 
+                  onClick={handleConfirmPayPeriod} 
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
+                >
+                  <CheckCircle className="w-5 h-5" /> Confirmer le paiement
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+   
