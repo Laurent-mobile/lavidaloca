@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { X, DollarSign, ShoppingCart, Printer, FileText, CheckCircle, AlertCircle, History, RotateCcw, TrendingUp, TrendingDown } from 'lucide-react';
+import { X, DollarSign, ShoppingCart, Printer, FileText, CheckCircle, AlertCircle, History, RotateCcw, TrendingUp, TrendingDown, Calendar } from 'lucide-react';
 
 interface Props {
   siteId: string;
@@ -48,7 +48,8 @@ export default function CashierModal({ siteId, isOpen, onClose, onSuccess }: Pro
   const [taxRate, setTaxRate] = useState(18);
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<any>(null);
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const receiptRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,7 +58,7 @@ export default function CashierModal({ siteId, isOpen, onClose, onSuccess }: Pro
       loadPendingTransactions();
       loadPaidTransactions();
     }
-  }, [isOpen, filterDate]);
+  }, [isOpen, startDate, endDate]);
 
   const loadTaxSettings = async () => {
     const { data } = await supabase.from('tax_settings').select('*').eq('site_id', siteId).single();
@@ -92,8 +93,8 @@ room_number = stay.rooms?.[0]?.number || '';
   };
 
   const loadPaidTransactions = async () => {
-    const startOfDay = new Date(filterDate); startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(filterDate); endOfDay.setHours(23, 59, 59, 999);
+    const startOfDay = new Date(startDate); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(endDate); endOfDay.setHours(23, 59, 59, 999);
     const { data } = await supabase
       .from('cash_transactions')
       .select('*')
@@ -186,8 +187,8 @@ room_number = stay.rooms?.[0]?.number || '';
     setTimeout(() => invoiceWindow.print(), 500);
   };
 
-  const todayIncome = paidTransactions.filter(t => t.type === 'INCOME').reduce((sum, t) => sum + Number(t.amount), 0);
-  const todayExpense = paidTransactions.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + Number(t.amount), 0);
+  const periodIncome = paidTransactions.filter(t => t.type === 'INCOME').reduce((sum, t) => sum + Number(t.amount), 0);
+  const periodExpense = paidTransactions.filter(t => t.type === 'EXPENSE').reduce((sum, t) => sum + Number(t.amount), 0);
 
   if (!isOpen) return null;
 
@@ -216,15 +217,15 @@ room_number = stay.rooms?.[0]?.number || '';
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-4">
               <div className="text-xs font-medium text-emerald-700 mb-1 flex items-center gap-1"><TrendingUp className="w-4 h-4" /> Encaissé</div>
-              <div className="text-2xl font-bold text-emerald-900">{Number(todayIncome).toLocaleString('fr-FR')} F</div>
+              <div className="text-2xl font-bold text-emerald-900">{Number(periodIncome).toLocaleString('fr-FR')} F</div>
             </div>
             <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
               <div className="text-xs font-medium text-red-700 mb-1 flex items-center gap-1"><TrendingDown className="w-4 h-4" /> Dépensé</div>
-              <div className="text-2xl font-bold text-red-900">{Number(todayExpense).toLocaleString('fr-FR')} F</div>
+              <div className="text-2xl font-bold text-red-900">{Number(periodExpense).toLocaleString('fr-FR')} F</div>
             </div>
             <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
               <div className="text-xs font-medium text-blue-700 mb-1">⚖️ Solde net</div>
-              <div className="text-2xl font-bold text-blue-900">{Number(todayIncome - todayExpense).toLocaleString('fr-FR')} F</div>
+              <div className="text-2xl font-bold text-blue-900">{Number(periodIncome - periodExpense).toLocaleString('fr-FR')} F</div>
             </div>
           </div>
 
@@ -241,8 +242,65 @@ room_number = stay.rooms?.[0]?.number || '';
             >
               <History className="w-4 h-4" /> Historique ({paidTransactions.length})
             </button>
-            <div className="ml-auto flex items-center gap-2">
-              <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="border border-slate-300 rounded px-2 py-1 text-sm" />
+                      <div className="ml-auto flex items-center gap-2">
+              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="date"
+                  value={startDate}
+                  max={endDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="text-xs font-medium text-slate-700 outline-none bg-transparent"
+                />
+                <span className="text-xs text-slate-400">→</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  min={startDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="text-xs font-medium text-slate-700 outline-none bg-transparent"
+                />
+              </div>
+              
+              <button
+                onClick={() => {
+                  const today = new Date().toISOString().split('T')[0];
+                  setStartDate(today);
+                  setEndDate(today);
+                }}
+                className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200 transition-colors"
+                title="Aujourd'hui uniquement"
+              >
+                Jour
+              </button>
+              
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                  const today = now.toISOString().split('T')[0];
+                  setStartDate(weekAgo);
+                  setEndDate(today);
+                }}
+                className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-1 rounded hover:bg-amber-200 transition-colors"
+                title="7 derniers jours"
+              >
+                7j
+              </button>
+              
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                  const today = now.toISOString().split('T')[0];
+                  setStartDate(first);
+                  setEndDate(today);
+                }}
+                className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded hover:bg-emerald-200 transition-colors"
+                title="Du 1er du mois à aujourd'hui"
+              >
+                Mois
+              </button>
             </div>
           </div>
 
