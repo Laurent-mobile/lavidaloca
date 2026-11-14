@@ -417,119 +417,94 @@ export default function RestaurantCaisseModal({ siteId, isOpen, onClose, onSucce
     }
   };
 
-  const handleProcessPayment = async () => {
-    if (!selectedOrder) return;
-    const received = parseFloat(amountReceived) || 0;
-    
-    if (paymentMethod === 'ROOM_CHARGE' && !selectedStayId) {
-      alert('⚠️ Veuillez sélectionner la chambre du client dans la liste.');
-      return;
-    }
+const handleProcessPayment = async () => {
+  if (!selectedOrder) return;
+  const received = parseFloat(amountReceived) || 0;
 
-    if (paymentMethod === 'CASH' && received < selectedOrder.total_amount) {
-      alert('Le montant reçu est insuffisant !');
-      return;
-    }
+  if (paymentMethod === 'ROOM_CHARGE' && !selectedStayId) {
+    alert('⚠️ Veuillez sélectionner la chambre du client.');
+    return;
+  }
+  if (paymentMethod === 'CASH' && received < selectedOrder.total_amount) {
+    alert('Le montant reçu est insuffisant !');
+    return;
+  }
 
-    setLoading(true);
-    try {
+  setLoading(true);
+  try {
+    // ✅ 1. Récupérer une session ouverte (ou créer une session par défaut)
+    let sessionId = null;
+    const { data: openSession } = await supabase
+      .from('cash_sessions')
+      .select('id')
+      .eq('site_id', siteId)
+      .eq('status', 'OPEN')
+      .maybeSingle();
+
+    if (openSession) {
+      sessionId = openSession.id;
+    } else {
+      // Créer une session par défaut si aucune n'est ouverte
       const { data: { user } } = await supabase.auth.getUser();
-      const change = paymentMethod === 'CASH' ? received - selectedOrder.total_amount : 0;
-      const receiptNumber = `REC-${Date.now().toString().slice(-8)}`;
-
-      if (paymentMethod === 'ROOM_CHARGE') {
-        // --- LOGIQUE D'IMPUTATION SUR CHAMBRE ---
-        const selectedStay = activeStays.find(s => s.id === selectedStayId);
-        
-        // 1. Mettre à jour le statut de la commande
-        await supabase.from('restaurant_orders').update({ status: 'ROOM_CHARGE' }).eq('id', selectedOrder.id);
-
-        // 2. Créer l'imputation dans room_charges
-        await supabase.from('room_charges').insert({
+      const { data: newSession } = await supabase
+        .from('cash_sessions')
+        .insert({
           site_id: siteId,
-          stay_id: selectedStayId,
-          order_id: selectedOrder.id,
-          charge_type: 'RESTAURANT',
-          amount: selectedOrder.total_amount,
-          description: `Commande ${selectedOrder.order_number} - ${selectedOrder.items.length} article(s)`,
-          charge_date: new Date().toISOString(),
-          is_voided: false
-        });
-
-        // 3. Mettre à jour le solde du folio du client
-        await supabase.from('stays').update({
-          folio_balance: (selectedStay?.folio_balance || 0) + selectedOrder.total_amount
-        }).eq('id', selectedStayId);
-
-        // 4. Enregistrer la transaction pour la traçabilité de la caisse
-        await supabase.from('restaurant_cash_transactions').insert({
-          site_id: siteId,
-          type: 'INCOME',
-          category: 'ROOM_CHARGE',
-          amount: selectedOrder.total_amount,
-          payment_method: 'ROOM_CHARGE',
-          status: 'PAID',
-          provider_name: `Chambre ${selectedStay?.rooms?.number}`,
-          description: `Imputation commande ${selectedOrder.order_number}`,
-          reference_id: selectedOrder.id,
-          reference_table: 'restaurant_orders',
-          received_by: user?.id,
-          transaction_date: new Date().toISOString(),
-        });
-
-        // ✅ CORRECTION MAJEURE : Libérer la table après imputation à la chambre
-        if (selectedOrder.table_id) {
-          await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selectedOrder.table_id);
-        }
-
-        alert(`✅ Imputé avec succès à la chambre ${selectedStay?.rooms?.number} !\nLe solde du folio a été mis à jour et la table a été libérée.`);
-
-      } else {
-        // --- LOGIQUE DE PAIEMENT CLASSIQUE (Espèces, Carte, etc.) ---
-        const { error: orderError } = await supabase
-          .from('restaurant_orders')
-          .update({ status: 'PAID', paid_at: new Date().toISOString() })
-          .eq('id', selectedOrder.id);
-        if (orderError) throw orderError;
-
-        const { error: txError } = await supabase.from('restaurant_cash_transactions').insert({
-          site_id: siteId, type: 'INCOME', category: 'FB_PAYMENT', amount: selectedOrder.total_amount,
-          payment_method: paymentMethod, status: 'PAID',
-          provider_name: selectedOrder.table_number ? `Table ${selectedOrder.table_number}` : 'Comptoir',
-          description: `Paiement commande ${selectedOrder.order_number}`, reference_id: selectedOrder.id,
-          reference_table: 'restaurant_orders', received_by: user?.id, amount_received: received,
-          change_amount: change, receipt_number: receiptNumber, transaction_date: new Date().toISOString(),
-        });
-        if (txError) throw txError;
-
-        // ✅ CORRECTION : Libérer la table après paiement classique (AVAILABLE au lieu de DIRTY)
-        if (selectedOrder.table_id) {
-          await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selectedOrder.table_id);
-        }
-        
-        printReceipt(selectedOrder, received, change, receiptNumber, paymentMethod);
-        alert(`✅ Paiement réussi !\nMode: ${paymentMethod}\nMonnaie rendue: ${change.toLocaleString('fr-FR')} F\nLa table a été libérée.`);
-      }
-
-      // Réinitialisation et rafraîchissement
-      setShowPayment(false);
-      setSelectedOrder(null);
-      setSelectedStayId('');
-      setAmountReceived('');
-      setPaymentMethod('CASH');
-      await loadPendingOrders();
-      await loadRoomCharges();
-      await loadPaidTransactions();
-      await loadActiveStays();
-      onSuccess();
-
-    } catch (error: any) {
-      console.error('Erreur paiement:', error);
-      alert(`Erreur: ${error.message}`);
-    } finally {
-      setLoading(false);
+          opened_by: user?.id,
+          opening_balance: 0,
+          status: 'OPEN',
+          opened_at: new Date().toISOString()
+        })
+        .select('id')
+        .single();
+      sessionId = newSession?.id;
     }
-  };
+
+    if (!sessionId) {
+      throw new Error('Impossible de créer/récupérer une session de caisse.');
+    }
+
+    // ✅ 2. Appeler la RPC (atomique, verrouillée, avec déduction stock)
+    const { data: result, error: rpcError } = await supabase.rpc('finalize_payment', {
+      p_order_id: selectedOrder.id,
+      p_session_id: sessionId,
+      p_method: paymentMethod,
+      p_received: paymentMethod === 'CASH' ? received : 0,
+      p_notes: notes || null,
+      p_stay_id: paymentMethod === 'ROOM_CHARGE' ? selectedStayId : null
+    });
+
+    if (rpcError) {
+      throw new Error(rpcError.message || rpcError.details || 'Erreur RPC');
+    }
+
+    // ✅ 3. Afficher le résultat
+    const change = paymentMethod === 'CASH' ? received - selectedOrder.total_amount : 0;
+    printReceipt(selectedOrder, received, change, `REC-${Date.now().toString().slice(-8)}`, paymentMethod);
+
+    alert(`✅ Paiement réussi !\nMode: ${paymentMethod}\nMonnaie rendue: ${change.toLocaleString('fr-FR')} F`);
+
+    // ✅ 4. Réinitialisation
+    setShowPayment(false);
+    setSelectedOrder(null);
+    setSelectedStayId('');
+    setAmountReceived('');
+    setPaymentMethod('CASH');
+    setNotes('');
+
+    await loadPendingOrders();
+    await loadRoomCharges();
+    await loadPaidTransactions();
+    await loadActiveStays();
+    onSuccess();
+
+  } catch (error: any) {
+    console.error('Erreur paiement:', error);
+    alert(`❌ Erreur: ${error.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const printReceipt = (order: PendingOrder, received: number, change: number, receiptNumber: string, method: string) => {
     const methodLabels: any = {
