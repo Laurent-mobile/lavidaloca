@@ -62,6 +62,7 @@ export default function RestaurantCaisseModal({ siteId, isOpen, onClose, onSucce
   const [expenseNote, setExpenseNote] = useState('');
   const [activeStays, setActiveStays] = useState<any[]>([]);
   const [selectedStayId, setSelectedStayId] = useState('');
+  const [notes, setNotes] = useState('');
 
   useEffect(() => {
     if (isOpen) {
