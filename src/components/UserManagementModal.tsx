@@ -72,11 +72,11 @@ export default function UserManagementModal({ siteId, isOpen, onClose, onSuccess
     setLoading(true);
     try {
       console.log('🔄 Chargement utilisateurs...');
-      
+
       // ✅ CORRECTION : On retire la jointure ", sites(id, name)" qui cause l'erreur 500
       const { data, error } = await supabase
         .from('profiles')
-        .select('*') 
+        .select('*')
         .eq('site_id', siteId)
         .order('created_at', { ascending: false });
 
@@ -84,7 +84,7 @@ export default function UserManagementModal({ siteId, isOpen, onClose, onSuccess
         console.error('❌ Erreur Supabase:', error);
         throw error;
       }
-      
+
       console.log(`✅ ${data?.length || 0} utilisateur(s) chargé(s)`);
       setUsers(data || []);
     } catch (err: any) {
@@ -126,16 +126,16 @@ export default function UserManagementModal({ siteId, isOpen, onClose, onSuccess
     setError('');
 
     try {
-if (editingUser) {
-  // ✅ AJOUTEZ CE LOG pour voir ce qui est vraiment envoyé
-  console.log('📤 Données envoyées pour mise à jour:', {
-    id: editingUser.id,
-    first_name: formData.first_name,
-    last_name: formData.last_name,
-    role: formData.role, // <-- Vérifiez que ce n'est plus l'ancien rôle ici
-    phone: formData.phone,
-    is_active: formData.is_active
-  });
+      if (editingUser) {
+        // ✅ AJOUTEZ CE LOG pour voir ce qui est vraiment envoyé
+        console.log('📤 Données envoyées pour mise à jour:', {
+          id: editingUser.id,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          role: formData.role, // <-- Vérifiez que ce n'est plus l'ancien rôle ici
+          phone: formData.phone,
+          is_active: formData.is_active
+        });
         const { error } = await supabase
           .from('profiles')
           .update({
@@ -151,12 +151,12 @@ if (editingUser) {
           console.error('❌ Erreur update:', error);
           throw error;
         }
-        
+
         console.log('✅ Utilisateur modifié dans Supabase (ID:', editingUser.id, ')');
-        
+
         // Recharger IMMÉDIATEMENT après succès
         await loadUsers(true);
-        
+
         alert('✅ Utilisateur modifié avec succès !');
       } else {
         // Créer un nouvel utilisateur
@@ -192,9 +192,9 @@ if (editingUser) {
           if (profileError) throw profileError;
 
           console.log('✅ Nouvel utilisateur créé:', authData.user.id);
-          
+
           await loadUsers(true);
-          
+
           alert(`✅ Utilisateur créé !\n\nEmail: ${formData.email}\nMot de passe temporaire: TempPass123!`);
         }
       }
@@ -219,12 +219,12 @@ if (editingUser) {
         .eq('id', userId);
 
       if (error) throw error;
-      
+
       console.log('✅ Utilisateur désactivé:', userId);
-      
+
       // ✅ Recharger après suppression
       await loadUsers(true);
-      
+
       alert('✅ Utilisateur désactivé');
       onSuccess();
     } catch (err: any) {
@@ -309,7 +309,7 @@ if (editingUser) {
               ) : (
                 <div className="space-y-2">
                   {users.map(user => {
-                    const access = getModuleAccess(user.role);
+                    const access = getModuleAccess(user.role as UserRole);
                     const isActive = user.is_active !== false;
                     return (
                       <div key={user.id} className={`border rounded-lg p-4 ${isActive ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-300 opacity-60'}`}>
@@ -327,8 +327,8 @@ if (editingUser) {
                                   <div className="text-xs text-slate-500">{user.email}</div>
                                 </div>
                               </div>
-                              <span className={`text-xs px-2 py-1 rounded font-medium ${getRoleBadgeColor(user.role)}`}>
-                                {ROLE_LABELS[user.role] || user.role}
+                              <span className={`text-xs px-2 py-1 rounded font-medium ${getRoleBadgeColor(user.role as UserRole)}`}>
+                                {ROLE_LABELS[user.role as UserRole] || user.role}
                               </span>
                               {!isActive && (
                                 <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-900 font-medium">
@@ -445,11 +445,10 @@ if (editingUser) {
                         key={role}
                         type="button"
                         onClick={() => setFormData({ ...formData, role })}
-                        className={`text-left p-3 rounded-lg border-2 transition ${
-                          isSelected
+                        className={`text-left p-3 rounded-lg border-2 transition ${isSelected
                             ? 'border-indigo-500 bg-indigo-50'
                             : 'border-slate-200 bg-white hover:border-slate-300'
-                        }`}
+                          }`}
                       >
                         <div className="font-semibold text-sm text-slate-900">{ROLE_LABELS[role]}</div>
                         <div className="text-xs text-slate-500 mt-1">{ROLE_DESCRIPTIONS[role]}</div>

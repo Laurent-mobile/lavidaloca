@@ -471,7 +471,7 @@ const handleProcessPayment = async () => {
       p_session_id: sessionId,
       p_method: paymentMethod,
       p_received: paymentMethod === 'CASH' ? received : 0,
-      p_notes: notes || null,
+      p_notes: null,
       p_stay_id: paymentMethod === 'ROOM_CHARGE' ? selectedStayId : null
     });
 
