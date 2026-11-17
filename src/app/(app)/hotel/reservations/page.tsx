@@ -29,31 +29,47 @@ export default function ReservationsPage() {
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  const load = async () => {
+    const load = async () => {
     if (!siteId) return;
     setLoading(true);
     
     const today = new Date().toISOString().split('T')[0];
     
+    // 1. Charger toutes les réservations
     const { data } = await supabase
       .from('reservations')
-      .select('id, number, check_in_date, check_out_date, status, total_amount, nightly_rate, adults, children, customers(first_name, last_name, phone), rooms(number), room_categories(code, name)')
+      .select('id, number, check_in_date, check_out_date, status, total_amount, nightly_rate, adults, children, room_id, customer_id, customers(first_name, last_name, phone), rooms(number), room_categories(code, name)')
       .eq('site_id', siteId)
       .order('check_in_date', { ascending: false })
       .limit(300);
-    
-    // ✅ Auto-correction : marquer les réservations passées comme NO_SHOW
-    const toUpdate = (data || []).filter(r => 
-      r.status === 'CONFIRMED' && r.check_in_date < today
-    );
-    
-    for (const res of toUpdate) {
-      await supabase.from('reservations')
-        .update({ status: 'NO_SHOW' })
-        .eq('id', res.id);
+
+    // 2. ✅ Auto-correction basée sur les séjours réels
+    for (const res of (data || [])) {
+      let newStatus = res.status;
+      
+      // Chercher un séjour lié à cette réservation
+      const { data: stay } = await supabase
+        .from('stays')
+        .select('status')
+        .eq('reservation_id', res.id)
+        .limit(1)
+        .maybeSingle();
+      
+      if (stay) {
+        // Séjour trouvé → le statut de la réservation suit le séjour
+        if (stay.status === 'IN_HOUSE') newStatus = 'CHECKED_IN';
+        else if (stay.status === 'CHECKED_OUT') newStatus = 'CHECKED_OUT';
+      } else if (res.status === 'CONFIRMED' && res.check_in_date < today) {
+        // Pas de séjour + date passée → NO_SHOW
+        newStatus = 'NO_SHOW';
+      }
+      
+      if (newStatus !== res.status) {
+        await supabase.from('reservations').update({ status: newStatus }).eq('id', res.id);
+      }
     }
-    
-    // Recharger après correction
+
+    // 3. Recharger les données corrigées
     const { data: correctedData } = await supabase
       .from('reservations')
       .select('id, number, check_in_date, check_out_date, status, total_amount, nightly_rate, adults, children, customers(first_name, last_name, phone), rooms(number), room_categories(code, name)')
