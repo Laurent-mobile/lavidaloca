@@ -56,31 +56,31 @@ export default function RoomActionModal({ siteId, room, isOpen, onClose, onSucce
   if (!room) return;
 
   const { data: stay } = await supabase
-    .from('stays')
-    .select(`
-      id, 
-      room_id,  
-      check_in_at, 
-      nightly_rate, 
-      folio_balance, 
-      status, 
-      customer_id, 
-      reservation_id, 
-      reservations (id, number, check_in_date, check_out_date)
-    `)
-    .eq('room_id', room.id)
-    .eq('status', 'IN_HOUSE')
-    .limit(1)
-    .maybeSingle();
+  .from('stays')
+  .select(`
+    id, room_id, check_in_at, nightly_rate, folio_balance, status,
+    customer_id, reservation_id,
+    reservations (id, number, check_in_date, check_out_date),
+    rooms (id, number)
+  `)
+  .eq('room_id', room.id)
+  .eq('status', 'IN_HOUSE')
+  .limit(1)
+  .maybeSingle();
 
-  if (stay) {
-    const { data: customer } = await supabase
-      .from('customers')
-      .select('first_name, last_name, phone')
-      .eq('id', stay.customer_id)
-      .maybeSingle();
-    setCurrentStay({ ...stay, customers: customer });
-  }
+if (stay) {
+  const { data: customer } = await supabase
+    .from('customers')
+    .select('first_name, last_name, phone')
+    .eq('id', stay.customer_id)
+    .maybeSingle();
+  setCurrentStay({
+    ...stay,
+    customers: customer,
+    rooms: Array.isArray(stay.rooms) ? stay.rooms[0] : stay.rooms,
+    room_number: room.number, // ✅ fallback garanti
+  });
+}
 
     let { data: res } = await supabase
       .from('reservations')

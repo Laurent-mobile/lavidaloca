@@ -172,23 +172,51 @@ export default function MaintenanceModal({ siteId, rooms, isOpen, onClose, onSuc
     }
 
     if (newStatus === 'COMPLETED') {
-      const { data: docs, error: docError } = await supabase.from('maintenance_documents').select('*').eq('maintenance_request_id', id).in('status', ['PENDING', 'APPROVED']);
-      
-      if (!docError && docs && docs.length > 0) {
-        const { data: { user } } = await supabase.auth.getUser();
-        for (const doc of docs) {
-          // 1. Envoyer à la caisse comme DÉCAISSEMENT (EXPENSE) en attente
-          await supabase.from('cash_transactions').insert({
-            site_id: siteId, type: 'EXPENSE', category: 'MAINTENANCE', amount: doc.total_amount || doc.amount,
-            payment_method: 'CASH', status: 'PENDING', provider_name: doc.provider_name,
-            description: `Paiement ${doc.doc_type === 'INVOICE' ? 'facture' : 'cotation'} - ${doc.description || doc.reference_number || 'Maintenance'}`,
-            reference_id: doc.id, reference_table: 'maintenance_documents', received_by: user?.id,
-          });
-          // 2. Marquer le document comme payé comptablement
-          await supabase.from('maintenance_documents').update({ status: 'PAID', paid_at: new Date().toISOString() }).eq('id', doc.id);
-        }
-      }
-    }
+  const { data: docs, error: docError } = await supabase
+    .from('maintenance_documents')
+    .select('*')
+    .eq('maintenance_request_id', id)
+    .in('status', ['PENDING', 'APPROVED']);
+  
+  if (!docError && docs && docs.length > 0) {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+  for (const doc of docs) {
+  // ✅ VALIDATION STRICTE du montant
+  const validAmount = Number(doc.total_amount || doc.amount) || 0;
+  const validProviderName = (doc.provider_name || '').trim();
+  
+  if (validAmount <= 0) {
+    console.warn(`⚠️ Document ${doc.id} a un montant invalide (${validAmount}), transaction ignorée`);
+    continue;
+  }
+  
+  if (!validProviderName || /^\d+$/.test(validProviderName)) {
+    console.warn(`⚠️ Document ${doc.id} a un nom invalide, utilisation de la description`);
+  }
+
+  await supabase.from('cash_transactions').insert({
+    site_id: siteId,
+    type: 'EXPENSE',
+    category: 'MAINTENANCE',
+    amount: validAmount,
+    payment_method: 'CASH',
+    status: 'PENDING',
+    provider_name: validProviderName && !/^\d+$/.test(validProviderName) 
+      ? validProviderName 
+      : (doc.description || 'Prestataire Maintenance'),
+    description: `Paiement ${doc.doc_type === 'INVOICE' ? 'facture' : 'cotation'} - ${doc.description || doc.reference_number || 'Maintenance'}`,
+    reference_id: doc.id,
+    reference_table: 'maintenance_documents',
+    received_by: user?.id,
+  });
+  
+  await supabase.from('maintenance_documents')
+    .update({ status: 'PAID', paid_at: new Date().toISOString() })
+    .eq('id', doc.id);
+}
+  }
+}
 
     if (newStatus === 'COMPLETED' && roomId) {
       await supabase.from('rooms').update({ status: 'VACANT', out_of_order_reason: null }).eq('id', roomId);
@@ -237,23 +265,47 @@ export default function MaintenanceModal({ siteId, rooms, isOpen, onClose, onSuc
   };
 
   const handleDocStatusChange = async (docId: string, newStatus: string) => {
-    const updates: any = { status: newStatus };
-    if (newStatus === 'PAID') {
-      updates.paid_at = new Date().toISOString();
-      const { data: doc } = await supabase.from('maintenance_documents').select('*').eq('id', docId).single();
-      if (doc) {
-        const { data: { user } } = await supabase.auth.getUser();
+  const updates: any = { status: newStatus };
+  
+  if (newStatus === 'PAID') {
+    updates.paid_at = new Date().toISOString();
+    
+    const { data: doc } = await supabase
+      .from('maintenance_documents')
+      .select('*')
+      .eq('id', docId)
+      .single();
+    
+    if (doc) {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // ✅ CORRECTION : Vérifier le montant avant de créer la transaction
+      const validAmount = Number(doc.total_amount || doc.amount) || 0;
+      const validProviderName = doc.provider_name || 'Prestataire non spécifié';
+      
+      if (validAmount > 0) {
         await supabase.from('cash_transactions').insert({
-          site_id: siteId, type: 'EXPENSE', category: 'MAINTENANCE', amount: doc.total_amount || doc.amount,
-          payment_method: 'CASH', status: 'PENDING', provider_name: doc.provider_name,
+          site_id: siteId,
+          type: 'EXPENSE',
+          category: 'MAINTENANCE',
+          amount: validAmount,
+          payment_method: 'CASH',
+          status: 'PENDING',
+          provider_name: validProviderName,
           description: `Paiement ${doc.doc_type === 'INVOICE' ? 'facture' : 'cotation'} - ${doc.description || doc.reference_number || 'Maintenance'}`,
-          reference_id: doc.id, reference_table: 'maintenance_documents', received_by: user?.id,
+          reference_id: doc.id,
+          reference_table: 'maintenance_documents',
+          received_by: user?.id,
         });
+      } else {
+        console.warn(`⚠️ Document ${docId} a un montant invalide, transaction non créée`);
       }
     }
-    await supabase.from('maintenance_documents').update(updates).eq('id', docId);
-    loadRequests();
-  };
+  }
+  
+  await supabase.from('maintenance_documents').update(updates).eq('id', docId);
+  loadRequests();
+};
 
   if (!isOpen) return null;
 

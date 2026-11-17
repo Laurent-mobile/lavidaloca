@@ -30,9 +30,22 @@ interface Transaction {
 }
 
 const categoryIcons: Record<string, string> = {
-  ROOM_PAYMENT: '🛏️', MAINTENANCE: '🔧', FB_PAYMENT: '🍽️',
+  ROOM_PAYMENT: '🛏️', CHECKOUT_PAYMENT: '🛏️', MAINTENANCE: '🔧', FB_PAYMENT: '🍽️',
   SUPPLIES: '🧴', SALARY: '👷', UTILITIES: '⚡',
   OTHER_INCOME: '💰', OTHER_EXPENSE: '📦',
+};
+
+const getWeekRange = () => {
+  const now = new Date();
+  const day = now.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  monday.setHours(0, 0, 0, 0);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  return { start: monday.toISOString().split('T')[0], end: sunday.toISOString().split('T')[0] };
 };
 
 export default function CashierModal({ siteId, isOpen, onClose, onSuccess }: Props) {
@@ -48,8 +61,9 @@ export default function CashierModal({ siteId, isOpen, onClose, onSuccess }: Pro
   const [taxRate, setTaxRate] = useState(18);
   const [showReceipt, setShowReceipt] = useState(false);
   const [receiptData, setReceiptData] = useState<any>(null);
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const week = getWeekRange();
+  const [startDate, setStartDate] = useState(week.start);
+  const [endDate, setEndDate] = useState(week.end);
   const receiptRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,25 +75,52 @@ const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   }, [isOpen, startDate, endDate]);
 
   const loadTaxSettings = async () => {
-    const { data } = await supabase.from('tax_settings').select('*').eq('site_id', siteId).single();
+    const { data } = await supabase.from('tax_settings').select('*').eq('site_id', siteId).maybeSingle();
     if (data) setTaxRate(Number(data.tax_rate));
   };
 
   const enrichTransaction = async (t: any): Promise<Transaction> => {
     let name = t.provider_name || '';
     let room_number = '';
+    let amount = Number(t.amount) || 0;
+
+    // Détection données corrompues : provider_name = montant numérique
+    if (/^\d+$/.test(name)) {
+      const corruptedAmount = Number(name);
+      if (amount === 0 && corruptedAmount > 0) amount = corruptedAmount;
+      name = t.description || 'Prestataire';
+    }
+
+    // Cas 1 : Séjour hôtelier
     if (t.reference_table === 'stays' && t.reference_id) {
       const { data: stay } = await supabase
         .from('stays')
         .select('customer_id, room_id, customers(first_name, last_name), rooms(number)')
         .eq('id', t.reference_id)
-        .single();
+        .maybeSingle();
       if (stay) {
-        name = `${stay.customers?.[0]?.last_name || ''} ${stay.customers?.[0]?.first_name || ''}`.trim() || name;
-room_number = stay.rooms?.[0]?.number || '';
+        const cust = Array.isArray(stay.customers) ? stay.customers[0] : stay.customers;
+        const room = Array.isArray(stay.rooms) ? stay.rooms[0] : stay.rooms;
+        name = `${cust?.last_name || ''} ${cust?.first_name || ''}`.trim() || name;
+        room_number = room?.number || '';
       }
     }
-    return { ...t, customer_name: name, room_number };
+
+    // Cas 2 : Document de maintenance
+    if (t.reference_table === 'maintenance_documents' && t.reference_id) {
+      const { data: doc } = await supabase
+        .from('maintenance_documents')
+        .select('provider_name, total_amount, amount')
+        .eq('id', t.reference_id)
+        .maybeSingle();
+      if (doc) {
+        const docAmount = Number(doc.total_amount || doc.amount) || 0;
+        if (docAmount > 0 && amount < docAmount) amount = docAmount;
+        if (doc.provider_name && !/^\d+$/.test(doc.provider_name)) name = doc.provider_name;
+      }
+    }
+
+    return { ...t, amount, customer_name: name, room_number };
   };
 
   const loadPendingTransactions = async () => {
@@ -108,7 +149,7 @@ room_number = stay.rooms?.[0]?.number || '';
 
   const handleOpenPayment = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
-    setAmountReceived(transaction.amount);
+    setAmountReceived(Number(transaction.amount) || 0);
     setShowPayment(true);
   };
 
@@ -122,26 +163,17 @@ room_number = stay.rooms?.[0]?.number || '';
     setError('');
     const change = amountReceived - selectedTransaction.amount;
     const receiptNumber = `REC-${Date.now().toString().slice(-8)}`;
-
     try {
       const { error } = await supabase.from('cash_transactions').update({
         status: 'PAID', amount_received: amountReceived, change_amount: change, receipt_number: receiptNumber,
       }).eq('id', selectedTransaction.id);
-
       if (error) throw new Error(error.message);
-
       const netAmount = selectedTransaction.amount * 100 / (100 + taxRate);
-      const taxAmount = selectedTransaction.amount - netAmount;
-
-      setReceiptData({ 
-        ...selectedTransaction, 
-        amount_received: amountReceived, 
-        change_amount: change, 
-        receipt_number: receiptNumber, 
-        tax_rate: taxRate, 
-        tax_amount: taxAmount, 
-        net_amount: netAmount, 
-        paid_at: new Date().toISOString() 
+      setReceiptData({
+        ...selectedTransaction,
+        amount_received: amountReceived, change_amount: change, receipt_number: receiptNumber,
+        tax_rate: taxRate, tax_amount: selectedTransaction.amount - netAmount, net_amount: netAmount,
+        paid_at: new Date().toISOString()
       });
       setShowPayment(false);
       setShowReceipt(true);
@@ -157,12 +189,9 @@ room_number = stay.rooms?.[0]?.number || '';
 
   const handleReprint = (transaction: Transaction) => {
     const netAmount = transaction.amount * 100 / (100 + taxRate);
-    setReceiptData({ 
-      ...transaction, 
-      tax_rate: taxRate, 
-      tax_amount: transaction.amount - netAmount, 
-      net_amount: netAmount, 
-      paid_at: transaction.created_at 
+    setReceiptData({
+      ...transaction, tax_rate: taxRate, tax_amount: transaction.amount - netAmount,
+      net_amount: netAmount, paid_at: transaction.created_at
     });
     setShowReceipt(true);
   };
@@ -182,7 +211,8 @@ room_number = stay.rooms?.[0]?.number || '';
     const invoiceWindow = window.open('', '_blank');
     if (!invoiceWindow) return;
     const isExpense = receiptData.type === 'EXPENSE';
-    invoiceWindow.document.write(`<html><head><title>${isExpense ? 'Fiche de Dépense' : 'Facture'} ${receiptData.receipt_number}</title><style>body { font-family: Arial, sans-serif; margin: 40px; color: #333; } .header { display: flex; justify-content: space-between; border-bottom: 3px solid ${isExpense ? '#dc2626' : '#1e3a8a'}; padding-bottom: 20px; margin-bottom: 30px; } .company h1 { color: ${isExpense ? '#dc2626' : '#1e3a8a'}; margin: 0; } .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; } .info-box { background: #f8fafc; padding: 15px; border-radius: 8px; } table { width: 100%; border-collapse: collapse; margin: 20px 0; } th { background: ${isExpense ? '#dc2626' : '#1e3a8a'}; color: white; padding: 12px; text-align: left; } td { padding: 12px; border-bottom: 1px solid #e2e8f0; } .totals { margin-left: auto; width: 300px; } .totals .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; } .totals .total { font-size: 18px; font-weight: bold; color: ${isExpense ? '#dc2626' : '#1e3a8a'}; border-top: 2px solid ${isExpense ? '#dc2626' : '#1e3a8a'}; padding-top: 10px; } .reprint-badge { background: #fbbf24; color: #78350f; padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: bold; display: inline-block; margin-bottom: 10px; }</style></head><body><div class="header"><div class="company"><h1>LA VIDA-LOCA</h1><p>Ouagadougou, Burkina Faso<br/>Tél: +226 25 30 00 00</p></div><div class="invoice-info"><h2>${isExpense ? 'FICHE DE DÉPENSE' : 'FACTURE'}</h2><p><strong>N°:</strong> ${receiptData.receipt_number || 'N/A'}</p><p><strong>Date:</strong> ${new Date(receiptData.paid_at).toLocaleDateString('fr-FR')}</p>${receiptData.status === 'PAID' ? '<div class="reprint-badge">📄 DUPLICATA</div>' : ''}</div></div><div class="info-grid"><div class="info-box"><h3>${isExpense ? 'Fournisseur' : 'Client'}</h3><p><strong>${receiptData.provider_name || receiptData.customer_name || 'N/A'}</strong></p>${receiptData.room_number ? `<p>Chambre: ${receiptData.room_number}</p>` : ''}</div><div class="info-box"><h3>Détails</h3><p>${receiptData.description}</p><p>Mode: ${receiptData.payment_method}</p></div></div><table><thead><tr><th>Description</th><th style="text-align:right">Montant</th></tr></thead><tbody><tr><td>${receiptData.description}</td><td style="text-align:right"><strong>${Number(receiptData.amount).toLocaleString('fr-FR')} F</strong></td></tr></tbody></table><div class="totals"><div class="row"><span>Total</span><span>${Number(receiptData.amount).toLocaleString('fr-FR')} F</span></div>${receiptData.amount_received ? `<div class="row"><span>Montant donné</span><span>${Number(receiptData.amount_received).toLocaleString('fr-FR')} F</span></div>` : ''}${receiptData.change_amount !== undefined ? `<div class="row total"><span>Monnaie rendue</span><span>${Number(receiptData.change_amount).toLocaleString('fr-FR')} F</span></div>` : ''}</div><div style="margin-top:50px;text-align:center;color:#64748b;font-size:12px;"><p>Document généré par LA VIDA-LOCA PMS</p></div></body></html>`);
+    const color = isExpense ? '#dc2626' : '#1e3a8a';
+    invoiceWindow.document.write(`<html><head><title>${isExpense ? 'Fiche de Dépense' : 'Facture'} ${receiptData.receipt_number}</title><style>body { font-family: Arial, sans-serif; margin: 40px; color: #333; } .header { display: flex; justify-content: space-between; border-bottom: 3px solid ${color}; padding-bottom: 20px; margin-bottom: 30px; } .company h1 { color: ${color}; margin: 0; } table { width: 100%; border-collapse: collapse; margin: 20px 0; } th { background: ${color}; color: white; padding: 12px; text-align: left; } td { padding: 12px; border-bottom: 1px solid #e2e8f0; } .totals { margin-left: auto; width: 300px; } .totals .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; } .totals .total { font-size: 18px; font-weight: bold; color: ${color}; border-top: 2px solid ${color}; padding-top: 10px; }</style></head><body><div class="header"><div class="company"><h1>LA VIDA-LOCA</h1><p>Ouagadougou, Burkina Faso</p></div><div><h2>${isExpense ? 'FICHE DE DÉPENSE' : 'FACTURE'}</h2><p><strong>N°:</strong> ${receiptData.receipt_number || 'N/A'}</p><p><strong>Date:</strong> ${new Date(receiptData.paid_at).toLocaleDateString('fr-FR')}</p></div></div><p><strong>${isExpense ? 'Fournisseur' : 'Client'}:</strong> ${receiptData.provider_name || receiptData.customer_name || 'N/A'}</p>${receiptData.room_number ? `<p>Chambre: ${receiptData.room_number}</p>` : ''}<table><thead><tr><th>Description</th><th style="text-align:right">Montant</th></tr></thead><tbody><tr><td>${receiptData.description}</td><td style="text-align:right"><strong>${Number(receiptData.amount).toLocaleString('fr-FR')} F</strong></td></tr></tbody></table><div class="totals"><div class="row"><span>Total</span><span>${Number(receiptData.amount).toLocaleString('fr-FR')} F</span></div>${receiptData.amount_received ? `<div class="row"><span>Montant donné</span><span>${Number(receiptData.amount_received).toLocaleString('fr-FR')} F</span></div>` : ''}${receiptData.change_amount !== undefined ? `<div class="row total"><span>Monnaie rendue</span><span>${Number(receiptData.change_amount).toLocaleString('fr-FR')} F</span></div>` : ''}</div></body></html>`);
     invoiceWindow.document.close();
     setTimeout(() => invoiceWindow.print(), 500);
   };
@@ -209,8 +239,7 @@ room_number = stay.rooms?.[0]?.number || '';
         <div className="p-6 space-y-4">
           {error && (
             <div className="bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 text-sm flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <span>{error}</span>
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span>
             </div>
           )}
 
@@ -229,78 +258,24 @@ room_number = stay.rooms?.[0]?.number || '';
             </div>
           </div>
 
-          <div className="flex gap-2 border-b border-slate-200">
-            <button 
-              onClick={() => setActiveTab('pending')} 
-              className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'pending' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-slate-600 hover:text-slate-900'}`}
-            >
+          <div className="flex gap-2 border-b border-slate-200 flex-wrap">
+            <button onClick={() => setActiveTab('pending')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm ${activeTab === 'pending' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-slate-600 hover:text-slate-900'}`}>
               <ShoppingCart className="w-4 h-4" /> À traiter ({pendingTransactions.length})
             </button>
-            <button 
-              onClick={() => setActiveTab('history')} 
-              className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'history' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-slate-600 hover:text-slate-900'}`}
-            >
+            <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm ${activeTab === 'history' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-slate-600 hover:text-slate-900'}`}>
               <History className="w-4 h-4" /> Historique ({paidTransactions.length})
             </button>
-                      <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="date"
-                  value={startDate}
-                  max={endDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="text-xs font-medium text-slate-700 outline-none bg-transparent"
-                />
+                <input type="date" value={startDate} max={endDate} onChange={(e) => setStartDate(e.target.value)} className="text-xs font-medium text-slate-700 outline-none bg-transparent" />
                 <span className="text-xs text-slate-400">→</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="text-xs font-medium text-slate-700 outline-none bg-transparent"
-                />
+                <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} className="text-xs font-medium text-slate-700 outline-none bg-transparent" />
               </div>
-              
-              <button
-                onClick={() => {
-                  const today = new Date().toISOString().split('T')[0];
-                  setStartDate(today);
-                  setEndDate(today);
-                }}
-                className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200 transition-colors"
-                title="Aujourd'hui uniquement"
-              >
-                Jour
-              </button>
-              
-              <button
-                onClick={() => {
-                  const now = new Date();
-                  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                  const today = now.toISOString().split('T')[0];
-                  setStartDate(weekAgo);
-                  setEndDate(today);
-                }}
-                className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-1 rounded hover:bg-amber-200 transition-colors"
-                title="7 derniers jours"
-              >
-                7j
-              </button>
-              
-              <button
-                onClick={() => {
-                  const now = new Date();
-                  const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                  const today = now.toISOString().split('T')[0];
-                  setStartDate(first);
-                  setEndDate(today);
-                }}
-                className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded hover:bg-emerald-200 transition-colors"
-                title="Du 1er du mois à aujourd'hui"
-              >
-                Mois
-              </button>
+              <button onClick={() => { const t = new Date().toISOString().split('T')[0]; setStartDate(t); setEndDate(t); }} className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200">Jour</button>
+              <button onClick={() => { const now = new Date(); setStartDate(new Date(now.getTime() - 7 * 86400000).toISOString().split('T')[0]); setEndDate(now.toISOString().split('T')[0]); }} className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-1 rounded hover:bg-amber-200">7j</button>
+              <button onClick={() => { const now = new Date(); setStartDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setEndDate(now.toISOString().split('T')[0]); }} className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded hover:bg-emerald-200">Mois</button>
+              <button onClick={() => { const r = getWeekRange(); setStartDate(r.start); setEndDate(r.end); }} className="text-[10px] font-semibold bg-purple-100 text-purple-700 px-2 py-1 rounded hover:bg-purple-200">Semaine</button>
             </div>
           </div>
 
@@ -316,36 +291,26 @@ room_number = stay.rooms?.[0]?.number || '';
                   {pendingTransactions.map(t => {
                     const isExpense = t.type === 'EXPENSE';
                     return (
-                      <div key={t.id} className={`flex items-center justify-between rounded-lg p-4 border-2 hover:shadow-md transition-shadow ${isExpense ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                      <div key={t.id} className={`flex items-center justify-between rounded-lg p-4 border-2 hover:shadow-md ${isExpense ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
                         <div className="flex items-center gap-4 flex-1">
-                          <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-2xl ${isExpense ? 'bg-red-200' : 'bg-amber-200'}`}>
-                            {categoryIcons[t.category] || '💰'}
-                          </div>
+                          <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-2xl ${isExpense ? 'bg-red-200' : 'bg-amber-200'}`}>{categoryIcons[t.category] || '💰'}</div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-slate-900">{t.customer_name || t.provider_name || 'N/A'}</span>
                               {t.room_number && <span className="text-xs bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">🚪 Chambre {t.room_number}</span>}
-                              <span className={`text-xs px-2 py-0.5 rounded font-medium ${isExpense ? 'bg-red-200 text-red-900' : 'bg-amber-200 text-amber-900'}`}>
-                                {t.payment_method}
-                              </span>
+                              <span className={`text-xs px-2 py-0.5 rounded font-medium ${isExpense ? 'bg-red-200 text-red-900' : 'bg-amber-200 text-amber-900'}`}>{t.payment_method}</span>
                             </div>
                             <div className="text-xs text-slate-600 mt-1">{t.description}</div>
-                            <div className="text-xs text-slate-500 mt-1">🕐 {new Date(t.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div className="text-xs text-slate-500 mt-1">📅 {new Date(t.created_at).toLocaleDateString('fr-FR')} à {new Date(t.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="text-right">
-                            <div className={`text-2xl font-bold ${isExpense ? 'text-red-900' : 'text-amber-900'}`}>
-                              {Number(t.amount).toLocaleString('fr-FR')} F
-                            </div>
+                            <div className={`text-2xl font-bold ${isExpense ? 'text-red-900' : 'text-amber-900'}`}>{Number(t.amount).toLocaleString('fr-FR')} F</div>
                             <div className="text-xs text-slate-600">{isExpense ? 'Décaissement' : 'TVA incluse'}</div>
                           </div>
-                          <button 
-                            onClick={() => handleOpenPayment(t)} 
-                            className={`${isExpense ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2`}
-                          >
-                            <DollarSign className="w-4 h-4" />
-                            {isExpense ? 'Payer' : 'Encaisser'}
+                          <button onClick={() => handleOpenPayment(t)} className={`${isExpense ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2`}>
+                            <DollarSign className="w-4 h-4" />{isExpense ? 'Payer' : 'Encaisser'}
                           </button>
                         </div>
                       </div>
@@ -361,7 +326,7 @@ room_number = stay.rooms?.[0]?.number || '';
               {paidTransactions.length === 0 ? (
                 <div className="text-center py-8 bg-slate-50 rounded-lg">
                   <History className="w-12 h-12 mx-auto mb-2 text-slate-300" />
-                  <p className="text-sm text-slate-500">Aucune transaction pour cette date</p>
+                  <p className="text-sm text-slate-500">Aucune transaction pour cette période</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -370,39 +335,22 @@ room_number = stay.rooms?.[0]?.number || '';
                     return (
                       <div key={t.id} className={`flex items-center justify-between rounded-lg p-4 border-2 ${isExpense ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
                         <div className="flex items-center gap-4 flex-1">
-                          <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-2xl ${isExpense ? 'bg-red-200' : 'bg-emerald-200'}`}>
-                            {categoryIcons[t.category] || '💰'}
-                          </div>
+                          <div className={`w-12 h-12 rounded-lg flex items-center justify-center text-2xl ${isExpense ? 'bg-red-200' : 'bg-emerald-200'}`}>{categoryIcons[t.category] || '💰'}</div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-slate-900">{t.customer_name || t.provider_name || 'N/A'}</span>
+                              {t.room_number && <span className="text-xs bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">🚪 Ch. {t.room_number}</span>}
                               {t.receipt_number && <span className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono">#{t.receipt_number}</span>}
                             </div>
                             <div className="text-xs text-slate-600 mt-1">{t.description}</div>
-                            <div className="text-xs text-slate-500 mt-1">🕐 {new Date(t.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div className="text-xs text-slate-500 mt-1">📅 {new Date(t.created_at).toLocaleDateString('fr-FR')} à {new Date(t.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <div className={`text-2xl font-bold ${isExpense ? 'text-red-900' : 'text-emerald-900'}`}>
-                              {isExpense ? '-' : '+'}{Number(t.amount).toLocaleString('fr-FR')} F
-                            </div>
-                          </div>
+                          <div className={`text-2xl font-bold ${isExpense ? 'text-red-900' : 'text-emerald-900'}`}>{isExpense ? '-' : '+'}{Number(t.amount).toLocaleString('fr-FR')} F</div>
                           <div className="flex gap-1">
-                            <button 
-                              onClick={() => handleReprint(t)} 
-                              className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-lg font-medium flex items-center gap-1 text-xs" 
-                              title="Réimprimer"
-                            >
-                              <Printer className="w-4 h-4" /> Ticket
-                            </button>
-                            <button 
-                              onClick={() => handleReprint(t)} 
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg font-medium flex items-center gap-1 text-xs" 
-                              title="Réimprimer"
-                            >
-                              <FileText className="w-4 h-4" /> Document
-                            </button>
+                            <button onClick={() => handleReprint(t)} className="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded-lg font-medium flex items-center gap-1 text-xs"><Printer className="w-4 h-4" /> Ticket</button>
+                            <button onClick={() => handleReprint(t)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg font-medium flex items-center gap-1 text-xs"><FileText className="w-4 h-4" /> Document</button>
                           </div>
                         </div>
                       </div>
@@ -431,63 +379,29 @@ room_number = stay.rooms?.[0]?.number || '';
                 {selectedTransaction.room_number && <div className="text-xs text-slate-600 mt-1">🚪 Chambre {selectedTransaction.room_number}</div>}
               </div>
               <div className={`border-2 p-4 rounded-lg text-center ${selectedTransaction.type === 'EXPENSE' ? 'bg-red-50 border-red-300' : 'bg-amber-50 border-amber-300'}`}>
-                <div className={`text-xs mb-1 ${selectedTransaction.type === 'EXPENSE' ? 'text-red-700' : 'text-amber-700'}`}>
-                  {selectedTransaction.type === 'EXPENSE' ? 'Montant à payer' : 'Montant à encaisser'}
-                </div>
-                <div className={`text-3xl font-bold ${selectedTransaction.type === 'EXPENSE' ? 'text-red-900' : 'text-amber-900'}`}>
-                  {Number(selectedTransaction.amount).toLocaleString('fr-FR')} F
-                </div>
+                <div className={`text-xs mb-1 ${selectedTransaction.type === 'EXPENSE' ? 'text-red-700' : 'text-amber-700'}`}>{selectedTransaction.type === 'EXPENSE' ? 'Montant à payer' : 'Montant à encaisser'}</div>
+                <div className={`text-3xl font-bold ${selectedTransaction.type === 'EXPENSE' ? 'text-red-900' : 'text-amber-900'}`}>{Number(selectedTransaction.amount).toLocaleString('fr-FR')} F</div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  💵 {selectedTransaction.type === 'EXPENSE' ? 'Montant donné au fournisseur (FCFA)' : 'Montant reçu du client (FCFA)'}
-                </label>
-                <input 
-                  type="number" 
-                  min={selectedTransaction.amount} 
-                  value={amountReceived} 
-                  onChange={(e) => setAmountReceived(Number(e.target.value))} 
-                  className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-2xl font-bold text-center focus:ring-2 focus:ring-emerald-500" 
-                  autoFocus 
-                />
-                <button 
-                  type="button" 
-                  onClick={() => setAmountReceived(selectedTransaction.amount)} 
-                  className="text-xs text-emerald-600 hover:text-emerald-800 mt-1"
-                >
-                  💡 Mettre le montant exact
-                </button>
+                <label className="block text-sm font-medium text-slate-700 mb-1">💵 {selectedTransaction.type === 'EXPENSE' ? 'Montant donné au fournisseur (FCFA)' : 'Montant reçu du client (FCFA)'}</label>
+                <input type="number" min={selectedTransaction.amount} value={amountReceived} onChange={(e) => setAmountReceived(Number(e.target.value))} className="w-full border-2 border-slate-300 rounded-lg px-4 py-3 text-2xl font-bold text-center focus:ring-2 focus:ring-emerald-500" autoFocus />
+                <button type="button" onClick={() => setAmountReceived(selectedTransaction.amount)} className="text-xs text-emerald-600 hover:text-emerald-800 mt-1">💡 Mettre le montant exact</button>
               </div>
               {amountReceived >= selectedTransaction.amount && (
-                <div className="bg-emerald-50 border-2 border-emerald-300 p-3 rounded-lg">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-emerald-900">💰 Monnaie à rendre</span>
-                    <span className="text-2xl font-bold text-emerald-900">
-                      {Number(amountReceived - selectedTransaction.amount).toLocaleString('fr-FR')} F
-                    </span>
-                  </div>
+                <div className="bg-emerald-50 border-2 border-emerald-300 p-3 rounded-lg flex justify-between items-center">
+                  <span className="text-sm font-medium text-emerald-900">💰 Monnaie à rendre</span>
+                  <span className="text-2xl font-bold text-emerald-900">{Number(amountReceived - selectedTransaction.amount).toLocaleString('fr-FR')} F</span>
                 </div>
               )}
               {amountReceived < selectedTransaction.amount && (
                 <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-sm text-red-900 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <span>Montant insuffisant. Il manque {Number(selectedTransaction.amount - amountReceived).toLocaleString('fr-FR')} F</span>
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>Montant insuffisant. Il manque {Number(selectedTransaction.amount - amountReceived).toLocaleString('fr-FR')} F</span>
                 </div>
               )}
               <div className="flex gap-2 pt-2">
-                <button 
-                  onClick={() => { setShowPayment(false); setSelectedTransaction(null); }} 
-                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg"
-                >
-                  Annuler
-                </button>
-                <button 
-                  onClick={handleProcessPayment} 
-                  disabled={loading || amountReceived < selectedTransaction.amount} 
-                  className={`flex-1 font-semibold py-3 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 text-white ${selectedTransaction.type === 'EXPENSE' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                >
-                  <CheckCircle className="w-5 h-5" />
-                  {loading ? 'Traitement...' : 'Valider'}
+                <button onClick={() => { setShowPayment(false); setSelectedTransaction(null); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg">Annuler</button>
+                <button onClick={handleProcessPayment} disabled={loading || amountReceived < selectedTransaction.amount} className={`flex-1 font-semibold py-3 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 text-white ${selectedTransaction.type === 'EXPENSE' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                  <CheckCircle className="w-5 h-5" />{loading ? 'Traitement...' : 'Valider'}
                 </button>
               </div>
             </div>
@@ -499,13 +413,8 @@ room_number = stay.rooms?.[0]?.number || '';
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className={`bg-gradient-to-r text-white px-6 py-4 flex items-center justify-between rounded-t-xl sticky top-0 ${receiptData.type === 'EXPENSE' ? 'from-red-600 to-red-800' : 'from-emerald-600 to-teal-700'}`}>
-              <h3 className="text-lg font-bold flex items-center gap-2">
-                <CheckCircle className="w-5 h-5" />
-                {receiptData.status === 'PAID' ? '📄 Réimpression' : 'Opération réussie !'}
-              </h3>
-              <button onClick={() => { setShowReceipt(false); setReceiptData(null); }} className="hover:bg-white/20 p-2 rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
+              <h3 className="text-lg font-bold flex items-center gap-2"><CheckCircle className="w-5 h-5" />{receiptData.status === 'PAID' ? '📄 Réimpression' : 'Opération réussie !'}</h3>
+              <button onClick={() => { setShowReceipt(false); setReceiptData(null); }} className="hover:bg-white/20 p-2 rounded-lg"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 space-y-4">
               {receiptData.status === 'PAID' && (
@@ -513,11 +422,10 @@ room_number = stay.rooms?.[0]?.number || '';
                   <RotateCcw className="w-5 h-5 text-amber-700" />
                   <div>
                     <div className="font-semibold text-amber-900 text-sm">Mode réimpression</div>
-                    <div className="text-xs text-amber-700">Document original du {new Date(receiptData.paid_at).toLocaleString('fr-FR')} • N° {receiptData.receipt_number}</div>
+                    <div className="text-xs text-amber-700">Document du {new Date(receiptData.paid_at).toLocaleString('fr-FR')} • N° {receiptData.receipt_number}</div>
                   </div>
                 </div>
               )}
-              
               <div ref={receiptRef} className="bg-white p-4 border-2 border-slate-300 rounded" style={{ fontFamily: 'Courier New, monospace', fontSize: '12px', maxWidth: '300px', margin: '0 auto' }}>
                 <div style={{ textAlign: 'center', marginBottom: '10px' }}>
                   <div style={{ fontWeight: 'bold', fontSize: '14px' }}>LA VIDA-LOCA</div>
@@ -532,46 +440,17 @@ room_number = stay.rooms?.[0]?.number || '';
                 {receiptData.room_number && <div>Chambre: {receiptData.room_number}</div>}
                 <div>{receiptData.description}</div>
                 <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }}></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                  <span>TOTAL:</span>
-                  <span>{Number(receiptData.amount).toLocaleString('fr-FR')} F</span>
-                </div>
-                {receiptData.amount_received && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Donné/Reçu:</span>
-                    <span>{Number(receiptData.amount_received).toLocaleString('fr-FR')} F</span>
-                  </div>
-                )}
-                {receiptData.change_amount !== undefined && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
-                    <span>Monnaie:</span>
-                    <span>{Number(receiptData.change_amount).toLocaleString('fr-FR')} F</span>
-                  </div>
-                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>TOTAL:</span><span>{Number(receiptData.amount).toLocaleString('fr-FR')} F</span></div>
+                {receiptData.amount_received && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Donné/Reçu:</span><span>{Number(receiptData.amount_received).toLocaleString('fr-FR')} F</span></div>}
+                {receiptData.change_amount !== undefined && <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}><span>Monnaie:</span><span>{Number(receiptData.change_amount).toLocaleString('fr-FR')} F</span></div>}
                 <div style={{ borderTop: '1px dashed #000', margin: '8px 0' }}></div>
                 <div style={{ textAlign: 'center', fontSize: '10px' }}>Merci ! 🌴</div>
               </div>
-
               <div className="flex gap-2 pt-2">
-                <button 
-                  onClick={handlePrintReceipt} 
-                  className="flex-1 bg-slate-700 hover:bg-slate-800 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
-                >
-                  <Printer className="w-5 h-5" /> Imprimer ticket (80mm)
-                </button>
-                <button 
-                  onClick={handlePrintInvoice} 
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
-                >
-                  <FileText className="w-5 h-5" /> Imprimer document A4
-                </button>
+                <button onClick={handlePrintReceipt} className="flex-1 bg-slate-700 hover:bg-slate-800 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"><Printer className="w-5 h-5" /> Imprimer ticket (80mm)</button>
+                <button onClick={handlePrintInvoice} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"><FileText className="w-5 h-5" /> Imprimer document A4</button>
               </div>
-              <button 
-                onClick={() => { setShowReceipt(false); setReceiptData(null); }} 
-                className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2 rounded-lg mt-2"
-              >
-                Fermer
-              </button>
+              <button onClick={() => { setShowReceipt(false); setReceiptData(null); }} className="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2 rounded-lg mt-2">Fermer</button>
             </div>
           </div>
         </div>

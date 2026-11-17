@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useProfile } from '@/hooks/useHotel';
 import {
   Bed, Bath, Users, AlertCircle, Plus, Loader2,
-  Clock, LogIn, Bell, Wrench, Settings, Building2
+  Clock, LogIn, Bell, Wrench, Settings, Building2, Calendar, CheckCircle
 } from 'lucide-react';
 import ReservationModal from '@/components/ReservationModal';
 import RoomActionModal from '@/components/RoomActionModal';
@@ -12,7 +12,7 @@ import WaitlistModal from '@/components/WaitlistModal';
 import WaitlistAlert from '@/components/WaitlistAlert';
 import MaintenanceModal from '@/components/MaintenanceModal';
 import AdminModal from '@/components/AdminModal';
-import RoomServiceModal from '@/components/RoomServiceModal';
+//import RoomServiceModal from '@/components/RoomServiceModal';
 import CashierModal from '@/components/CashierModal';
 
 const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
@@ -28,11 +28,11 @@ export default function ChambresPage() {
   const { siteId: profileSiteId, loading: profileLoading } = useProfile();
   const [rooms, setRooms] = useState<any[]>([]);
   const [stats, setStats] = useState<Record<string, number>>({});
-  const [reservations, setReservations] = useState<any[]>([]);
+  const [upcomingReservations, setUpcomingReservations] = useState<any[]>([]);
+  const [activeStays, setActiveStays] = useState<any[]>([]);   // ✅ source de vérité
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
@@ -52,6 +52,7 @@ export default function ChambresPage() {
   const loadData = async () => {
     setLoading(true);
     try {
+      // 1. Chambres + stats
       const { data: roomsData } = await supabase
         .from('rooms')
         .select('id, number, floor, status, category_id, out_of_order_reason, room_categories (code, name, base_price)')
@@ -63,25 +64,76 @@ export default function ChambresPage() {
         setStats(s);
       }
 
-      const { data: reservationsData } = await supabase
-        .from('reservations')
-        .select('id, number, check_in_date, check_out_date, status, nightly_rate, customers (first_name, last_name, phone), room_id, room_categories (code, name), rooms (number)')
-        .eq('site_id', profileSiteId)
-        .in('status', ['CONFIRMED', 'CHECKED_IN'])
-        .order('check_in_date', { ascending: true });
-      if (reservationsData) setReservations(reservationsData);
+    // 2. ✅ EN SÉJOUR = séjours IN_HOUSE liés aux chambres du site
+// (on passe par room_id, car stays.site_id peut être NULL)
+const { data: staysData } = await supabase
+  .from('stays')
+  .select(`
+    id, room_id, reservation_id, customer_id, check_in_at, folio_balance, nightly_rate,
+    rooms (id, number, site_id),
+    customers (first_name, last_name, phone),
+    reservations (number, check_in_date, check_out_date)
+  `)
+  .eq('status', 'IN_HOUSE')
+  .eq('rooms.site_id', profileSiteId)
+  .order('check_in_at', { ascending: false });
 
+const normalizedStays = (staysData || []).map((s: any) => ({
+  ...s,
+  rooms: Array.isArray(s.rooms) ? s.rooms[0] : s.rooms,
+  customers: Array.isArray(s.customers) ? s.customers[0] : s.customers,
+  reservations: Array.isArray(s.reservations) ? s.reservations[0] : s.reservations,
+}));
+setActiveStays(normalizedStays);
+
+      // 3. Réservations À VENIR (confirmees, pas encore check-in)
+      const today = new Date().toISOString().split('T')[0];
+      const { data: resData } = await supabase
+        .from('reservations')
+        .select('id, number, check_in_date, check_out_date, status, nightly_rate, customers (first_name, last_name, phone), rooms (number), room_categories (code, name)')
+        .eq('site_id', profileSiteId)
+        .eq('status', 'CONFIRMED')
+        .gte('check_in_date', today)
+        .order('check_in_date', { ascending: true });
+      if (resData) setUpcomingReservations(resData);
+
+      // 4. Liste d'attente
       const { count } = await supabase
         .from('waitlist')
         .select('*', { count: 'exact', head: true })
         .eq('site_id', profileSiteId)
         .eq('status', 'WAITING');
       if (count !== null) setWaitlistCount(count);
-    } catch (error) {
-      console.error('Erreur chargement:', error);
+    } catch (err) {
+      console.error('Erreur chargement:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  // ✅ Synchronisation chambres <-> séjours en un clic
+  const [syncing, setSyncing] = useState(false);
+  const syncRooms = async () => {
+    if (!confirm('Synchroniser le statut des chambres avec les séjours actifs ?')) return;
+    setSyncing(true);
+    try {
+      const stayRoomIds = activeStays.map(s => s.room_id).filter(Boolean);
+      // chambres à passer OCCUPIED
+      for (const rid of stayRoomIds) {
+        await supabase.from('rooms').update({ status: 'OCCUPIED' }).eq('id', rid);
+      }
+      // chambres OCCUPIED sans séjour -> DIRTY (à nettoyer)
+      const { data: occupied } = await supabase
+        .from('rooms').select('id').eq('site_id', profileSiteId).eq('status', 'OCCUPIED');
+      for (const r of (occupied || [])) {
+        if (!stayRoomIds.includes(r.id)) {
+          await supabase.from('rooms').update({ status: 'DIRTY' }).eq('id', r.id);
+        }
+      }
+      alert('✅ Synchronisation terminée');
+      setRefreshKey(k => k + 1);
+    } catch (e) { console.error(e); }
+    setSyncing(false);
   };
 
   if (profileLoading || loading) {
@@ -91,12 +143,12 @@ export default function ChambresPage() {
       </div>
     );
   }
-
   if (!profileSiteId) return null;
 
   const total = rooms.length;
   const occupied = stats.OCCUPIED || 0;
   const occRate = total ? Math.round((occupied / total) * 100) : 0;
+  const desync = activeStays.length !== occupied;
 
   const byFloor = rooms.reduce((acc: any, room: any) => {
     const floor = room.floor || 0;
@@ -104,9 +156,6 @@ export default function ChambresPage() {
     acc[floor].push(room);
     return acc;
   }, {});
-
-  const upcomingReservations = reservations.filter(r => r.status === 'CONFIRMED');
-  const currentStays = reservations.filter(r => r.status === 'CHECKED_IN');
 
   return (
     <div className="p-6 space-y-4">
@@ -133,6 +182,20 @@ export default function ChambresPage() {
           </button>
         </div>
       </div>
+
+      {/* ⚠️ Alerte de désynchronisation */}
+      {desync && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-amber-900">
+            <AlertCircle className="w-5 h-5 text-amber-600" />
+            <span><b>{activeStays.length}</b> séjour(s) actif(s) ≠ <b>{occupied}</b> chambre(s) marquée(s) occupée(s).</span>
+          </div>
+          <button onClick={syncRooms} disabled={syncing} className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50 flex items-center gap-1">
+            {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+            Synchroniser
+          </button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -161,7 +224,7 @@ export default function ChambresPage() {
         </div>
       </div>
 
-      {/* Plan des chambres */}
+      {/* Plan + colonne droite */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
           {Object.keys(byFloor).sort().map((floor: string) => (
@@ -177,7 +240,7 @@ export default function ChambresPage() {
                       key={room.id}
                       onClick={() => { setSelectedRoom(room); setIsRoomModalOpen(true); }}
                       onContextMenu={(e) => { e.preventDefault(); setMaintenanceRoomId(room.id); setIsMaintenanceOpen(true); }}
-                      className={`rounded-lg border-2 p-2 text-left hover:shadow-md transition-all cursor-pointer relative group ${cfg.color}`}
+                      className={`rounded-lg border-2 p-2 text-left hover:shadow-md transition-all cursor-pointer relative ${cfg.color}`}
                     >
                       {room.status === 'OUT_OF_ORDER' && <div className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">🔧</div>}
                       <div className="flex items-center justify-between mb-1">
@@ -194,13 +257,14 @@ export default function ChambresPage() {
           ))}
         </div>
 
-        {/* Colonne droite : séjours */}
+        {/* Colonne droite */}
         <div className="space-y-4">
+          {/* À venir */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
             <div className="bg-amber-100 px-3 py-2 border-b border-amber-200">
-              <h3 className="font-semibold text-amber-900 text-sm">📅 Réservations ({upcomingReservations.length})</h3>
+              <h3 className="font-semibold text-amber-900 text-sm">📅 Réservations à venir ({upcomingReservations.length})</h3>
             </div>
-            <div className="p-2 space-y-2 max-h-64 overflow-y-auto">
+            <div className="p-2 space-y-2 max-h-60 overflow-y-auto">
               {upcomingReservations.length === 0 ? (
                 <p className="text-xs text-slate-500 text-center py-4">Aucune réservation à venir</p>
               ) : (
@@ -216,19 +280,29 @@ export default function ChambresPage() {
             </div>
           </div>
 
+          {/* ✅ EN SÉJOUR = séjours IN_HOUSE */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
             <div className="bg-blue-100 px-3 py-2 border-b border-blue-200">
-              <h3 className="font-semibold text-blue-900 text-sm">🔑 En séjour ({currentStays.length})</h3>
+              <h3 className="font-semibold text-blue-900 text-sm">🔑 En séjour ({activeStays.length})</h3>
             </div>
-            <div className="p-2 space-y-2 max-h-64 overflow-y-auto">
-              {currentStays.length === 0 ? (
+            <div className="p-2 space-y-2 max-h-72 overflow-y-auto">
+              {activeStays.length === 0 ? (
                 <p className="text-xs text-slate-500 text-center py-4">Aucun client en séjour</p>
               ) : (
-                currentStays.map((res: any) => (
-                  <div key={res.id} className="p-2 rounded-lg border border-blue-200 bg-blue-50">
-                    <div className="font-bold text-xs">{res.number}</div>
-                    <div className="text-xs">👤 {res.customers?.last_name} {res.customers?.first_name}</div>
-                    {res.rooms?.number && <div className="text-[10px] font-semibold text-blue-700">🚪 Ch. {res.rooms.number}</div>}
+                activeStays.map((stay: any) => (
+                  <div key={stay.id} className="p-2 rounded-lg border border-blue-200 bg-blue-50">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-xs text-slate-900">🚪 Ch. {stay.rooms?.number || '—'}</div>
+                      {stay.reservations?.number && <span className="text-[10px] text-blue-700">{stay.reservations.number}</span>}
+                    </div>
+                    <div className="text-xs mt-0.5">👤 {stay.customers?.last_name} {stay.customers?.first_name}</div>
+                    <div className="text-[10px] text-slate-600 mt-1 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      Depuis le {new Date(stay.check_in_at).toLocaleDateString('fr-FR')}
+                    </div>
+                    <div className="text-[10px] font-semibold text-blue-800 mt-1">
+                      Folio : {Number(stay.folio_balance || 0).toLocaleString('fr-FR')} F
+                    </div>
                   </div>
                 ))
               )}
@@ -245,7 +319,7 @@ export default function ChambresPage() {
       <MaintenanceModal siteId={profileSiteId} rooms={rooms} isOpen={isMaintenanceOpen} onClose={() => setIsMaintenanceOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} preselectRoomId={maintenanceRoomId} />
       <AdminModal siteId={profileSiteId} isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
       <CashierModal siteId={profileSiteId} isOpen={isCashOpen} onClose={() => setIsCashOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
-      <RoomServiceModal siteId={profileSiteId} isOpen={isRoomServiceOpen} onClose={() => setIsRoomServiceOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
+      
     </div>
   );
 }

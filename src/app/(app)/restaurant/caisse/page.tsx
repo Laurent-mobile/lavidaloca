@@ -1,4 +1,3 @@
-//src/app/restaurant/caisse/page.tsx
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -16,6 +15,7 @@ interface OrderItem {
   unit_price: number;
   total_price: number;
 }
+
 interface Order {
   id: string;
   order_number: string;
@@ -40,10 +40,11 @@ interface Payment {
   paid_at: string;
   restaurant_orders?: { 
     order_number: string;
-    restaurant_tables?: { number: string } | null; // ✅ AJOUTÉ
-    rooms?: { number: string } | null;             // ✅ AJOUTÉ
+    restaurant_tables?: { number: string } | null;
+    rooms?: { number: string } | null;
   };
 }
+
 interface CashSession {
   id: string;
   opening_float: number;
@@ -58,6 +59,7 @@ const METHODS = [
   { key: 'ROOM_CHARGE', label: 'Chambre', icon: BedDouble, color: 'purple' },
   { key: 'TRANSFER', label: 'Virement', icon: ArrowRightLeft, color: 'slate' },
 ];
+
 const money = (n: number) => Number(n || 0).toLocaleString('fr-FR');
 
 export default function CaissePage() {
@@ -73,12 +75,11 @@ export default function CaissePage() {
   const [session, setSession] = useState<CashSession | null>(null);
   const [sessionPayments, setSessionPayments] = useState<Payment[]>([]);
   
-  // ✅ NOUVEAU : États pour les séjours actifs (chambres occupées)
   const [activeStays, setActiveStays] = useState<any[]>([]);
   const [selectedStayId, setSelectedStayId] = useState('');
 
   const [cashExpenses, setCashExpenses] = useState<any[]>([]);
-const [loadingExpenses, setLoadingExpenses] = useState(false);
+  const [loadingExpenses, setLoadingExpenses] = useState(false);
   
   const [search, setSearch] = useState('');
   const [method, setMethod] = useState('CASH');
@@ -89,8 +90,8 @@ const [loadingExpenses, setLoadingExpenses] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  // ✅ NOUVEAU : Alerte de réconciliation
-const { alert: reconciliationAlert, loadAlert } = useReconciliationAlert(siteId);
+  
+  const { alert: reconciliationAlert, loadAlert } = useReconciliationAlert(siteId);
 
   useEffect(() => {
     (async () => {
@@ -102,162 +103,177 @@ const { alert: reconciliationAlert, loadAlert } = useReconciliationAlert(siteId)
     })();
   }, []);
 
-  // Remplacez votre useEffect actuel par celui-ci
-useEffect(() => { 
-  if (siteId) {
-    loadAll();
-  }
-}, [siteId]);
+  useEffect(() => { 
+    if (siteId) {
+      loadAll();
+    }
+  }, [siteId]);
 
-// ✅ NOUVEAU : Charger les dépenses quand on active l'onglet Session
-useEffect(() => {
-  if (tab === 'session' && session) {
-    loadSessionExpenses();
-  }
-}, [tab, session]);
+  useEffect(() => {
+    if (tab === 'session' && session) {
+      loadSessionExpenses();
+    }
+  }, [tab, session]);
+
+  useEffect(() => {
+    if (tab === 'reconciliations') {
+      loadReconciliationsData();
+    }
+  }, [tab]);
 
   const loadSession = async () => {
-  const { data } = await supabase.from('cash_sessions')
-    .select('*').eq('site_id', siteId).eq('status', 'OPEN')
-    .order('opened_at', { ascending: false }).limit(1).maybeSingle();
-  setSession(data || null);
-  if (data) {
-    // ✅ CORRECTION : Charger les relations restaurant_orders et restaurant_tables
-    const { data: p } = await supabase.from('restaurant_payments')
-      .select(`
-        *,
-        restaurant_orders(order_number, table_id, room_id, restaurant_tables(number), rooms(number))
-      `)
-      .eq('session_id', data.id);
-    setSessionPayments(p || []);
-  } else setSessionPayments([]);
-};
-const loadReconciliations = async () => {
-  // Utilise maintenant le hook pour les stats
-  await loadAlert();
-  
-  // Charge aussi le détail pour l'affichage
-  try {
-    const { data: orders, error } = await supabase
-      .from('restaurant_orders')
-      .select(`
-        *,
-        restaurant_order_items(item_name, quantity, unit_price, total_price),
-        rooms(number),
-        stays!inner(
-          id, folio_balance, status,
-          customers(first_name, last_name),
-          check_in_at, check_out_at
-        )
-      `)
-      .eq('site_id', siteId)
-      .eq('order_type', 'ROOM_SERVICE')
-      .in('status', ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED'])
-      .order('created_at', { ascending: false });
+    const { data } = await supabase.from('cash_sessions')
+      .select('*').eq('site_id', siteId).eq('status', 'OPEN')
+      .order('opened_at', { ascending: false }).limit(1).maybeSingle();
+    setSession(data || null);
+    if (data) {
+      const { data: p } = await supabase.from('restaurant_payments')
+        .select(`
+          *,
+          restaurant_orders(order_number, table_id, room_id, restaurant_tables(number), rooms(number))
+        `)
+        .eq('session_id', data.id);
+      setSessionPayments(p || []);
+    } else {
+      setSessionPayments([]);
+    }
+  };
 
-    if (error) throw error;
+  // ✅ FONCTION UNIFIÉE ET CORRIGÉE POUR LES RÉCONCILIATIONS
+  const loadReconciliationsData = async () => {
+    try {
+      const { data: roomCharges, error } = await supabase
+        .from('room_charges')
+        .select(`
+          id, 
+          stay_id, 
+          order_id, 
+          charge_type, 
+          amount, 
+          charge_date, 
+          description,
+          stays (
+            id, 
+            status, 
+            folio_balance, 
+            check_out_at,
+            room_id,
+            customer_id,
+            rooms (number),
+            customers (first_name, last_name)
+          ),
+          restaurant_orders (
+            id, 
+            order_number, 
+            status, 
+            total_amount, 
+            created_at
+          )
+        `)
+        .eq('site_id', siteId)
+        .eq('charge_type', 'RESTAURANT')
+        .eq('is_voided', false)
+        .order('charge_date', { ascending: false });
 
-    const classified = orders?.map(order => {
-      const stay = order.stays as any;
-      let reconciliationStatus: 'paid' | 'pending' | 'anomaly' = 'pending';
-      let reconciliationDate: string | null = null;
+      if (error) throw error;
 
-      if (stay?.status === 'CHECKED_OUT' && stay.folio_balance === 0) {
-        reconciliationStatus = 'paid';
-        reconciliationDate = stay.check_out_at;
-      } else if (stay?.status === 'CHECKED_OUT' && stay.folio_balance > 0) {
-        reconciliationStatus = 'anomaly';
+      const formatted = (roomCharges || []).map(charge => {
+        const stay = charge.stays;
+        const order = charge.restaurant_orders;
+        
+        // Normalisation sécurisée des jointures (tableaux ou objets)
+        const room = Array.isArray(stay?.rooms) ? stay.rooms[0] : stay?.rooms;
+        const customer = Array.isArray(stay?.customers) ? stay.customers[0] : stay?.customers;
+        
+        const roomNumber = room?.number || '—';
+        const customerName = customer
+          ? `${customer.last_name || ''} ${customer.first_name || ''}`.trim() || 'Client'
+          : 'Client';
+        
+        let reconciliationStatus: 'paid' | 'pending' | 'anomaly' = 'pending';
+        if (stay?.status === 'CHECKED_OUT' && Number(stay.folio_balance) === 0) {
+          reconciliationStatus = 'paid';
+        } else if (stay?.status === 'CHECKED_OUT' && Number(stay.folio_balance) > 0) {
+          reconciliationStatus = 'anomaly';
+        }
+
+        return {
+          id: charge.id,
+          order_id: charge.order_id,
+          order_number: order?.order_number || 'N/A',
+          room_number: roomNumber,
+          guest_name: customerName,
+          stay_status: stay?.status || 'UNKNOWN',
+          total_amount: Number(charge.amount),
+          reconciliationStatus,
+          reconciliationDate: stay?.check_out_at || null,
+          folio_balance: stay?.folio_balance || 0,
+          created_at: order?.created_at || charge.charge_date,
+        };
+      });
+
+      setReconciliations(formatted);
+      await loadAlert();
+    } catch (error) {
+      console.error('Erreur chargement réconciliations:', error);
+    }
+  };
+
+  const loadActiveStays = async () => {
+    try {
+      const { data: staysData, error: staysError } = await supabase
+        .from('stays')
+        .select(`
+          id, folio_balance,
+          rooms!room_id(number),
+          customers(first_name, last_name)
+        `)
+        .eq('status', 'IN_HOUSE')
+        .order('check_in_at', { ascending: false });
+
+      if (staysError) {
+        console.error('❌ Erreur Supabase:', staysError);
+        setActiveStays([]);
+        return;
       }
 
-      return {
-        ...order,
-        reconciliationStatus,
-        reconciliationDate,
-        guest_name: stay?.customers 
-          ? `${stay.customers.first_name} ${stay.customers.last_name}` 
-          : 'Client inconnu',
-        stay_status: stay?.status || 'UNKNOWN',
-        folio_balance: stay?.folio_balance || 0
-      };
-    }) || [];
-
-    setReconciliations(classified);
-  } catch (error) {
-    console.error('Erreur chargement réconciliations:', error);
-  }
-};
-
-// Charger les réconciliations quand on active l'onglet
-useEffect(() => {
-  if (tab === 'reconciliations') {
-    loadPendingReconciliations(); // ✅ Nouvelle fonction
-  }
-}, [tab]);
-
-   const loadActiveStays = async () => {
-  try {
-    console.log('🔍 Chargement des séjours actifs...');
-    
-    const { data: staysData, error: staysError } = await supabase
-      .from('stays')
-      .select(`
-        id, folio_balance,
-        rooms!room_id(number),
-        customers(first_name, last_name)
-      `)
-      .eq('status', 'IN_HOUSE')
-      .order('check_in_at', { ascending: false });
-
-    if (staysError) {
-      console.error('❌ Erreur Supabase:', staysError);
+      if (staysData && staysData.length > 0) {
+        const formattedStays = staysData.map(stay => ({
+          ...stay,
+          rooms: stay.rooms?.[0] || null,
+          customers: stay.customers?.[0] || { first_name: 'Client', last_name: 'Inconnu' }
+        }));
+        setActiveStays(formattedStays);
+      } else {
+        setActiveStays([]);
+      }
+    } catch (error) {
+      console.error('❌ Erreur chargement séjours:', error);
       setActiveStays([]);
-      return;
     }
+  };
 
-    console.log('✅ Séjours trouvés:', staysData?.length || 0);
-    console.log('📦 Données brutes:', staysData);
-
-    if (staysData && staysData.length > 0) {
-      // ✅ CORRECTION CRUCIALE : Extraire correctement les tableaux de jointures
-      const formattedStays = staysData.map(stay => ({
-        ...stay,
-        // rooms est un tableau [{ number: "110" }], on prend le premier élément
-        rooms: stay.rooms?.[0] || null,
-        // customers est un tableau [{ first_name: "VEST", last_name: "TEST" }]
-        customers: stay.customers?.[0] || { first_name: 'Client', last_name: 'Inconnu' }
-      }));
+  const loadSessionExpenses = async () => {
+    if (!session) return;
+    setLoadingExpenses(true);
+    try {
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('site_id', siteId)
+        .eq('subtype', 'CAISSE')
+        .gte('created_at', session.opened_at)
+        .order('created_at', { ascending: false });
       
-      console.log('📦 Données formatées:', formattedStays);
-      setActiveStays(formattedStays);
-    } else {
-      console.warn('⚠️ Aucun séjour IN_HOUSE trouvé');
-      setActiveStays([]);
+      if (error) throw error;
+      setCashExpenses(data || []);
+    } catch (error) {
+      console.error('Erreur chargement dépenses:', error);
+    } finally {
+      setLoadingExpenses(false);
     }
-  } catch (error) {
-    console.error('❌ Erreur chargement séjours:', error);
-    setActiveStays([]);
-  }
-};
-const loadSessionExpenses = async () => {
-  if (!session) return;
-  setLoadingExpenses(true);
-  try {
-    const { data, error } = await supabase
-      .from('expenses')
-      .select('*')
-      .eq('site_id', siteId)
-      .eq('subtype', 'CAISSE')
-      .gte('created_at', session.opened_at)
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    setCashExpenses(data || []);
-  } catch (error) {
-    console.error('Erreur chargement dépenses:', error);
-  } finally {
-    setLoadingExpenses(false);
-  }
-};
+  };
+
   const loadAll = async () => {
     const { data: o } = await supabase.from('restaurant_orders')
       .select(`*, restaurant_tables(number), rooms(number),
@@ -274,139 +290,70 @@ const loadSessionExpenses = async () => {
       .order('paid_at', { ascending: false }).limit(200);
     setPayments(p || []);
     
-        // ✅ CORRECTION : Utiliser la fonction qui formate correctement les données
     await loadActiveStays();
-    
     await loadSession();
-  await loadSessionExpenses();
+    await loadSessionExpenses();
   };
-// ✅ NOUVEAU : Charger les commandes chambre en attente de réconciliation
-const loadPendingReconciliations = async () => {
-  try {
-    // 1. Récupérer toutes les commandes ROOM_SERVICE non encore réconciliées
-    const { data: orders, error } = await supabase
-      .from('restaurant_orders')
-      .select(`
-        *,
-        restaurant_order_items(item_name, quantity, unit_price, total_price),
-        rooms(number),
-        stays!inner(
-          id, 
-          folio_balance, 
-          status,
-          customers(first_name, last_name),
-          check_in_at,
-          check_out_at
-        )
-      `)
-      .eq('site_id', siteId)
-      .eq('order_type', 'ROOM_SERVICE')
-      .in('status', ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED'])
-      .order('created_at', { ascending: false });
 
-    if (error) throw error;
-
-    // 2. Classifier chaque commande
-    const classified = orders?.map(order => {
-      const stay = order.stays;
-      let reconciliationStatus: 'paid' | 'pending' | 'anomaly' = 'pending';
-      let reconciliationDate: string | null = null;
-
-      // Si le séjour est CHECKED_OUT et le folio est à 0 (payé)
-      if (stay?.status === 'CHECKED_OUT' && stay.folio_balance === 0) {
-        reconciliationStatus = 'paid';
-        reconciliationDate = stay.check_out_at;
-      }
-      // Si le séjour est CHECKED_OUT mais folio > 0 (impayé)
-      else if (stay?.status === 'CHECKED_OUT' && stay.folio_balance > 0) {
-        reconciliationStatus = 'anomaly';
-      }
-      // Sinon, en attente (client encore sur place)
-      else {
-        reconciliationStatus = 'pending';
-      }
-
-      return {
-        ...order,
-        reconciliationStatus,
-        reconciliationDate,
-        guest_name: stay?.customers 
-          ? `${stay.customers.first_name} ${stay.customers.last_name}` 
-          : 'Client inconnu',
-        stay_status: stay?.status || 'UNKNOWN',
-        folio_balance: stay?.folio_balance || 0
-      };
-    }) || [];
-
-    setReconciliations(classified);
-  } catch (error) {
-    console.error('Erreur chargement réconciliations:', error);
-  }
-};
-
-// ✅ NOUVEAU : Réconcilier manuellement une commande
-const reconcileOrder = async (orderId: string) => {
-  if (!confirm('Confirmer la réconciliation de cette commande avec la caisse réception ?')) return;
-  
-  try {
-    // 1. Marquer la commande comme payée
-    await supabase.from('restaurant_orders')
-      .update({ 
-        status: 'PAID', 
-        paid_at: new Date().toISOString() 
-      })
-      .eq('id', orderId);
-
-    // 2. Créer une trace dans la table de réconciliation
-    await supabase.from('payment_reconciliation').insert({
-      site_id: siteId,
-      order_id: orderId,
-      reconciliation_date: new Date().toISOString(),
-      reconciled_by: userId,
-      notes: 'Réconcilié manuellement - Paiement confirmé par la réception'
-    });
-
-    setSuccess('✅ Commande réconciliée avec succès !');
-    await loadPendingReconciliations();
-    await loadAll();
-  } catch (error: any) {
-    setError('Erreur : ' + error.message);
-  }
-};
-
-// ✅ NOUVEAU : Réconcilier automatiquement toutes les commandes dont le séjour est payé
-const autoReconcile = async () => {
-  if (!confirm('Réconcilier automatiquement toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0 ?')) return;
-  
-  try {
-    const ordersToReconcile = reconciliations.filter(r => r.reconciliationStatus === 'paid');
+  const reconcileOrder = async (orderId: string) => {
+    if (!confirm('Confirmer la réconciliation de cette commande avec la caisse réception ?')) return;
     
-    if (ordersToReconcile.length === 0) {
-      setSuccess('Aucune commande à réconcilier automatiquement.');
-      return;
-    }
-
-    for (const order of ordersToReconcile) {
+    try {
       await supabase.from('restaurant_orders')
-        .update({ status: 'PAID', paid_at: order.reconciliationDate || new Date().toISOString() })
-        .eq('id', order.id);
+        .update({ 
+          status: 'PAID', 
+          paid_at: new Date().toISOString() 
+        })
+        .eq('id', orderId);
 
       await supabase.from('payment_reconciliation').insert({
         site_id: siteId,
-        order_id: order.id,
+        order_id: orderId,
         reconciliation_date: new Date().toISOString(),
         reconciled_by: userId,
-        notes: 'Réconciliation automatique - Séjour CHECKED_OUT avec folio réglé'
+        notes: 'Réconcilié manuellement - Paiement confirmé par la réception'
       });
-    }
 
-    setSuccess(`✅ ${ordersToReconcile.length} commande(s) réconciliée(s) automatiquement !`);
-    await loadPendingReconciliations();
-    await loadAll();
-  } catch (error: any) {
-    setError('Erreur : ' + error.message);
-  }
-};
+      setSuccess('✅ Commande réconciliée avec succès !');
+      await loadReconciliationsData();
+      await loadAll();
+    } catch (error: any) {
+      setError('Erreur : ' + error.message);
+    }
+  };
+
+  const autoReconcile = async () => {
+    if (!confirm('Réconcilier automatiquement toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0 ?')) return;
+    
+    try {
+      const ordersToReconcile = reconciliations.filter(r => r.reconciliationStatus === 'paid');
+      
+      if (ordersToReconcile.length === 0) {
+        setSuccess('Aucune commande à réconcilier automatiquement.');
+        return;
+      }
+
+      for (const order of ordersToReconcile) {
+        await supabase.from('restaurant_orders')
+          .update({ status: 'PAID', paid_at: order.reconciliationDate || new Date().toISOString() })
+          .eq('id', order.order_id);
+
+        await supabase.from('payment_reconciliation').insert({
+          site_id: siteId,
+          order_id: order.order_id,
+          reconciliation_date: new Date().toISOString(),
+          reconciled_by: userId,
+          notes: 'Réconciliation automatique - Séjour CHECKED_OUT avec folio réglé'
+        });
+      }
+
+      setSuccess(`✅ ${ordersToReconcile.length} commande(s) réconciliée(s) automatiquement !`);
+      await loadReconciliationsData();
+      await loadAll();
+    } catch (error: any) {
+      setError('Erreur : ' + error.message);
+    }
+  };
 
   const openSession = async () => {
     setBusy(true); setError('');
@@ -419,11 +366,11 @@ const autoReconcile = async () => {
   };
 
   const expectedCash = useMemo(() => {
-  const float = Number(session?.opening_float || 0);
-  const inCash = sessionPayments.filter(p => p.method === 'CASH').reduce((s,p) => s + Number(p.amount), 0);
-  const expenses = cashExpenses.reduce((sum, e) => sum + (e.amount || 0), 0); // ✅ Soustraire les dépenses
-  return float + inCash - expenses;
-}, [session, sessionPayments, cashExpenses]);
+    const float = Number(session?.opening_float || 0);
+    const inCash = sessionPayments.filter(p => p.method === 'CASH').reduce((s,p) => s + Number(p.amount), 0);
+    const expenses = cashExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    return float + inCash - expenses;
+  }, [session, sessionPayments, cashExpenses]);
 
   const closeSession = async () => {
     if (!session) return;
@@ -446,16 +393,15 @@ const autoReconcile = async () => {
   const pay = async () => {
     if (!selected || !session) return;
     
-    // ✅ BLOQUER LES COMMANDES CHAMBRE
-  if (selected.order_type === 'ROOM_SERVICE') {
-    setError('⚠️ Cette commande est facturée au folio de la chambre.\n\nLe paiement se fait lors du check-out à la réception.\n\nNe pas encaisser individuellement en caisse !');
-    return;
-  }
-  
-  if (method === 'CASH' && (Number(received) || 0) < total) {
-    setError('Le montant reçu est inférieur au total.'); return;
-  }
-    // ✅ NOUVEAU : Validation obligatoire pour ROOM_CHARGE
+    if (selected.order_type === 'ROOM_SERVICE') {
+      setError('⚠️ Cette commande est facturée au folio de la chambre.\n\nLe paiement se fait lors du check-out à la réception.\n\nNe pas encaisser individuellement en caisse !');
+      return;
+    }
+    
+    if (method === 'CASH' && (Number(received) || 0) < total) {
+      setError('Le montant reçu est inférieur au total.'); return;
+    }
+    
     if (method === 'ROOM_CHARGE' && !selectedStayId) {
       setError('Veuillez sélectionner la chambre à facturer.'); return;
     }
@@ -467,21 +413,20 @@ const autoReconcile = async () => {
       p_method: method, 
       p_received: Number(received) || 0, 
       p_notes: notes,
-      p_stay_id: method === 'ROOM_CHARGE' ? selectedStayId : null // ✅ Passage du stay_id
+      p_stay_id: method === 'ROOM_CHARGE' ? selectedStayId : null
     });
     
     if (e) { setError(e.message); setBusy(false); return; }
 
-    setSuccess(`✅ Payé — ${data.order_number} · Rendu monnaie : ${money(data.change)} F`);
-printTicket(selected, data);
+    setSuccess(`✅ Payé — ${data.order_number} · Rendu monnaie : ${money(data.change)} fcfa`);
+    printTicket(selected, data);
 
-// ✅ NOUVEAU : Libérer la table après paiement
-if (selected.table_id) {
-  await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selected.table_id);
-}
+    if (selected.table_id) {
+      await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).eq('id', selected.table_id);
+    }
 
-setSelected(null); setReceived(''); setNotes(''); setSelectedStayId('');
-await loadAll(); setBusy(false);
+    setSelected(null); setReceived(''); setNotes(''); setSelectedStayId('');
+    await loadAll(); setBusy(false);
   };
 
   const printTicket = (order: Order, payData: any) => {
@@ -494,16 +439,16 @@ await loadAll(); setBusy(false);
       .line{border-top:1px dashed #000;margin:10px 0;} .row{display:flex;justify-content:space-between;}
       .total{font-size:16px;font-weight:bold;} </style></head><body>
       <div class="c"><img src="/logo.png" style="max-width:120px;margin-bottom:8px;">
-      <h1>HAPPINESS</h1><p>Hotel • Resto • Lounge<br>Ouaga 2000 — +226 57 40 11 11</p></div>
+      <h1>LA VIDA-LOCA</h1><p>Hotel • Resto • Lounge<br>Ouaga 2000 — +226 57 40 11 11</p></div>
       <div class="line"></div>
       <div class="row"><span>Commande</span><b>${payData.order_number}</b></div>
       <div class="row"><span>Date</span><span>${new Date().toLocaleString('fr-FR')}</span></div>
       <div class="line"></div>
-      ${(order.restaurant_order_items || []).map(i => `<div class="row"><span>${i.item_name} x${i.quantity}</span><span>${money(i.total_price)}</span></div>`).join('')}
+      ${(order.restaurant_order_items || []).map((i: any) => `<div class="row"><span>${i.item_name} x${i.quantity}</span><span>${money(i.total_price)} fcfa</span></div>`).join('')}
       <div class="line"></div>
-      <div class="row total"><span>TOTAL</span><span>${money(payData.total)} F</span></div>
-      <div class="row"><span>${label}</span><span>${money(payData.received)} F</span></div>
-      <div class="row"><span>Rendu monnaie</span><b>${money(payData.change)} F</b></div>
+      <div class="row total"><span>TOTAL</span><span>${money(payData.total)} fcfa</span></div>
+      <div class="row"><span>${label}</span><span>${money(payData.received)} fcfa</span></div>
+      <div class="row"><span>Rendu monnaie</span><b>${money(payData.change)} fcfa</b></div>
       <div class="line"></div>
       <p class="c">Merci de votre visite !<br>Embrace happiness...</p>
       </body></html>`);
@@ -540,11 +485,10 @@ await loadAll(); setBusy(false);
         </button>
       </div>
 
-      {/* Stats + session */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
           <div className="text-xs text-emerald-700">CA du jour</div>
-          <div className="text-xl font-bold text-emerald-900">{money(todayRevenue)} F</div>
+          <div className="text-xl font-bold text-emerald-900">{money(todayRevenue)} fcfa</div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="text-xs text-slate-500">Transactions</div>
@@ -552,7 +496,7 @@ await loadAll(); setBusy(false);
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="text-xs text-slate-500">En caisse (théorique)</div>
-          <div className="text-xl font-bold">{money(expectedCash)} F</div>
+          <div className="text-xl font-bold">{money(expectedCash)} fcfa</div>
         </div>
         <div className={`rounded-xl p-4 border ${session ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
           <div className="text-xs flex items-center gap-1">
@@ -560,46 +504,43 @@ await loadAll(); setBusy(false);
             {session ? 'Caisse ouverte' : 'Caisse fermée'}
           </div>
           <div className="text-xs mt-1 text-slate-600">
-            {session ? `Fond : ${money(session.opening_float)} F` : 'Ouvrez une session pour encaisser'}
+            {session ? `Fond : ${money(session.opening_float)} fcfa` : 'Ouvrez une session pour encaisser'}
           </div>
         </div>
       </div>
 
-         {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200">
-  {([
-    ['vente','Ventes',ReceiptText], 
-    ['session','Session',DollarSign], 
-    ['historique','Historique',History], 
-    ['reconciliations','Réconciliations',CheckCircle2], // ✅ NOUVEL ONGLET
-    ['cloture','Clôture',Lock]
-  ] as const).map(([k,l,Icon]) => {
-  // ✅ NOUVEAU : Badge pour l'onglet Réconciliations
-  const hasAnomaly = k === 'reconciliations' && reconciliationAlert.anomaly > 0;
-  const hasPending = k === 'reconciliations' && reconciliationAlert.pending > 0;
-  
-  return (
-    <button key={k} onClick={() => { setTab(k); if (k === 'reconciliations') loadReconciliations(); }}
-      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium relative ${
-        tab===k?'border-b-2 border-emerald-600 text-emerald-700':'text-slate-500'
-      }`}>
-      <Icon className="w-4 h-4" /> {l}
-      
-      {/* ✅ Badge d'alerte */}
-      {hasAnomaly && (
-        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-          {reconciliationAlert.anomaly}
-        </span>
-      )}
-      {hasPending && !hasAnomaly && (
-        <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-          {reconciliationAlert.pending}
-        </span>
-      )}
-    </button>
-  );
-})}
-</div>
+        {([
+          ['vente','Ventes',ReceiptText], 
+          ['session','Session',DollarSign], 
+          ['historique','Historique',History], 
+          ['reconciliations','Réconciliations',CheckCircle2], 
+          ['cloture','Clôture',Lock]
+        ] as const).map(([k,l,Icon]) => {
+          const hasAnomaly = k === 'reconciliations' && reconciliationAlert.anomaly > 0;
+          const hasPending = k === 'reconciliations' && reconciliationAlert.pending > 0;
+          
+          return (
+            <button key={k} onClick={() => { setTab(k); if (k === 'reconciliations') loadReconciliationsData(); }}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium relative ${
+                tab===k?'border-b-2 border-emerald-600 text-emerald-700':'text-slate-500'
+              }`}>
+              <Icon className="w-4 h-4" /> {l}
+              
+              {hasAnomaly && (
+                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
+                  {reconciliationAlert.anomaly}
+                </span>
+              )}
+              {hasPending && !hasAnomaly && (
+                <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {reconciliationAlert.pending}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
       {(error || success) && (
         <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${error?'bg-red-50 text-red-800':'bg-emerald-50 text-emerald-800'}`}>
@@ -611,7 +552,6 @@ await loadAll(); setBusy(false);
 
       {tab === 'vente' && (
         <div className="grid lg:grid-cols-2 gap-5">
-          {/* Liste des commandes */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="p-4 border-b border-slate-200">
               <div className="relative">
@@ -622,55 +562,54 @@ await loadAll(); setBusy(false);
             </div>
             <div className="max-h-[520px] overflow-y-auto divide-y divide-slate-100">
               {filtered.length === 0 && <p className="p-8 text-center text-sm text-slate-400">Aucune commande à encaisser.</p>}
-                {filtered.map(o => {
-  const isRoomService = o.order_type === 'ROOM_SERVICE';
-  return (
-    <button 
-      key={o.id} 
-      onClick={() => {
-        if (isRoomService) {
-          setError('⚠️ Commande chambre - Ne pas encaisser ici');
-          return;
-        }
-        setSelected(o);
-        setReceived('');
-        setError('');
-        setSelectedStayId('');
-      }}
-      disabled={isRoomService} // ✅ Désactiver le bouton
-      className={`w-full text-left p-4 hover:bg-slate-50 flex justify-between items-center 
-        ${selected?.id===o.id?'bg-emerald-50 border-l-4 border-emerald-600':''}
-        ${isRoomService ? 'opacity-50 cursor-not-allowed bg-purple-50/30' : ''}`}
-    >
-      <div>
-        <div className="font-bold text-slate-900 flex items-center gap-2">
-          {o.order_number}
-          {isRoomService && (
-            <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-              🏨 Folio
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-slate-500">
-          {locationLabel(o)} · {o.restaurant_order_items?.length || 0} article(s)
-        </div>
-        {isRoomService && (
-          <div className="text-[10px] text-purple-600 mt-1">
-            💳 Facturé au folio - Check-out réception
-          </div>
-        )}
-      </div>
-      <div className="text-right">
-        <div className="font-bold text-emerald-700">{money(o.total_amount)} F</div>
-        <div className="text-[10px] text-slate-400">{o.status}</div>
-      </div>
-    </button>
-  );
-})}
+              {filtered.map(o => {
+                const isRoomService = o.order_type === 'ROOM_SERVICE';
+                return (
+                  <button 
+                    key={o.id} 
+                    onClick={() => {
+                      if (isRoomService) {
+                        setError('⚠️ Commande chambre - Ne pas encaisser ici');
+                        return;
+                      }
+                      setSelected(o);
+                      setReceived('');
+                      setError('');
+                      setSelectedStayId('');
+                    }}
+                    disabled={isRoomService}
+                    className={`w-full text-left p-4 hover:bg-slate-50 flex justify-between items-center 
+                      ${selected?.id===o.id?'bg-emerald-50 border-l-4 border-emerald-600':''}
+                      ${isRoomService ? 'opacity-50 cursor-not-allowed bg-purple-50/30' : ''}`}
+                  >
+                    <div>
+                      <div className="font-bold text-slate-900 flex items-center gap-2">
+                        {o.order_number}
+                        {isRoomService && (
+                          <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                            🏨 Folio
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {locationLabel(o)} · {o.restaurant_order_items?.length || 0} article(s)
+                      </div>
+                      {isRoomService && (
+                        <div className="text-[10px] text-purple-600 mt-1">
+                          💳 Facturé au folio - Check-out réception
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-emerald-700">{money(o.total_amount)} fcfa</div>
+                      <div className="text-[10px] text-slate-400">{o.status}</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Paiement */}
           <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
             {!selected ? (
               <div className="text-center py-20 text-slate-400">
@@ -690,14 +629,14 @@ await loadAll(); setBusy(false);
                 <div className="max-h-40 overflow-y-auto space-y-1 text-sm">
                   {(selected.restaurant_order_items || []).map((i,idx)=>(
                     <div key={idx} className="flex justify-between text-slate-600">
-                      <span>{i.item_name} × {i.quantity}</span><span>{money(i.total_price)} F</span>
+                      <span>{i.item_name} × {i.quantity}</span><span>{money(i.total_price)} fcfa</span>
                     </div>
                   ))}
                 </div>
 
                 <div className="flex justify-between items-center bg-emerald-50 p-4 rounded-xl">
                   <span className="font-semibold">Total à payer</span>
-                  <span className="text-2xl font-bold text-emerald-700">{money(total)} F</span>
+                  <span className="text-2xl font-bold text-emerald-700">{money(total)} fcfa</span>
                 </div>
 
                 <div>
@@ -715,7 +654,7 @@ await loadAll(); setBusy(false);
 
                 {method === 'CASH' && (
                   <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-600">Montant reçu (F)</label>
+                    <label className="text-xs font-medium text-slate-600">Montant reçu (fcfa)</label>
                     <input type="number" value={received} onChange={e=>setReceived(e.target.value)}
                       placeholder="0" className="w-full border border-slate-300 rounded-lg px-3 py-2" />
                     <div className="flex gap-2 flex-wrap">
@@ -727,55 +666,48 @@ await loadAll(); setBusy(false);
                       ))}
                     </div>
                     <div className="flex justify-between bg-amber-50 p-3 rounded-lg text-sm">
-                      <span>Rendu monnaie</span><b className="text-amber-800">{money(change)} F</b>
+                      <span>Rendu monnaie</span><b className="text-amber-800">{money(change)} fcfa</b>
                     </div>
                   </div>
                 )}
 
-                {/* ✅ NOUVEAU : Sélecteur de chambre pour ROOM_CHARGE */}
-{method === 'ROOM_CHARGE' && (
-  <div className="space-y-2">
-    <label className="text-xs font-medium text-slate-600">Sélectionner la chambre *</label>
-        {/* DEBUG */}
-{process.env.NODE_ENV === 'development' && (
-  <div className="text-xs text-slate-500 mb-2">
-    Debug: activeStays.length = {activeStays.length}
-  </div>
-)}
-    {activeStays.length === 0 ? (
-      <div className="space-y-2">
-        <p className="text-sm text-amber-700 bg-amber-50 p-3 rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-4 h-4" />
-          Aucune chambre occupée trouvée.
-        </p>
-        <button
-          onClick={() => window.location.href = '/restaurant/salle'}
-          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 rounded-lg"
-        >
-          🏨 Aller au plan de salle pour faire un check-in
-        </button>
-      </div>
-    ) : (
-      <select 
-  value={selectedStayId} 
-  onChange={(e) => setSelectedStayId(e.target.value)}
-  className="w-full border-2 border-purple-300 rounded-lg px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-purple-500"
->
-  <option value="">-- Choisir une chambre occupée --</option>
-  {activeStays.map(stay => (
-    <option key={stay.id} value={stay.id}>
-       Ch. {stay.rooms?.number} — {stay.customers?.first_name} {stay.customers?.last_name} 
-      (Solde: {money(stay.folio_balance || 0)} F)
-    </option>
-  ))}
-</select>
-    )}
-    <p className="text-xs bg-purple-50 text-purple-800 p-3 rounded-lg flex items-start gap-2">
-      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-      <span>Le montant de <b>{money(total)} F</b> sera ajouté au folio de cette chambre. Le client règlera le total lors de son check-out.</span>
-    </p>
-  </div>
-)}
+                {method === 'ROOM_CHARGE' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-slate-600">Sélectionner la chambre *</label>
+                    {activeStays.length === 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-sm text-amber-700 bg-amber-50 p-3 rounded-lg flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4" />
+                          Aucune chambre occupée trouvée.
+                        </p>
+                        <button
+                          onClick={() => window.location.href = '/restaurant/salle'}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 rounded-lg"
+                        >
+                          🏨 Aller au plan de salle pour faire un check-in
+                        </button>
+                      </div>
+                    ) : (
+                      <select 
+                        value={selectedStayId} 
+                        onChange={(e) => setSelectedStayId(e.target.value)}
+                        className="w-full border-2 border-purple-300 rounded-lg px-3 py-2 bg-white text-sm focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="">-- Choisir une chambre occupée --</option>
+                        {activeStays.map((stay: any) => (
+                          <option key={stay.id} value={stay.id}>
+                            Ch. {stay.rooms?.number} — {stay.customers?.first_name} {stay.customers?.last_name} 
+                            (Solde: {money(stay.folio_balance || 0)} fcfa)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <p className="text-xs bg-purple-50 text-purple-800 p-3 rounded-lg flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span>Le montant de <b>{money(total)} fcfa</b> sera ajouté au folio de cette chambre. Le client règlera le total lors de son check-out.</span>
+                    </p>
+                  </div>
+                )}
 
                 <input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Référence / note (optionnel)"
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
@@ -791,509 +723,452 @@ await loadAll(); setBusy(false);
         </div>
       )}
 
-       
-{tab === 'session' && session && (
-  <div className="space-y-6">
-    {/* Header de la session */}
-    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
-      <div>
-        <h3 className="text-lg font-bold text-slate-900">Session de Caisse</h3>
-        <p className="text-sm text-slate-500">
-          Ouverte le {new Date(session.opened_at).toLocaleString('fr-FR')}
-        </p>
-      </div>
-      <div className="flex gap-2">
-        <button
-          onClick={loadSession}
-          className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Rafraîchir
-        </button>
-        <button
-          onClick={() => setShowNewExpenseModal(true)}
-          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-        >
-          <Plus className="w-4 h-4" />
-          Nouvelle Dépense
-        </button>
-      </div>
-    </div>
-
-    {/* Cartes de statistiques */}
-    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-      {/* Ventes Totales */}
-      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-        <div className="text-sm text-emerald-700 mb-2">Ventes Totales</div>
-        <div className="text-2xl font-bold text-emerald-900">
-          {sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
-        </div>
-        <div className="text-xs text-emerald-700 mt-2">
-          {sessionPayments.length} transaction(s)
-        </div>
-        <div className="mt-2 space-y-1 text-xs">
-          <div className="flex justify-between text-emerald-700">
-            <span>Espèces:</span>
-            <span className="font-medium">
-              {((sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0) / 
-                (sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0) || 1)) * 100).toFixed(1)}%
-            </span>
+      {tab === 'session' && session && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Session de Caisse</h3>
+              <p className="text-sm text-slate-500">
+                Ouverte le {new Date(session.opened_at).toLocaleString('fr-FR')}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={loadSession}
+                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Rafraîchir
+              </button>
+              <button
+                onClick={() => setShowNewExpenseModal(true)}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                Nouvelle Dépense
+              </button>
+            </div>
           </div>
-          <div className="flex justify-between text-emerald-700">
-            <span>Mobile:</span>
-            <span className="font-medium">
-              {((sessionPayments.filter(p => p.method === 'MOBILE_MONEY').reduce((sum, p) => sum + Number(p.amount), 0) / 
-                (sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0) || 1)) * 100).toFixed(1)}%
-            </span>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+              <div className="text-sm text-emerald-700 mb-2">Ventes Totales</div>
+              <div className="text-2xl font-bold text-emerald-900">
+                {sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
+              </div>
+              <div className="text-xs text-emerald-700 mt-2">
+                {sessionPayments.length} transaction(s)
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <div className="text-sm text-blue-700 mb-2 flex items-center gap-1">
+                <Banknote className="w-3 h-3" />
+                Ventes Espèces
+              </div>
+              <div className="text-2xl font-bold text-blue-900">
+                {sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
+              </div>
+            </div>
+
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+              <div className="text-sm text-purple-700 mb-2 flex items-center gap-1">
+                <Smartphone className="w-3 h-3" />
+                Mobile Money
+              </div>
+              <div className="text-2xl font-bold text-purple-900">
+                {sessionPayments.filter(p => p.method === 'MOBILE_MONEY').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <div className="text-sm text-red-700 mb-2 flex items-center gap-1">
+                <TrendingDown className="w-3 h-3" />
+                Dépenses Caisse
+              </div>
+              <div className="text-2xl font-bold text-red-900">
+                {cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="text-sm text-amber-700 mb-2 flex items-center gap-1">
+                <DollarSign className="w-3 h-3" />
+                Solde Théorique
+              </div>
+              <div className="text-2xl font-bold text-amber-900">
+                {expectedCash.toLocaleString('fr-FR')} f CFA
+              </div>
+              <div className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between text-amber-700">
+                  <span>Ouverture:</span>
+                  <span>{Number(session.opening_float).toLocaleString('fr-FR')} f CFA</span>
+                </div>
+                <div className="flex justify-between text-amber-700">
+                  <span>+ Espèces:</span>
+                  <span>+{sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA</span>
+                </div>
+                <div className="flex justify-between text-amber-700">
+                  <span>- Dépenses:</span>
+                  <span>-{cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA</span>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Ventes Espèces */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-        <div className="text-sm text-blue-700 mb-2 flex items-center gap-1">
-          <Banknote className="w-3 h-3" />
-          Ventes Espèces
-        </div>
-        <div className="text-2xl font-bold text-blue-900">
-          {sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
-        </div>
-        <div className="text-xs text-blue-700 mt-2">
-          {sessionPayments.filter(p => p.method === 'CASH').length} transaction(s)
-        </div>
-        <div className="text-xs text-blue-600 mt-1">
-          Moyenne: {(sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0) / 
-            (sessionPayments.filter(p => p.method === 'CASH').length || 1)).toLocaleString('fr-FR')} f CFA/trx
-        </div>
-      </div>
-
-      {/* Mobile Money */}
-      <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
-        <div className="text-sm text-purple-700 mb-2 flex items-center gap-1">
-          <Smartphone className="w-3 h-3" />
-          Mobile Money
-        </div>
-        <div className="text-2xl font-bold text-purple-900">
-          {sessionPayments.filter(p => p.method === 'MOBILE_MONEY').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA
-        </div>
-        <div className="text-xs text-purple-700 mt-2">
-          {sessionPayments.filter(p => p.method === 'MOBILE_MONEY').length} transaction(s)
-        </div>
-        <div className="text-xs text-purple-600 mt-1">
-          Moyenne: {(sessionPayments.filter(p => p.method === 'MOBILE_MONEY').reduce((sum, p) => sum + Number(p.amount), 0) / 
-            (sessionPayments.filter(p => p.method === 'MOBILE_MONEY').length || 1)).toLocaleString('fr-FR')} f CFA/trx
-        </div>
-      </div>
-
-      {/* Dépenses Caisse */}
-      <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-        <div className="text-sm text-red-700 mb-2 flex items-center gap-1">
-          <TrendingDown className="w-3 h-3" />
-          Dépenses Caisse
-        </div>
-        <div className="text-2xl font-bold text-red-900">
-          {cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA
-        </div>
-        <div className="text-xs text-red-700 mt-2">
-          {cashExpenses.length} dépense(s)
-        </div>
-        <div className="text-xs text-red-600 mt-1">
-          Moyenne: {(cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0) / (cashExpenses.length || 1)).toLocaleString('fr-FR')} f CFA/dépense
-        </div>
-      </div>
-
-      {/* Solde Théorique */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-        <div className="text-sm text-amber-700 mb-2 flex items-center gap-1">
-          <DollarSign className="w-3 h-3" />
-          Solde Théorique
-        </div>
-        <div className="text-2xl font-bold text-amber-900">
-          {expectedCash.toLocaleString('fr-FR')} f CFA
-        </div>
-        <div className="inline-flex items-center gap-1 text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded mt-2">
-          Calculé
-        </div>
-        <div className="mt-2 space-y-1 text-xs">
-          <div className="flex justify-between text-amber-700">
-            <span>Ouverture:</span>
-            <span>{Number(session.opening_float).toLocaleString('fr-FR')} f CFA</span>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+            <div className="p-4 border-b border-slate-200">
+              <h4 className="font-semibold text-slate-900 flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-blue-600" />
+                Ventes ({sessionPayments.length})
+              </h4>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
+                  <tr>
+                    <th className="px-4 py-3 text-left">HEURE</th>
+                    <th className="px-4 py-3 text-left">COMMANDE</th>
+                    <th className="px-4 py-3 text-left">TABLE</th>
+                    <th className="px-4 py-3 text-left">MÉTHODE</th>
+                    <th className="px-4 py-3 text-right">MONTANT</th>
+                    <th className="px-4 py-3 text-right">MONNAIE</th>
+                    <th className="px-4 py-3 text-right">NET</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sessionPayments.map((payment) => (
+                    <tr key={payment.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-600">
+                        {new Date(payment.paid_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {payment.restaurant_orders?.order_number || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {payment.restaurant_orders?.restaurant_tables?.number || 
+                         payment.restaurant_orders?.rooms?.number || 
+                         'TEST'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                          payment.method === 'CASH' 
+                            ? 'bg-emerald-100 text-emerald-800' 
+                            : payment.method === 'MOBILE_MONEY'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {payment.method === 'CASH' ? 'Espèces' : 
+                           payment.method === 'MOBILE_MONEY' ? 'Mobile' : 
+                           payment.method}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-slate-900">
+                        {Number(payment.amount).toLocaleString('fr-FR')} f CFA
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {Number(payment.change_amount).toLocaleString('fr-FR')} f CFA
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-900">
+                        {Number(payment.received_amount - payment.change_amount).toLocaleString('fr-FR')} fCFA
+                      </td>
+                    </tr>
+                  ))}
+                  {sessionPayments.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                        Aucune vente dans cette session
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="flex justify-between text-amber-700">
-            <span>+ Espèces:</span>
-            <span>+{sessionPayments.filter(p => p.method === 'CASH').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('fr-FR')} f CFA</span>
-          </div>
-                    <div className="flex justify-between text-amber-700">
-            <span>- Dépenses:</span>
-            <span>-{cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA</span>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    {/* Tableau des ventes */}
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-      <div className="p-4 border-b border-slate-200">
-        <h4 className="font-semibold text-slate-900 flex items-center gap-2">
-          <Receipt className="w-4 h-4 text-blue-600" />
-          Ventes ({sessionPayments.length})
-        </h4>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
-            <tr>
-              <th className="px-4 py-3 text-left">HEURE</th>
-              <th className="px-4 py-3 text-left">COMMANDE</th>
-              <th className="px-4 py-3 text-left">TABLE</th>
-              <th className="px-4 py-3 text-left">MÉTHODE</th>
-              <th className="px-4 py-3 text-right">MONTANT</th>
-              <th className="px-4 py-3 text-right">MONNAIE</th>
-              <th className="px-4 py-3 text-right">NET</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {sessionPayments.map((payment) => (
-              <tr key={payment.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 text-slate-600">
-                  {new Date(payment.paid_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                </td>
-                <td className="px-4 py-3 font-medium text-slate-900">
-                  {payment.restaurant_orders?.order_number || 'N/A'}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                  {payment.restaurant_orders?.restaurant_tables?.number || 
-                   payment.restaurant_orders?.rooms?.number || 
-                   'TEST'}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                    payment.method === 'CASH' 
-                      ? 'bg-emerald-100 text-emerald-800' 
-                      : payment.method === 'MOBILE_MONEY'
-                      ? 'bg-purple-100 text-purple-800'
-                      : 'bg-blue-100 text-blue-800'
-                  }`}>
-                    {payment.method === 'CASH' && <Banknote className="w-3 h-3" />}
-                    {payment.method === 'MOBILE_MONEY' && <Smartphone className="w-3 h-3" />}
-                    {payment.method === 'CASH' ? 'Espèces' : 
-                     payment.method === 'MOBILE_MONEY' ? 'Mobile' : 
-                     payment.method}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right font-medium text-slate-900">
-                  {Number(payment.amount).toLocaleString('fr-FR')} f CFA
-                </td>
-                <td className="px-4 py-3 text-right text-slate-600">
-                  {Number(payment.change_amount).toLocaleString('fr-FR')} f CFA
-                </td>
-                <td className="px-4 py-3 text-right font-bold text-slate-900">
-                  {Number(payment.received_amount - payment.change_amount).toLocaleString('fr-FR')} f CFA
-                </td>
-              </tr>
-            ))}
-            {sessionPayments.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                  Aucune vente dans cette session
-                </td>
-              </tr>
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+              <h4 className="font-semibold text-slate-900">
+                Dépenses de caisse ({cashExpenses.length})
+              </h4>
+              <button
+                onClick={() => setShowNewExpenseModal(true)}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                Nouvelle Dépense
+              </button>
+            </div>
+            
+            {cashExpenses.length === 0 ? (
+              <div className="p-8 text-center text-slate-400">
+                <TrendingDown className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>Aucune dépense enregistrée dans cette session</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
+                    <tr>
+                      <th className="px-4 py-3 text-left">HEURE</th>
+                      <th className="px-4 py-3 text-left">CATÉGORIE</th>
+                      <th className="px-4 py-3 text-left">DESCRIPTION</th>
+                      <th className="px-4 py-3 text-left">MÉTHODE</th>
+                      <th className="px-4 py-3 text-right">MONTANT</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {cashExpenses.map((expense) => (
+                      <tr key={expense.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 text-slate-600">
+                          {new Date(expense.created_at).toLocaleTimeString('fr-FR', { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          })}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            {expense.category}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-900">
+                          {expense.description}
+                          {expense.notes && (
+                            <div className="text-xs text-slate-500 mt-1">{expense.notes}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
+                            {expense.payment_method}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600">
+                          -{Number(expense.amount).toLocaleString('fr-FR')} f CFA
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-red-50 font-bold">
+                    <tr>
+                      <td colSpan={4} className="px-4 py-3 text-right">Total dépenses :</td>
+                      <td className="px-4 py-3 text-right text-red-700">
+                        -{cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    {/* Dépenses de caisse */}
-    {/* Dépenses de caisse */}
-<div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-  <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-    <h4 className="font-semibold text-slate-900">
-      Dépenses de caisse ({cashExpenses.length})
-    </h4>
-    <button
-      onClick={() => setShowNewExpenseModal(true)}
-      className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
-    >
-      <Plus className="w-4 h-4" />
-      Nouvelle Dépense
-    </button>
-  </div>
-  
-  {cashExpenses.length === 0 ? (
-    <div className="p-8 text-center text-slate-400">
-      <TrendingDown className="w-12 h-12 mx-auto mb-3 opacity-50" />
-      <p>Aucune dépense enregistrée dans cette session</p>
-    </div>
-  ) : (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
-          <tr>
-            <th className="px-4 py-3 text-left">HEURE</th>
-            <th className="px-4 py-3 text-left">CATÉGORIE</th>
-            <th className="px-4 py-3 text-left">DESCRIPTION</th>
-            <th className="px-4 py-3 text-left">MÉTHODE</th>
-            <th className="px-4 py-3 text-right">MONTANT</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {cashExpenses.map((expense) => (
-            <tr key={expense.id} className="hover:bg-slate-50">
-              <td className="px-4 py-3 text-slate-600">
-                {new Date(expense.created_at).toLocaleTimeString('fr-FR', { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                })}
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                  {expense.category}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-slate-900">
-                {expense.description}
-                {expense.notes && (
-                  <div className="text-xs text-slate-500 mt-1">{expense.notes}</div>
-                )}
-              </td>
-              <td className="px-4 py-3">
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
-                  {expense.payment_method}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-right font-bold text-red-600">
-                -{Number(expense.amount).toLocaleString('fr-FR')} f CFA
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot className="bg-red-50 font-bold">
-          <tr>
-            <td colSpan={4} className="px-4 py-3 text-right">Total dépenses :</td>
-            <td className="px-4 py-3 text-right text-red-700">
-              -{cashExpenses.reduce((sum, e) => sum + Number(e.amount), 0).toLocaleString('fr-FR')} f CFA
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  )}
-</div>
-  </div>
-)}
-
-          {tab === 'reconciliations' && (
-  <div className="space-y-6">
-    {/* Header avec stats */}
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="font-bold text-slate-900 flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            Réconciliation Hôtel ↔ Restaurant
-          </h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Commandes chambre facturées au folio - Statut des paiements
-          </p>
-        </div>
-        <button 
-          onClick={autoReconcile}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-        >
-          <RefreshCw className="w-4 h-4" /> Réconcilier automatiquement
-        </button>
-      </div>
-
-      {/* Stats rapides */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-          <div className="text-xs text-emerald-700">✅ Payées (réconciliées)</div>
-          <div className="text-xl font-bold text-emerald-900">
-            {reconciliations.filter(r => r.reconciliationStatus === 'paid').length}
-          </div>
-          <div className="text-xs text-emerald-700">
-            {money(reconciliations.filter(r => r.reconciliationStatus === 'paid').reduce((s, r) => s + Number(r.total_amount), 0))} F
           </div>
         </div>
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-          <div className="text-xs text-amber-700">⏳ En attente (client sur place)</div>
-          <div className="text-xl font-bold text-amber-900">
-            {reconciliations.filter(r => r.reconciliationStatus === 'pending').length}
+      )}
+
+      {tab === 'reconciliations' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  Réconciliation Hôtel ↔ Restaurant
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">
+                  Commandes chambre facturées au folio - Statut des paiements
+                </p>
+              </div>
+              <button 
+                onClick={autoReconcile}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <RefreshCw className="w-4 h-4" /> Réconcilier automatiquement
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <div className="text-xs text-emerald-700">✅ Payées (réconciliées)</div>
+                <div className="text-xl font-bold text-emerald-900">
+                  {reconciliations.filter(r => r.reconciliationStatus === 'paid').length}
+                </div>
+                <div className="text-xs text-emerald-700">
+                  {money(reconciliations.filter(r => r.reconciliationStatus === 'paid').reduce((s, r) => s + Number(r.total_amount), 0))} fcfa
+                </div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <div className="text-xs text-amber-700">⏳ En attente (client sur place)</div>
+                <div className="text-xl font-bold text-amber-900">
+                  {reconciliations.filter(r => r.reconciliationStatus === 'pending').length}
+                </div>
+                <div className="text-xs text-amber-700">
+                  {money(reconciliations.filter(r => r.reconciliationStatus === 'pending').reduce((s, r) => s + Number(r.total_amount), 0))} fcfa
+                </div>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <div className="text-xs text-red-700">❌ Anomalies (check-out impayé)</div>
+                <div className="text-xl font-bold text-red-900">
+                  {reconciliations.filter(r => r.reconciliationStatus === 'anomaly').length}
+                </div>
+                <div className="text-xs text-red-700">
+                  {money(reconciliations.filter(r => r.reconciliationStatus === 'anomaly').reduce((s, r) => s + Number(r.total_amount), 0))} fcfa
+                </div>
+              </div>
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                <div className="text-xs text-indigo-700">Total commandes chambre</div>
+                <div className="text-xl font-bold text-indigo-900">{reconciliations.length}</div>
+                <div className="text-xs text-indigo-700">
+                  {money(reconciliations.reduce((s, r) => s + Number(r.total_amount), 0))} fcfa
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-amber-700">
-            {money(reconciliations.filter(r => r.reconciliationStatus === 'pending').reduce((s, r) => s + Number(r.total_amount), 0))} F
+
+          {reconciliationAlert.anomaly > 0 && (
+            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 flex items-start gap-3 animate-pulse">
+              <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="font-bold text-red-900">
+                  ⚠️ {reconciliationAlert.anomaly} commande(s) chambre non réconciliée(s)
+                </h4>
+                <p className="text-sm text-red-700 mt-1">
+                  Des clients ont fait leur check-out mais leur folio n'est pas réglé. 
+                  Montant total en risque : <b>{money(reconciliationAlert.anomalyAmount)} fcfa</b>
+                </p>
+                <p className="text-xs text-red-600 mt-2">
+                  → Contactez immédiatement la réception pour régulariser ces situations.
+                </p>
+              </div>
+              <button 
+                onClick={() => setTab('reconciliations')}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex-shrink-0"
+              >
+                Voir les détails
+              </button>
+            </div>
+          )}
+
+          {reconciliationAlert.pending > 0 && reconciliationAlert.anomaly === 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
+              <Clock className="w-5 h-5 text-amber-600" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-800">
+                  <b>{reconciliationAlert.pending} commande(s) chambre</b> en attente de check-out client.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-200">
+              <h4 className="font-semibold text-slate-900">Détail des commandes chambre</h4>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
+                  <tr>
+                    <th className="px-4 py-3 text-left">DATE</th>
+                    <th className="px-4 py-3 text-left">N° COMMANDE</th>
+                    <th className="px-4 py-3 text-left">CHAMBRE</th>
+                    <th className="px-4 py-3 text-left">CLIENT</th>
+                    <th className="px-4 py-3 text-left">STATUT SÉJOUR</th>
+                    <th className="px-4 py-3 text-right">MONTANT</th>
+                    <th className="px-4 py-3 text-center">RÉCONCILIATION</th>
+                    <th className="px-4 py-3 text-center">ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {reconciliations.map((recon) => (
+                    <tr key={recon.id} className={`hover:bg-slate-50 ${
+                      recon.reconciliationStatus === 'paid' ? 'bg-emerald-50/30' :
+                      recon.reconciliationStatus === 'anomaly' ? 'bg-red-50/30' : ''
+                    }`}>
+                      <td className="px-4 py-3 text-slate-600">
+                        {new Date(recon.created_at).toLocaleDateString('fr-FR')}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        {recon.order_number}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        Ch. {recon.room_number}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {recon.guest_name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                          recon.stay_status === 'CHECKED_OUT' 
+                            ? 'bg-slate-200 text-slate-700'
+                            : recon.stay_status === 'IN_HOUSE'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {recon.stay_status === 'CHECKED_OUT' ? '🚪 Sorti' : 
+                           recon.stay_status === 'IN_HOUSE' ? '🏨 Sur place' : recon.stay_status}
+                        </span>
+                        {recon.stay_status === 'CHECKED_OUT' && recon.folio_balance > 0 && (
+                          <div className="text-[10px] text-red-600 mt-1">
+                            Solde: {money(recon.folio_balance)} fcfa
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-900">
+                        {money(recon.total_amount)} fcfa
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {recon.reconciliationStatus === 'paid' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
+                            <CheckCircle2 className="w-3 h-3" /> Payé
+                          </span>
+                        )}
+                        {recon.reconciliationStatus === 'pending' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                            <Clock className="w-3 h-3" /> En attente
+                          </span>
+                        )}
+                        {recon.reconciliationStatus === 'anomaly' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            <AlertCircle className="w-3 h-3" /> Anomalie
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {recon.reconciliationStatus !== 'paid' && (
+                          <button 
+                            onClick={() => reconcileOrder(recon.order_id)}
+                            className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium"
+                          >
+                            <CheckCircle2 className="w-3 h-3" /> Valider
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {reconciliations.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                        Aucune commande chambre à réconcilier
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+            <h4 className="font-semibold text-indigo-900 mb-2 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> Comment ça marche ?
+            </h4>
+            <ul className="text-sm text-indigo-800 space-y-1 list-disc pl-5">
+              <li><b>✅ Payé</b> : Le client a fait son check-out et réglé son folio à la réception. La commande est automatiquement marquée comme réconciliée.</li>
+              <li><b>⏳ En attente</b> : Le client est encore dans l'hôtel. La commande sera réconciliée automatiquement lors du check-out.</li>
+              <li><b>❌ Anomalie</b> : Le client a fait son check-out mais le folio n'est pas réglé. Action requise avec la réception.</li>
+              <li>Le bouton <b>"Réconcilier automatiquement"</b> traite toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0.</li>
+            </ul>
           </div>
         </div>
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-          <div className="text-xs text-red-700">❌ Anomalies (check-out impayé)</div>
-          <div className="text-xl font-bold text-red-900">
-            {reconciliations.filter(r => r.reconciliationStatus === 'anomaly').length}
-          </div>
-          <div className="text-xs text-red-700">
-            {money(reconciliations.filter(r => r.reconciliationStatus === 'anomaly').reduce((s, r) => s + Number(r.total_amount), 0))} F
-          </div>
-        </div>
-        <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
-          <div className="text-xs text-indigo-700">Total commandes chambre</div>
-          <div className="text-xl font-bold text-indigo-900">{reconciliations.length}</div>
-          <div className="text-xs text-indigo-700">
-            {money(reconciliations.reduce((s, r) => s + Number(r.total_amount), 0))} F
-          </div>
-        </div>
-      </div>
-    </div>
+      )}
 
-    {/* ✅ NOUVEAU : Bannière d'alerte réconciliation */}
-{reconciliationAlert.anomaly > 0 && (
-  <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 flex items-start gap-3 animate-pulse">
-    <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
-    <div className="flex-1">
-      <h4 className="font-bold text-red-900">
-        ⚠️ {reconciliationAlert.anomaly} commande(s) chambre non réconciliée(s)
-      </h4>
-      <p className="text-sm text-red-700 mt-1">
-        Des clients ont fait leur check-out mais leur folio n'est pas réglé. 
-        Montant total en risque : <b>{money(reconciliationAlert.anomalyAmount)} F</b>
-      </p>
-      <p className="text-xs text-red-600 mt-2">
-        → Contactez immédiatement la réception pour régulariser ces situations.
-      </p>
-    </div>
-    <button 
-      onClick={() => setTab('reconciliations')}
-      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex-shrink-0"
-    >
-      Voir les détails
-    </button>
-  </div>
-)}
-
-{/* Alerte douce pour les commandes en attente */}
-{reconciliationAlert.pending > 0 && reconciliationAlert.anomaly === 0 && (
-  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-3">
-    <Clock className="w-5 h-5 text-amber-600" />
-    <div className="flex-1">
-      <p className="text-sm text-amber-800">
-        <b>{reconciliationAlert.pending} commande(s) chambre</b> en attente de check-out client.
-      </p>
-    </div>
-  </div>
-)}
-
-    {/* Tableau des commandes */}
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200">
-        <h4 className="font-semibold text-slate-900">Détail des commandes chambre</h4>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500 font-semibold">
-            <tr>
-              <th className="px-4 py-3 text-left">DATE</th>
-              <th className="px-4 py-3 text-left">N° COMMANDE</th>
-              <th className="px-4 py-3 text-left">CHAMBRE</th>
-              <th className="px-4 py-3 text-left">CLIENT</th>
-              <th className="px-4 py-3 text-left">STATUT SÉJOUR</th>
-              <th className="px-4 py-3 text-right">MONTANT</th>
-              <th className="px-4 py-3 text-center">RÉCONCILIATION</th>
-              <th className="px-4 py-3 text-center">ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {reconciliations.map((recon) => (
-              <tr key={recon.id} className={`hover:bg-slate-50 ${
-                recon.reconciliationStatus === 'paid' ? 'bg-emerald-50/30' :
-                recon.reconciliationStatus === 'anomaly' ? 'bg-red-50/30' : ''
-              }`}>
-                <td className="px-4 py-3 text-slate-600">
-                  {new Date(recon.created_at).toLocaleDateString('fr-FR')}
-                </td>
-                <td className="px-4 py-3 font-medium text-slate-900">
-                  {recon.order_number}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                  Ch. {recon.rooms?.number || 'N/A'}
-                </td>
-                <td className="px-4 py-3 text-slate-600">
-                  {recon.guest_name}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                    recon.stay_status === 'CHECKED_OUT' 
-                      ? 'bg-slate-200 text-slate-700'
-                      : recon.stay_status === 'IN_HOUSE'
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {recon.stay_status === 'CHECKED_OUT' ? '🚪 Sorti' : 
-                     recon.stay_status === 'IN_HOUSE' ? '🏨 Sur place' : recon.stay_status}
-                  </span>
-                  {recon.stay_status === 'CHECKED_OUT' && recon.folio_balance > 0 && (
-                    <div className="text-[10px] text-red-600 mt-1">
-                      Solde: {money(recon.folio_balance)} F
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right font-bold text-slate-900">
-                  {money(recon.total_amount)} F
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {recon.reconciliationStatus === 'paid' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
-                      <CheckCircle2 className="w-3 h-3" /> Payé
-                    </span>
-                  )}
-                  {recon.reconciliationStatus === 'pending' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                      <Clock className="w-3 h-3" /> En attente
-                    </span>
-                  )}
-                  {recon.reconciliationStatus === 'anomaly' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                      <AlertCircle className="w-3 h-3" /> Anomalie
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {recon.reconciliationStatus !== 'paid' && (
-                    <button 
-                      onClick={() => reconcileOrder(recon.id)}
-                      className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-xs font-medium"
-                    >
-                      <CheckCircle2 className="w-3 h-3" /> Valider
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {reconciliations.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                  Aucune commande chambre à réconcilier
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    {/* Légende explicative */}
-    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-      <h4 className="font-semibold text-indigo-900 mb-2 flex items-center gap-2">
-        <AlertCircle className="w-4 h-4" /> Comment ça marche ?
-      </h4>
-      <ul className="text-sm text-indigo-800 space-y-1 list-disc pl-5">
-        <li><b>✅ Payé</b> : Le client a fait son check-out et réglé son folio à la réception. La commande est automatiquement marquée comme réconciliée.</li>
-        <li><b>⏳ En attente</b> : Le client est encore dans l'hôtel. La commande sera réconciliée automatiquement lors du check-out.</li>
-        <li><b>❌ Anomalie</b> : Le client a fait son check-out mais le folio n'est pas réglé. Action requise avec la réception.</li>
-        <li>Le bouton <b>"Réconcilier automatiquement"</b> traite toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0.</li>
-      </ul>
-    </div>
-  </div>
-)}
-              {tab === 'historique' && (
+      {tab === 'historique' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="p-4 flex justify-between items-center border-b">
             <h3 className="font-semibold flex items-center gap-2">
@@ -1339,10 +1214,10 @@ await loadAll(); setBusy(false);
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-slate-900">
-                        {money(p.amount)} F
+                        {money(p.amount)} fcfa
                       </td>
                       <td className="px-4 py-3 text-right text-slate-600">
-                        {money(p.change_amount)} F
+                        {money(p.change_amount)} fcfa
                       </td>
                     </tr>
                   );
@@ -1377,17 +1252,17 @@ await loadAll(); setBusy(false);
             <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
               <h3 className="font-bold flex items-center gap-2"><Lock className="w-5 h-5"/> Clôture de session</h3>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span>Fond de caisse</span><b>{money(session.opening_float)} F</b></div>
-                <div className="flex justify-between"><span>Ventes espèces</span><b>{money(sessionPayments.filter(p=>p.method==='CASH').reduce((s,p)=>s+Number(p.amount),0))} F</b></div>
-                <div className="flex justify-between"><span>Autres moyens</span><b>{money(sessionPayments.filter(p=>p.method!=='CASH').reduce((s,p)=>s+Number(p.amount),0))} F</b></div>
-                <div className="flex justify-between border-t pt-2"><span>Montant attendu en tiroir</span><b className="text-emerald-700">{money(expectedCash)} F</b></div>
+                <div className="flex justify-between"><span>Fond de caisse</span><b>{money(session.opening_float)} fcfa</b></div>
+                <div className="flex justify-between"><span>Ventes espèces</span><b>{money(sessionPayments.filter(p=>p.method==='CASH').reduce((s,p)=>s+Number(p.amount),0))} fcfa</b></div>
+                <div className="flex justify-between"><span>Autres moyens</span><b>{money(sessionPayments.filter(p=>p.method!=='CASH').reduce((s,p)=>s+Number(p.amount),0))} fcfa</b></div>
+                <div className="flex justify-between border-t pt-2"><span>Montant attendu en tiroir</span><b className="text-emerald-700">{money(expectedCash)} fcfa</b></div>
               </div>
               <label className="block text-sm text-slate-600">Montant compté dans le tiroir</label>
               <input type="number" value={counted} onChange={e=>setCounted(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2" />
               {counted !== '' && (
                 <div className={`p-3 rounded-lg text-sm flex justify-between ${Number(counted)-expectedCash===0?'bg-emerald-50 text-emerald-800':'bg-red-50 text-red-800'}`}>
-                  <span>Écart de caisse</span><b>{Number(counted)-expectedCash > 0 ? '+' : ''}{money(Number(counted)-expectedCash)} F</b>
+                  <span>Écart de caisse</span><b>{Number(counted)-expectedCash > 0 ? '+' : ''}{money(Number(counted)-expectedCash)} fcfa</b>
                 </div>
               )}
               <button onClick={closeSession} disabled={busy}
@@ -1409,12 +1284,13 @@ await loadAll(); setBusy(false);
           </div>
         </div>
       )}
-            <NewCashExpenseModal
+
+      <NewCashExpenseModal
         isOpen={showNewExpenseModal}
         onClose={() => setShowNewExpenseModal(false)}
         siteId={siteId}
         onSuccess={() => {
-          loadAll(); // ✅ Correction : utilise loadAll() pour recharger les données
+          loadAll();
         }}
       />
     </div>

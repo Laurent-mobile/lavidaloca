@@ -316,3 +316,4 @@ export default function DailyReportModal({ siteId, isOpen, onClose, onSuccess }:
     </div>
   );
 }
+
