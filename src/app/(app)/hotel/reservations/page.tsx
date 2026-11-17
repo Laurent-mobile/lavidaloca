@@ -32,13 +32,36 @@ export default function ReservationsPage() {
   const load = async () => {
     if (!siteId) return;
     setLoading(true);
+    
+    const today = new Date().toISOString().split('T')[0];
+    
     const { data } = await supabase
       .from('reservations')
       .select('id, number, check_in_date, check_out_date, status, total_amount, nightly_rate, adults, children, customers(first_name, last_name, phone), rooms(number), room_categories(code, name)')
       .eq('site_id', siteId)
       .order('check_in_date', { ascending: false })
       .limit(300);
-    setRows(data || []);
+    
+    // ✅ Auto-correction : marquer les réservations passées comme NO_SHOW
+    const toUpdate = (data || []).filter(r => 
+      r.status === 'CONFIRMED' && r.check_in_date < today
+    );
+    
+    for (const res of toUpdate) {
+      await supabase.from('reservations')
+        .update({ status: 'NO_SHOW' })
+        .eq('id', res.id);
+    }
+    
+    // Recharger après correction
+    const { data: correctedData } = await supabase
+      .from('reservations')
+      .select('id, number, check_in_date, check_out_date, status, total_amount, nightly_rate, adults, children, customers(first_name, last_name, phone), rooms(number), room_categories(code, name)')
+      .eq('site_id', siteId)
+      .order('check_in_date', { ascending: false })
+      .limit(300);
+    
+    setRows(correctedData || []);
     setLoading(false);
   };
 
@@ -87,17 +110,17 @@ export default function ReservationsPage() {
           />
         </div>
         <div className="flex gap-1 overflow-x-auto pb-1 md:pb-0">
-          {['ALL', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED'].map(s => (
-            <button 
-              key={s} 
-              onClick={() => setFilter(s)} 
-              className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-                filter === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {s === 'ALL' ? 'Toutes' : statusConfig[s]?.label}
-            </button>
-          ))}
+          {['ALL', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'NO_SHOW'].map(s => (
+  <button 
+    key={s} 
+    onClick={() => setFilter(s)} 
+    className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+      filter === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+    }`}
+  >
+    {s === 'ALL' ? 'Toutes' : statusConfig[s]?.label}
+  </button>
+))}
         </div>
       </div>
 
