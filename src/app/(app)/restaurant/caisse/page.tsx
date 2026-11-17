@@ -177,14 +177,13 @@ export default function CaissePage() {
 
       if (error) throw error;
 
-          const formatted = (roomCharges || []).map(charge => {
-      const stay = charge.stays;
-      const order = charge.restaurant_orders;
+              const formatted = (roomCharges || []).map(charge => {
+      // ✅ Normalisation CRITIQUE : Supabase renvoie les jointures en tableaux
+      const stay = Array.isArray(charge.stays) ? charge.stays[0] : charge.stays;
+      const order = Array.isArray(charge.restaurant_orders) ? charge.restaurant_orders[0] : charge.restaurant_orders;
       
-      // ✅ Normalisation : Supabase renvoie les jointures en tableaux, on prend le 1er élément
-      const room = Array.isArray(stay?.rooms) ? stay.rooms[0] : stay?.rooms;
-      const customer = Array.isArray(stay?.customers) ? stay.customers[0] : stay?.customers;
-      const ord = Array.isArray(order) ? order[0] : order;
+      const room = stay ? (Array.isArray(stay.rooms) ? stay.rooms[0] : stay.rooms) : null;
+      const customer = stay ? (Array.isArray(stay.customers) ? stay.customers[0] : stay.customers) : null;
       
       const roomNumber = room?.number || '—';
       const customerName = customer
@@ -201,7 +200,7 @@ export default function CaissePage() {
       return {
         id: charge.id,
         order_id: charge.order_id,
-        order_number: ord?.order_number || 'N/A',
+        order_number: order?.order_number || 'N/A',
         room_number: roomNumber,
         guest_name: customerName,
         stay_status: stay?.status || 'UNKNOWN',
@@ -209,10 +208,9 @@ export default function CaissePage() {
         reconciliationStatus,
         reconciliationDate: stay?.check_out_at || null,
         folio_balance: stay?.folio_balance || 0,
-        created_at: ord?.created_at || charge.charge_date,
+        created_at: order?.created_at || charge.charge_date,
       };
     });
-
       setReconciliations(formatted);
       await loadAlert();
     } catch (error) {

@@ -47,19 +47,18 @@ export default function ReservationDetailModal({ siteId, reservationId, isOpen, 
         .single();
       if (e) throw e;
 
-      // Supabase renvoie les jointures en tableaux selon la config → on normalise
             const normalized = {
         ...r,
         customers: Array.isArray(r.customers) ? r.customers[0] : r.customers,
         rooms: Array.isArray(r.rooms) ? r.rooms[0] : r.rooms,
       };
       
-      // ✅ Normalisation de room_categories qui est imbriqué dans rooms
-      const roomCats = Array.isArray(normalized.rooms?.room_categories) 
-        ? normalized.rooms.room_categories[0] 
-        : normalized.rooms?.room_categories;
-        
-      normalized.room_categories = roomCats || null;
+      // ✅ room_categories est imbriqué dans rooms.room_categories
+      const rawRoomCats = normalized.rooms?.room_categories;
+      normalized.room_categories = Array.isArray(rawRoomCats) 
+        ? rawRoomCats[0] 
+        : rawRoomCats || null;
+      
       setRes(normalized);
 
       // Séjour lié (si check-in effectué)
