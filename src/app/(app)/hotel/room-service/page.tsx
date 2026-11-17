@@ -341,7 +341,7 @@ const loadOccupiedRooms = async () => {
     setCart(prev => prev.map(c => {
       if (c.id === itemId) {
         const newQty = Math.max(0, c.quantity + delta);
-        return { ...c, quantity: newQty, total_price: newQty * c.unit_price || newQty * c.price };
+        return { ...c, quantity: newQty, total_price: newQty * c.price };
       }
       return c;
     }).filter(c => c.quantity > 0));
