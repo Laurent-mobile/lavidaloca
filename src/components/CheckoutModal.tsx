@@ -170,21 +170,22 @@ const handleAutoReconcile = async () => {
     }
     
     alert(`✅ ${fixed} commande(s) régularisée(s)`);
-    loadReconciliationData();
+    
   } catch (err: any) {
     alert(`Erreur: ${err.message}`);
   }
   setLoading(false);
 };
-  const handleCheckout = async () => {
+    const handleCheckout = async () => {
     if (amountReceived < grandTotal) {
       setError('Le montant reçu est insuffisant');
       return;
-    }
+      }
     setLoading(true);
     setError('');
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      const roomNumber = stay.rooms?.[0]?.number || stay.rooms?.number || stay.room_number || '—';
       const reconciliation: string[] = [];
 
       // 1. Paiement global
@@ -210,55 +211,37 @@ const handleAutoReconcile = async () => {
       const roomId = stay.room_id || stay.rooms?.[0]?.id || stay.rooms?.id;
       if (roomId) {
         await supabase.from('rooms').update({ status: 'DIRTY' }).eq('id', roomId);
-        reconciliation.push(`✅ Chambre ${roomNum} → À nettoyer`);
+        reconciliation.push(`✅ Chambre ${roomNumber} → À nettoyer`);
       }
 
-     // 4. ✅ RÉCONCILIATION : Marquer les commandes restaurant comme payées via la réception
-if (roomCharges && roomCharges.length > 0) {
-  let reconciledCount = 0;
-  let failedCount = 0;
-  
-  for (const charge of roomCharges) {
-    if (charge.order_id && charge.charge_type === 'RESTAURANT') {
-      // Créer l'enregistrement de paiement dans le module restaurant
-      const { error: payError } = await supabase.from('restaurant_payments').insert({
-        site_id: siteId,              // ✅ CRITIQUE : NE JAMAIS OUBLIER
-        order_id: charge.order_id,
-        session_id: null,
-        method: 'ROOM_CHARGE',
-        amount: Number(charge.amount),
-        received_amount: Number(charge.amount),
-        change_amount: 0,
-        paid_at: new Date().toISOString(),
-        status: 'COMPLETED',          // ✅ Statut explicite
-        notes: `Payé à la réception lors du check-out (Folio séjour ${stay.id.slice(0, 8)})`
-      });
-      
-      if (payError) {
-        console.error('❌ Échec paiement ROOM_CHARGE:', payError.message);
-        failedCount++;
-        continue; // Ne pas marquer la commande en PAID si le paiement a échoué
+      // 4. Réconciliation restaurant
+      if (roomCharges && roomCharges.length > 0) {
+        let reconciledCount = 0;
+        for (const charge of roomCharges) {
+          if (charge.order_id && charge.charge_type === 'RESTAURANT') {
+            await supabase.from('restaurant_payments').insert({
+              site_id: siteId, // ✅ CRITIQUE
+              order_id: charge.order_id,
+              session_id: null,
+              method: 'ROOM_CHARGE',
+              amount: Number(charge.amount),
+              received_amount: Number(charge.amount),
+              change_amount: 0,
+              paid_at: new Date().toISOString(),
+              status: 'COMPLETED',
+              notes: `Payé à la réception (Ch. ${roomNumber})`
+            });
+            
+            await supabase.from('restaurant_orders').update({
+              status: 'PAID',
+              paid_at: new Date().toISOString()
+            }).eq('id', charge.order_id);
+            
+            reconciledCount++;
+          }
+        }
+        reconciliation.push(`✅ ${reconciledCount} commande(s) restaurant réconciliée(s)`);
       }
-      
-      // Mettre à jour le statut de la commande restaurant
-      const { error: orderError } = await supabase.from('restaurant_orders').update({
-        status: 'PAID',
-        paid_at: new Date().toISOString()
-      }).eq('id', charge.order_id);
-      
-      if (orderError) {
-        console.error('❌ Échec mise à jour commande:', orderError.message);
-        failedCount++;
-      } else {
-        reconciledCount++;
-      }
-    }
-  }
-  
-  if (failedCount > 0) {
-    console.warn(`⚠️ ${failedCount} paiement(s) restaurant en échec sur ${roomCharges.length} charge(s)`);
-  }
-}
 
       // 5. Transaction caisse
       await supabase.from('cash_transactions').insert({
@@ -269,7 +252,7 @@ if (roomCharges && roomCharges.length > 0) {
         payment_method: paymentMethod,
         status: 'PAID',
         provider_name: `${stay.customers?.last_name || ''} ${stay.customers?.first_name || ''}`.trim() || 'Client',
-        description: `Check-out Ch. ${roomNum} - ${nights} nuit(s) + ${roomCharges.length} charge(s)`,
+        description: `Check-out Ch. ${roomNumber} - ${nights} nuit(s) + ${roomCharges.length} charge(s)`,
         reference_id: stay.id,
         reference_table: 'stays',
         received_by: user?.id,
@@ -280,13 +263,9 @@ if (roomCharges && roomCharges.length > 0) {
       });
       reconciliation.push('✅ Transaction caisse créée');
 
-      alert(
-        `✅ CHECK-OUT TERMINÉ — Chambre ${roomNum}\n\n` +
-        `Montant encaissé : ${grandTotal.toLocaleString('fr-FR')} F\n` +
-        `Mode : ${paymentMethod}\n\n` +
-        `Réconciliation :\n${reconciliation.join('\n')}`
-      );
-      onSuccess();
+      alert(`✅ CHECK-OUT TERMINÉ — Chambre ${roomNumber}\n\nMontant: ${grandTotal.toLocaleString('fr-FR')} F\nMode: ${paymentMethod}\n\nRéconciliation:\n${reconciliation.join('\n')}`);
+      
+      onSuccess(); // ✅ SEUL APPEL ICI
     } catch (err: any) {
       console.error('Erreur check-out:', err);
       setError(err.message || 'Erreur lors du check-out');

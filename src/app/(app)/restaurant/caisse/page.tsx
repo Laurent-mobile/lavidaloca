@@ -177,40 +177,41 @@ export default function CaissePage() {
 
       if (error) throw error;
 
-      const formatted = (roomCharges || []).map(charge => {
-        const stay = charge.stays;
-        const order = charge.restaurant_orders;
-        
-        // Normalisation sécurisée des jointures (tableaux ou objets)
-        const room = Array.isArray(stay?.rooms) ? stay.rooms[0] : stay?.rooms;
-        const customer = Array.isArray(stay?.customers) ? stay.customers[0] : stay?.customers;
-        
-        const roomNumber = room?.number || '—';
-        const customerName = customer
-          ? `${customer.last_name || ''} ${customer.first_name || ''}`.trim() || 'Client'
-          : 'Client';
-        
-        let reconciliationStatus: 'paid' | 'pending' | 'anomaly' = 'pending';
-        if (stay?.status === 'CHECKED_OUT' && Number(stay.folio_balance) === 0) {
-          reconciliationStatus = 'paid';
-        } else if (stay?.status === 'CHECKED_OUT' && Number(stay.folio_balance) > 0) {
-          reconciliationStatus = 'anomaly';
-        }
+          const formatted = (roomCharges || []).map(charge => {
+      const stay = charge.stays;
+      const order = charge.restaurant_orders;
+      
+      // ✅ Normalisation : Supabase renvoie les jointures en tableaux, on prend le 1er élément
+      const room = Array.isArray(stay?.rooms) ? stay.rooms[0] : stay?.rooms;
+      const customer = Array.isArray(stay?.customers) ? stay.customers[0] : stay?.customers;
+      const ord = Array.isArray(order) ? order[0] : order;
+      
+      const roomNumber = room?.number || '—';
+      const customerName = customer
+        ? `${customer.last_name || ''} ${customer.first_name || ''}`.trim() || 'Client'
+        : 'Client';
+      
+      let reconciliationStatus: 'paid' | 'pending' | 'anomaly' = 'pending';
+      if (stay?.status === 'CHECKED_OUT' && Number(stay.folio_balance) === 0) {
+        reconciliationStatus = 'paid';
+      } else if (stay?.status === 'CHECKED_OUT' && Number(stay.folio_balance) > 0) {
+        reconciliationStatus = 'anomaly';
+      }
 
-        return {
-          id: charge.id,
-          order_id: charge.order_id,
-          order_number: order?.order_number || 'N/A',
-          room_number: roomNumber,
-          guest_name: customerName,
-          stay_status: stay?.status || 'UNKNOWN',
-          total_amount: Number(charge.amount),
-          reconciliationStatus,
-          reconciliationDate: stay?.check_out_at || null,
-          folio_balance: stay?.folio_balance || 0,
-          created_at: order?.created_at || charge.charge_date,
-        };
-      });
+      return {
+        id: charge.id,
+        order_id: charge.order_id,
+        order_number: ord?.order_number || 'N/A',
+        room_number: roomNumber,
+        guest_name: customerName,
+        stay_status: stay?.status || 'UNKNOWN',
+        total_amount: Number(charge.amount),
+        reconciliationStatus,
+        reconciliationDate: stay?.check_out_at || null,
+        folio_balance: stay?.folio_balance || 0,
+        created_at: ord?.created_at || charge.charge_date,
+      };
+    });
 
       setReconciliations(formatted);
       await loadAlert();

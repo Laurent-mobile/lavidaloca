@@ -11,12 +11,12 @@ interface Props {
   onSuccess: () => void;
 }
 
-const statusLabels: Record<string, { label: string; color: string }> = {
-  CONFIRMED: { label: 'Confirmée', color: 'bg-amber-100 text-amber-900 border-amber-200' },
-  CHECKED_IN: { label: 'En séjour', color: 'bg-blue-100 text-blue-900 border-blue-200' },
-  CHECKED_OUT: { label: 'Parti(e)', color: 'bg-emerald-100 text-emerald-900 border-emerald-200' },
-  CANCELLED: { label: 'Annulée', color: 'bg-red-100 text-red-900 border-red-200' },
-  NO_SHOW: { label: 'Non présenté(e)', color: 'bg-slate-200 text-slate-700 border-slate-300' },
+const statusLabels: Record<string, { label: string; color: string; icon: string }> = {
+  CONFIRMED: { label: 'Confirmée', color: 'bg-amber-100 text-amber-900 border-amber-200', icon: '📅' },
+  CHECKED_IN: { label: 'En séjour', color: 'bg-blue-100 text-blue-900 border-blue-200', icon: '🔑' },
+  CHECKED_OUT: { label: 'Parti(e)', color: 'bg-emerald-100 text-emerald-900 border-emerald-200', icon: '✅' },
+  CANCELLED: { label: 'Annulée', color: 'bg-red-100 text-red-900 border-red-200', icon: '❌' },
+  NO_SHOW: { label: 'Non présenté(e)', color: 'bg-slate-200 text-slate-700 border-slate-300', icon: '🚫' },
 };
 
 export default function ReservationDetailModal({ siteId, reservationId, isOpen, onClose, onSuccess }: Props) {
@@ -48,14 +48,18 @@ export default function ReservationDetailModal({ siteId, reservationId, isOpen, 
       if (e) throw e;
 
       // Supabase renvoie les jointures en tableaux selon la config → on normalise
-      const normalized = {
+            const normalized = {
         ...r,
         customers: Array.isArray(r.customers) ? r.customers[0] : r.customers,
         rooms: Array.isArray(r.rooms) ? r.rooms[0] : r.rooms,
       };
-      normalized.room_categories = normalized.rooms?.room_categories
-        ? (Array.isArray(normalized.rooms.room_categories) ? normalized.rooms.room_categories[0] : normalized.rooms.room_categories)
-        : null;
+      
+      // ✅ Normalisation de room_categories qui est imbriqué dans rooms
+      const roomCats = Array.isArray(normalized.rooms?.room_categories) 
+        ? normalized.rooms.room_categories[0] 
+        : normalized.rooms?.room_categories;
+        
+      normalized.room_categories = roomCats || null;
       setRes(normalized);
 
       // Séjour lié (si check-in effectué)
