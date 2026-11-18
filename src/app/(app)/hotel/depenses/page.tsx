@@ -82,19 +82,19 @@ export default function HotelExpensesPage() {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const payload = {
-        site_id: siteId,
-        category: formData.category,
-        title: formData.title,
-        supplier_name: formData.supplier_name || null,
-        description: formData.description || null,
-        estimated_amount: Number(formData.estimated_amount) || 0,
-        actual_amount: Number(formData.actual_amount) || 0,
-        status: formData.status,
-        payment_method: formData.payment_method || null,
-        invoice_number: formData.invoice_number || null,
-        notes: formData.notes || null,
-      };
+      const payload: any = {
+  site_id: siteId,
+  category: formData.category,
+  title: formData.title,
+  supplier_name: formData.supplier_name || null,
+  description: formData.description || null,
+  estimated_amount: Number(formData.estimated_amount) || 0,
+  actual_amount: Number(formData.actual_amount) || 0,
+  status: formData.status,
+  payment_method: formData.payment_method || null,
+  invoice_number: formData.invoice_number || null,
+  notes: formData.notes || null,
+};
 
       if (editingExpense) {
         const { error } = await supabase.from('hotel_expenses').update(payload).eq('id', editingExpense.id);

@@ -588,6 +588,34 @@ const [showPeriodPicker, setShowPeriodPicker] = useState(false);
     return iconMap[name] || '📋';
   };
 
+  // ✅ AJOUTEZ CES 2 FONCTIONS ICI :
+  const getTypeBadge = (type: string, isSystem: boolean) => {
+    if (type === 'current') {
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Courante</span>;
+    }
+    if (type === 'fixed') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+          Fixe {isSystem && '🔒'}
+        </span>
+      );
+    }
+    if (type === 'salary') {
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800">Salaire</span>;
+    }
+    return null;
+  };
+
+  const getSystemBadge = (isSystem: boolean) => {
+    return (
+      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+        isSystem ? 'bg-slate-100 text-slate-700' : 'bg-green-100 text-green-800'
+      }`}>
+        {isSystem ? 'Système' : 'Personnalisée'}
+      </span>
+    );
+  };
+
   const getPaymentMethodIcon = (method: string) => {
     const m = method?.toLowerCase();
     if (m?.includes('especes') || m?.includes('espèces')) return '🪙';
