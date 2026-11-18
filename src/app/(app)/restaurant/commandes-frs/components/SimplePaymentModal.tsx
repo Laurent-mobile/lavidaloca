@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { registerBankTransaction } from '@/lib/bank'; // ✅ NOUVEAU : Import de la fonction banque
 import { X, CreditCard, CheckCircle } from 'lucide-react';
 
 interface SupplierOrder {
@@ -51,7 +52,7 @@ export default function SimplePaymentModal({ siteId, order, isOpen, onClose, onS
       // 1. Déterminer le nouveau statut de paiement
       const newPaymentStatus = amount >= order.total_amount ? 'PAYÉ' : 'PARTIEL';
       
-      // 2. Mettre à jour directement le statut de la commande (méthode la plus fiable)
+      // 2. Mettre à jour le statut de la commande
       const { error: updateError } = await supabase
         .from('supplier_orders')
         .update({ payment_status: newPaymentStatus })
@@ -59,10 +60,10 @@ export default function SimplePaymentModal({ siteId, order, isOpen, onClose, onS
 
       if (updateError) throw updateError;
 
-      // 3. Tenter d'enregistrer dans supplier_payments (sans les colonnes qui causent l'erreur 400)
-      // Si la table n'existe pas ou a un schéma différent, on ignore l'erreur car l'essentiel (le statut) est mis à jour
+      // 3. Tenter d'enregistrer dans supplier_payments
+      let newPaymentId = null;
       try {
-        await supabase.from('supplier_payments').insert({
+        const { data, error } = await supabase.from('supplier_payments').insert({
           site_id: siteId,
           supplier_id: order.supplier_id,
           reference_number: referenceNumber,
@@ -71,9 +72,40 @@ export default function SimplePaymentModal({ siteId, order, isOpen, onClose, onS
           notes: notes,
           paid_by: user?.id,
           paid_at: new Date().toISOString()
-        });
+        }).select('id').single();
+        
+        if (!error && data) {
+          newPaymentId = data.id;
+        }
       } catch (paymentTableError) {
         console.warn('Table supplier_payments non configurée, mais le statut de la commande a été mis à jour.');
+      }
+
+      // ✅ 4. NOUVEAU : Enregistrer la transaction dans le module Banque si ce n'est pas des espèces
+      if (paymentMethod !== 'CASH') {
+        // Mapper le code du modal vers le libellé attendu par la fonction banque
+        const methodLabel = paymentMethod === 'BANK_TRANSFER' ? 'Virement' :
+                            paymentMethod === 'CHECK' ? 'Chèque' :
+                            paymentMethod === 'MOBILE_MONEY' ? 'Mobile Money' : 'Espèces';
+
+        const bankResult = await registerBankTransaction({
+          supabase,
+          siteId,
+          amount: amount,
+          reference: referenceNumber || `PAY-${Date.now()}`,
+          direction: 'EXPENSE',
+          paymentMethod: methodLabel,
+          counterparty: order.suppliers?.name || 'Fournisseur',
+          description: `Paiement commande ${order.order_number} - ${order.suppliers?.name}`,
+          transactionDate: new Date().toISOString().split('T')[0],
+          sourceTable: 'supplier_payments',
+          sourceId: newPaymentId || order.id,
+          autoReconcile: false, // false = apparaît en "En attente" dans le menu Banque
+        });
+
+        if (!bankResult.ok) {
+          console.warn('⚠️ Le paiement est enregistré, mais la banque n\'a pas pu être mise à jour:', bankResult.error);
+        }
       }
 
       alert(`✅ Paiement de ${amount.toLocaleString('fr-FR')} f CFA enregistré !`);
@@ -166,15 +198,19 @@ export default function SimplePaymentModal({ siteId, order, isOpen, onClose, onS
           {/* Référence */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              Numéro de référence
+              Numéro de référence *
             </label>
             <input
               type="text"
               value={referenceNumber}
               onChange={(e) => setReferenceNumber(e.target.value)}
               className="w-full border border-slate-300 rounded-lg px-3 py-2"
-              placeholder="PAY-..."
+              placeholder="Ex: CHQ-12345 ou VIR-9876"
+              required
             />
+            <p className="text-xs text-slate-500 mt-1">
+              ℹ️ Obligatoire pour le rapprochement bancaire.
+            </p>
           </div>
 
           {/* Notes */}

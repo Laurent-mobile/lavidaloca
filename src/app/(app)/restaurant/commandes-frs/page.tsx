@@ -13,6 +13,7 @@ import BulkPaymentModal from './components/BulkPaymentModal';
 import NewSupplierOrderModal from './components/NewSupplierOrderModal';
 import QuickCreateItemModal from './components/QuickCreateItemModal';
 import SimplePaymentModal from './components/SimplePaymentModal';
+import { registerBankTransaction } from '@/lib/bank';
 
 interface SupplierOrder {
   id: string;
