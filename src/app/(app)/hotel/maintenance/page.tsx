@@ -1,20 +1,34 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useHotelRooms } from '@/hooks/useHotel';
-import { Wrench, Plus, Trash2, FileText, AlertTriangle, CheckCircle, History, X, Save } from 'lucide-react';
-import MaintenanceDetailModal from '@/components/MaintenanceDetailModal';
+import { useProfile } from '@/hooks/useHotel';
+import {
+  Wrench, Plus, Trash2, FileText, AlertTriangle, CheckCircle, History, X, Save,
+  Settings, Calendar, Clock, TrendingUp, Loader2, Filter, Search, Edit,
+  Zap, Wind, Droplets, Flame, Car, Building, Cpu, Shield, AlertCircle
+} from 'lucide-react';
 
-const categories = [
-  { id: 'ROOM', label: 'Chambre (général)', icon: '🚪' },
-  { id: 'PLUMBING', label: 'Plomberie', icon: '🚿' },
-  { id: 'ELECTRICAL', label: 'Électricité', icon: '⚡' },
-  { id: 'HVAC', label: 'Climatisation', icon: '❄️' },
-  { id: 'FURNITURE', label: 'Mobilier', icon: '🛏️' },
-  { id: 'APPLIANCE', label: 'Appareils', icon: '📺' },
-  { id: 'OTHER', label: 'Autre', icon: '🔧' },
+// ✅ Catégories d'équipements
+const equipmentCategories = [
+  { id: 'HVAC', label: 'Climatisation', icon: '❄️', color: 'bg-blue-100 text-blue-900 border-blue-200' },
+  { id: 'GENERATOR', label: 'Groupes électrogènes', icon: '⚡', color: 'bg-yellow-100 text-yellow-900 border-yellow-200' },
+  { id: 'PLUMBING', label: 'Plomberie', icon: '🚿', color: 'bg-cyan-100 text-cyan-900 border-cyan-200' },
+  { id: 'ELECTRICAL', label: 'Électricité', icon: '💡', color: 'bg-amber-100 text-amber-900 border-amber-200' },
+  { id: 'APPLIANCE', label: 'Appareillages', icon: '📺', color: 'bg-purple-100 text-purple-900 border-purple-200' },
+  { id: 'VEHICLE', label: 'Véhicules', icon: '🚗', color: 'bg-red-100 text-red-900 border-red-200' },
+  { id: 'FURNITURE', label: 'Mobilier', icon: '🛏️', color: 'bg-orange-100 text-orange-900 border-orange-200' },
+  { id: 'KITCHEN', label: 'Cuisine', icon: '🍳', color: 'bg-pink-100 text-pink-900 border-pink-200' },
+  { id: 'SAFETY', label: 'Sécurité', icon: '🔒', color: 'bg-slate-100 text-slate-900 border-slate-200' },
+  { id: 'OTHER', label: 'Autre', icon: '🔧', color: 'bg-gray-100 text-gray-900 border-gray-200' },
 ];
 
+// ✅ Types de maintenance
+const maintenanceTypes = [
+  { id: 'CURATIVE', label: 'Curative', icon: '🔧', color: 'bg-red-100 text-red-900', description: 'Réparation d\'une panne' },
+  { id: 'PREVENTIVE', label: 'Préventive', icon: '🛡️', color: 'bg-blue-100 text-blue-900', description: 'Entretien régulier' },
+];
+
+// ✅ Priorités
 const priorities = [
   { id: 'LOW', label: 'Basse', color: 'bg-slate-200 text-slate-700' },
   { id: 'MEDIUM', label: 'Moyenne', color: 'bg-blue-200 text-blue-900' },
@@ -22,460 +36,727 @@ const priorities = [
   { id: 'URGENT', label: 'Urgente', color: 'bg-red-200 text-red-900' },
 ];
 
-const docTypes = [
-  { id: 'QUOTE', label: 'Cotation / Devis', icon: '📋' },
-  { id: 'INVOICE', label: 'Facture', icon: '🧾' },
-  { id: 'RECEIPT', label: 'Reçu', icon: '🧾' },
-];
+// ✅ Statuts
+const statusConfig = {
+  PENDING: { label: 'En attente', color: 'bg-amber-100 text-amber-900', icon: '⏳' },
+  IN_PROGRESS: { label: 'En cours', color: 'bg-blue-100 text-blue-900', icon: '🔧' },
+  COMPLETED: { label: 'Terminée', color: 'bg-emerald-100 text-emerald-900', icon: '✅' },
+  CANCELLED: { label: 'Annulée', color: 'bg-slate-100 text-slate-700', icon: '❌' },
+};
 
 export default function MaintenancePage() {
   const supabase = createClient();
-  const { siteId, loading: roomsLoading, rooms } = useHotelRooms();
+  const { siteId, loading: profileLoading } = useProfile();
   
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
-  const [requests, setRequests] = useState<any[]>([]);
-  const [historyRequests, setHistoryRequests] = useState<any[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [showDocForm, setShowDocForm] = useState<string | null>(null);
-  const [documents, setDocuments] = useState<Record<string, any[]>>({});
-  const [roomBlocked, setRoomBlocked] = useState('');
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'requests' | 'equipment' | 'preventive' | 'history'>('requests');
   
-  const [form, setForm] = useState({
-    room_id: '',
-    category: 'ROOM',
-    item_description: '',
-    issue_description: '',
+  // Demandes de maintenance
+  const [requests, setRequests] = useState<any[]>([]);
+  const [showRequestForm, setShowRequestForm] = useState(false);
+  const [editingRequest, setEditingRequest] = useState<any>(null);
+  const [requestForm, setRequestForm] = useState({
+    equipment_id: '',
+    category: 'HVAC',
+    type: 'CURATIVE',
+    title: '',
+    description: '',
     priority: 'MEDIUM',
     estimated_cost: 0,
     assigned_to: '',
-    notes: '',
+    notes: '', // ✅ Chaîne vide, pas null
   });
 
-  const [docForm, setDocForm] = useState({
-    maintenance_request_id: '',
-    doc_type: 'INVOICE',
-    provider_name: '',
-    provider_phone: '',
-    amount: 0,
-    tax_amount: 0,
-    doc_date: new Date().toISOString().split('T')[0],
-    reference_number: '',
-    description: '',
-    notes: '',
+  // Équipements
+  const [equipment, setEquipment] = useState<any[]>([]);
+  const [showEquipmentForm, setShowEquipmentForm] = useState(false);
+  const [editingEquipment, setEditingEquipment] = useState<any>(null);
+  const [equipmentForm, setEquipmentForm] = useState({
+    name: '',
+    category: 'HVAC',
+    location: '',
+    brand: '',
+    model: '',
+    serial_number: '',
+    installation_date: '',
+    warranty_expiry: '',
+    notes: '', // ✅ Chaîne vide
   });
+
+  // Maintenance préventive
+  const [preventiveTasks, setPreventiveTasks] = useState<any[]>([]);
+  const [showPreventiveForm, setShowPreventiveForm] = useState(false);
+  const [preventiveForm, setPreventiveForm] = useState({
+    equipment_id: '',
+    title: '',
+    description: '',
+    frequency: 'MONTHLY',
+    next_date: '',
+    assigned_to: '',
+  });
+
+  // Filtres
+  const [filterStatus, setFilterStatus] = useState('ALL');
+  const [filterType, setFilterType] = useState('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     if (siteId) {
       loadRequests();
-      if (activeTab === 'history') loadHistory();
+      loadEquipment();
+      loadPreventiveTasks();
     }
-  }, [siteId, activeTab]);
-
-  useEffect(() => {
-    if (form.room_id) checkRoomAvailability(form.room_id);
-    else setRoomBlocked('');
-  }, [form.room_id, rooms]);
-
-  const checkRoomAvailability = (roomId: string) => {
-    const room = rooms.find(r => r.id === roomId);
-    if (!room) { setRoomBlocked(''); return; }
-    if (room.status === 'OCCUPIED') setRoomBlocked('🚫 IMPOSSIBLE : Cette chambre est actuellement OCCUPÉE par un client.');
-    else if (room.status === 'RESERVED') setRoomBlocked('⚠️ ATTENTION : Cette chambre est RÉSERVÉE.');
-    else setRoomBlocked('');
-  };
+  }, [siteId]);
 
   const loadRequests = async () => {
     if (!siteId) return;
-    const { data, error } = await supabase
-      .from('maintenance_requests')
-      .select(`id, room_id, category, item_description, issue_description, priority, status, estimated_cost, actual_cost, assigned_to, notes, created_at, completed_at, rooms (number, status)`)
-      .eq('site_id', siteId)
-      .in('status', ['PENDING', 'IN_PROGRESS'])
-      .order('created_at', { ascending: false });
-    
-    if (data) {
-      setRequests(data);
-      const docsMap: Record<string, any[]> = {};
-      for (const req of data) {
-        const { data: docs } = await supabase.from('maintenance_documents').select('*').eq('maintenance_request_id', req.id).order('created_at', { ascending: false });
-        if (docs) docsMap[req.id] = docs;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_requests')
+        .select(`
+          id, equipment_id, category, type, title, description, priority, status,
+          estimated_cost, actual_cost, assigned_to, notes, created_at, completed_at,
+          item_description, issue_description, room_id,
+          equipment:equipment_id (name, category, location)
+        `)
+        .eq('site_id', siteId)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Erreur chargement demandes:', error);
+        // Fallback : recharger sans jointure equipment
+        const { data: fallbackData } = await supabase
+          .from('maintenance_requests')
+          .select('*')
+          .eq('site_id', siteId)
+          .order('created_at', { ascending: false });
+        setRequests(fallbackData || []);
+      } else {
+        // Normaliser les données (title peut venir de item_description)
+        const normalized = (data || []).map(r => ({
+          ...r,
+          title: r.title || r.item_description || 'Sans titre',
+          description: r.description || r.issue_description || '',
+          equipment: Array.isArray(r.equipment) ? r.equipment[0] : r.equipment,
+        }));
+        setRequests(normalized);
       }
-      setDocuments(docsMap);
+    } catch (err: any) {
+      console.error('Erreur chargement demandes:', err);
+      setRequests([]);
     }
+    setLoading(false);
   };
 
-  const loadHistory = async () => {
+  const loadEquipment = async () => {
     if (!siteId) return;
-    const { data } = await supabase
-      .from('maintenance_requests')
-      .select(`id, room_id, category, item_description, issue_description, priority, status, estimated_cost, actual_cost, assigned_to, notes, created_at, completed_at, rooms (number)`)
-      .eq('site_id', siteId)
-      .in('status', ['COMPLETED', 'CANCELLED'])
-      .order('completed_at', { ascending: false });
-    if (data) setHistoryRequests(data);
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_equipment')
+        .select('*')
+        .eq('site_id', siteId)
+        .order('name');
+      
+      if (error) {
+        console.error('Erreur chargement équipements:', error);
+        setEquipment([]);
+      } else {
+        setEquipment(data || []);
+      }
+    } catch (err: any) {
+      console.error('Erreur chargement équipements:', err);
+      setEquipment([]);
+    }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    if (roomBlocked && roomBlocked.includes('IMPOSSIBLE')) {
-      setError(roomBlocked);
-      setLoading(false);
-      return;
-    }
-    if (!form.item_description.trim() || !form.issue_description.trim()) {
-      setError('Description de l\'équipement et du problème obligatoires.');
-      setLoading(false);
-      return;
-    }
-    const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase.from('maintenance_requests').insert({
-      site_id: siteId, room_id: form.room_id || null, category: form.category, item_description: form.item_description,
-      issue_description: form.issue_description, priority: form.priority, estimated_cost: form.estimated_cost,
-      assigned_to: form.assigned_to, notes: form.notes, status: 'PENDING', reported_by: user?.id,
-    });
-    if (error) {
-      setError(error.message);
-    } else {
-      if (form.room_id) {
-        await supabase.from('rooms').update({ status: 'OUT_OF_ORDER', out_of_order_reason: `${form.category}: ${form.issue_description}` }).eq('id', form.room_id);
+  const loadPreventiveTasks = async () => {
+    if (!siteId) return;
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_preventive')
+        .select(`
+          id, equipment_id, title, description, frequency, next_date, assigned_to,
+          equipment:equipment_id (name, category, location)
+        `)
+        .eq('site_id', siteId)
+        .order('next_date', { ascending: true });
+      
+      if (error) {
+        console.error('Erreur chargement préventif:', error);
+        setPreventiveTasks([]);
+      } else {
+        const normalized = (data || []).map(t => ({
+          ...t,
+          equipment: Array.isArray(t.equipment) ? t.equipment[0] : t.equipment,
+        }));
+        setPreventiveTasks(normalized);
       }
-      loadRequests();
-      setShowForm(false);
-      setForm({ room_id: '', category: 'ROOM', item_description: '', issue_description: '', priority: 'MEDIUM', estimated_cost: 0, assigned_to: '', notes: '' });
+    } catch (err: any) {
+      console.error('Erreur chargement préventif:', err);
+      setPreventiveTasks([]);
+    }
+  };
+
+  const handleSaveRequest = async () => {
+    if (!requestForm.title.trim() || !requestForm.description.trim()) {
+      alert('Le titre et la description sont obligatoires.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const requestData: any = {
+        site_id: siteId,
+        category: requestForm.category,
+        type: requestForm.type,
+        title: requestForm.title,
+        description: requestForm.description,
+        item_description: requestForm.title, // Compatibilité ancien schema
+        issue_description: requestForm.description, // Compatibilité ancien schema
+        priority: requestForm.priority,
+        estimated_cost: requestForm.estimated_cost,
+        assigned_to: requestForm.assigned_to,
+        notes: requestForm.notes,
+        status: 'PENDING',
+        created_by: user?.id,
+      };
+
+      if (requestForm.equipment_id) {
+        requestData.equipment_id = requestForm.equipment_id;
+      }
+
+      if (editingRequest) {
+        const { error } = await supabase
+          .from('maintenance_requests')
+          .update(requestData)
+          .eq('id', editingRequest.id);
+        if (error) throw error;
+        alert('✅ Demande modifiée !');
+      } else {
+        const { error } = await supabase
+          .from('maintenance_requests')
+          .insert(requestData);
+        if (error) throw error;
+        alert('✅ Demande créée !');
+      }
+
+      setShowRequestForm(false);
+      setEditingRequest(null);
+      setRequestForm({
+        equipment_id: '',
+        category: 'HVAC',
+        type: 'CURATIVE',
+        title: '',
+        description: '',
+        priority: 'MEDIUM',
+        estimated_cost: 0,
+        assigned_to: '',
+        notes: '',
+      });
+      await loadRequests();
+    } catch (err: any) {
+      alert(`Erreur: ${err.message}`);
     }
     setLoading(false);
   };
 
-  const handleStatusChange = async (id: string, newStatus: string, roomId?: string) => {
-    const updates: any = { status: newStatus };
-    if (newStatus === 'COMPLETED') updates.completed_at = new Date().toISOString();
-    
-    await supabase.from('maintenance_requests').update(updates).eq('id', id);
-    
-    if (newStatus === 'COMPLETED') {
-      const { data: docs } = await supabase.from('maintenance_documents').select('*').eq('maintenance_request_id', id).in('status', ['PENDING', 'APPROVED']);
-      if (docs && docs.length > 0) {
-        const { data: { user } } = await supabase.auth.getUser();
-        for (const doc of docs) {
-          await supabase.from('cash_transactions').insert({
-            site_id: siteId, type: 'EXPENSE', category: 'MAINTENANCE', amount: doc.total_amount || doc.amount,
-            payment_method: 'CASH', status: 'PENDING', provider_name: doc.provider_name,
-            description: `Paiement ${doc.doc_type === 'INVOICE' ? 'facture' : 'cotation'} - ${doc.description || doc.reference_number || 'Maintenance'}`,
-            reference_id: doc.id, reference_table: 'maintenance_documents', received_by: user?.id,
-          });
-          await supabase.from('maintenance_documents').update({ status: 'PAID', paid_at: new Date().toISOString() }).eq('id', doc.id);
-        }
-      }
-      if (roomId) {
-        await supabase.from('rooms').update({ status: 'VACANT', out_of_order_reason: null }).eq('id', roomId);
-      }
+  const handleSaveEquipment = async () => {
+    if (!equipmentForm.name.trim()) {
+      alert('Le nom est obligatoire.');
+      return;
     }
-    loadRequests();
-    if (activeTab === 'history') loadHistory();
-  };
 
-  const handleDelete = async (id: string, roomId?: string) => {
-    if (!confirm('Supprimer cette demande de maintenance ?')) return;
-    await supabase.from('maintenance_requests').delete().eq('id', id);
-    if (roomId) await supabase.from('rooms').update({ status: 'VACANT', out_of_order_reason: null }).eq('id', roomId);
-    loadRequests();
-  };
-
-  const handleSaveDocument = async (e: React.FormEvent) => {
-    e.preventDefault();
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    const total = docForm.amount + docForm.tax_amount;
-    const { error } = await supabase.from('maintenance_documents').insert({
-      site_id: siteId, maintenance_request_id: docForm.maintenance_request_id, doc_type: docForm.doc_type,
-      provider_name: docForm.provider_name, provider_phone: docForm.provider_phone, amount: docForm.amount,
-      tax_amount: docForm.tax_amount, total_amount: total, doc_date: docForm.doc_date, reference_number: docForm.reference_number,
-      description: docForm.description, notes: docForm.notes, status: 'PENDING', created_by: user?.id,
-    });
-    if (!error) {
-      loadRequests();
-      setShowDocForm(null);
-      setDocForm({ maintenance_request_id: '', doc_type: 'INVOICE', provider_name: '', provider_phone: '', amount: 0, tax_amount: 0, doc_date: new Date().toISOString().split('T')[0], reference_number: '', description: '', notes: '' });
-    } else {
-      setError(error.message);
+    try {
+      const equipmentData = {
+        site_id: siteId,
+        name: equipmentForm.name,
+        category: equipmentForm.category,
+        location: equipmentForm.location,
+        brand: equipmentForm.brand,
+        model: equipmentForm.model,
+        serial_number: equipmentForm.serial_number,
+        installation_date: equipmentForm.installation_date || null,
+        warranty_expiry: equipmentForm.warranty_expiry || null,
+        notes: equipmentForm.notes,
+      };
+
+      if (editingEquipment) {
+        const { error } = await supabase
+          .from('maintenance_equipment')
+          .update(equipmentData)
+          .eq('id', editingEquipment.id);
+        if (error) throw error;
+        alert('✅ Équipement modifié !');
+      } else {
+        const { error } = await supabase
+          .from('maintenance_equipment')
+          .insert(equipmentData);
+        if (error) throw error;
+        alert('✅ Équipement ajouté !');
+      }
+
+      setShowEquipmentForm(false);
+      setEditingEquipment(null);
+      setEquipmentForm({
+        name: '',
+        category: 'HVAC',
+        location: '',
+        brand: '',
+        model: '',
+        serial_number: '',
+        installation_date: '',
+        warranty_expiry: '',
+        notes: '',
+      });
+      await loadEquipment();
+    } catch (err: any) {
+      alert(`Erreur: ${err.message}`);
     }
     setLoading(false);
   };
 
-  const handleDeleteDocument = async (docId: string) => {
-    if (!confirm('Supprimer ce document ?')) return;
-    await supabase.from('maintenance_documents').delete().eq('id', docId);
-    loadRequests();
-  };
+  const handleSavePreventive = async () => {
+    if (!preventiveForm.title.trim() || !preventiveForm.next_date) {
+      alert('Le titre et la prochaine date sont obligatoires.');
+      return;
+    }
 
-  const handleDocStatusChange = async (docId: string, newStatus: string) => {
-    const updates: any = { status: newStatus };
-    if (newStatus === 'PAID') {
-      updates.paid_at = new Date().toISOString();
-      const { data: doc } = await supabase.from('maintenance_documents').select('*').eq('id', docId).single();
-      if (doc) {
-        const { data: { user } } = await supabase.auth.getUser();
-        await supabase.from('cash_transactions').insert({
-          site_id: siteId, type: 'EXPENSE', category: 'MAINTENANCE', amount: doc.total_amount || doc.amount,
-          payment_method: 'CASH', status: 'PENDING', provider_name: doc.provider_name,
-          description: `Paiement ${doc.doc_type === 'INVOICE' ? 'facture' : 'cotation'} - ${doc.description || doc.reference_number || 'Maintenance'}`,
-          reference_id: doc.id, reference_table: 'maintenance_documents', received_by: user?.id,
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('maintenance_preventive')
+        .insert({
+          site_id: siteId,
+          equipment_id: preventiveForm.equipment_id || null,
+          title: preventiveForm.title,
+          description: preventiveForm.description,
+          frequency: preventiveForm.frequency,
+          next_date: preventiveForm.next_date,
+          assigned_to: preventiveForm.assigned_to,
         });
-      }
+      
+      if (error) throw error;
+      alert('✅ Tâche préventive créée !');
+      setShowPreventiveForm(false);
+      setPreventiveForm({
+        equipment_id: '',
+        title: '',
+        description: '',
+        frequency: 'MONTHLY',
+        next_date: '',
+        assigned_to: '',
+      });
+      await loadPreventiveTasks();
+    } catch (err: any) {
+      alert(`Erreur: ${err.message}`);
     }
-    await supabase.from('maintenance_documents').update(updates).eq('id', docId);
-    loadRequests();
+    setLoading(false);
   };
 
-  if (roomsLoading) return <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" /></div>;
+  const handleStatusChange = async (requestId: string, newStatus: string) => {
+    setLoading(true);
+    try {
+      const updates: any = { status: newStatus };
+      if (newStatus === 'COMPLETED') {
+        updates.completed_at = new Date().toISOString();
+      }
+      
+      const { error } = await supabase
+        .from('maintenance_requests')
+        .update(updates)
+        .eq('id', requestId);
+      
+      if (error) throw error;
+      await loadRequests();
+    } catch (err: any) {
+      alert(`Erreur: ${err.message}`);
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteRequest = async (id: string) => {
+    if (!confirm('Supprimer cette demande ?')) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('maintenance_requests').delete().eq('id', id);
+      if (error) throw error;
+      await loadRequests();
+    } catch (err: any) {
+      alert(`Erreur: ${err.message}`);
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteEquipment = async (id: string) => {
+    if (!confirm('Supprimer cet équipement ?')) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('maintenance_equipment').delete().eq('id', id);
+      if (error) throw error;
+      await loadEquipment();
+    } catch (err: any) {
+      alert(`Erreur: ${err.message}`);
+    }
+    setLoading(false);
+  };
+
+  if (profileLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+      </div>
+    );
+  }
   if (!siteId) return null;
 
+  const filteredRequests = requests.filter(r => {
+    if (filterStatus !== 'ALL' && r.status !== filterStatus) return false;
+    if (filterType !== 'ALL' && r.type !== filterType) return false;
+    if (searchTerm && !r.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    return true;
+  });
+
+  const stats = {
+    pending: requests.filter(r => r.status === 'PENDING').length,
+    inProgress: requests.filter(r => r.status === 'IN_PROGRESS').length,
+    completed: requests.filter(r => r.status === 'COMPLETED').length,
+    urgent: requests.filter(r => r.priority === 'URGENT' && r.status !== 'COMPLETED').length,
+  };
+
   return (
-    <div className="p-6 space-y-6">
-      {/* En-tête */}
+    <div className="p-6 space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <Wrench className="w-7 h-7 text-slate-700" /> Maintenance
+            <Wrench className="w-7 h-7 text-slate-700" />
+            Maintenance
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            {requests.filter(r => r.status === 'PENDING').length} en attente • {requests.filter(r => r.status === 'IN_PROGRESS').length} en cours
+            {stats.pending} en attente • {stats.inProgress} en cours • {stats.urgent} urgentes
           </p>
         </div>
-        <button onClick={() => { setShowForm(!showForm); setShowDocForm(null); }} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-          <Plus className="w-4 h-4" /> Nouvelle demande
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowEquipmentForm(true)}
+            className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            <Settings className="w-4 h-4" /> Équipement
+          </button>
+          <button
+            onClick={() => setShowPreventiveForm(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            <Shield className="w-4 h-4" /> Préventive
+          </button>
+          <button
+            onClick={() => setShowRequestForm(true)}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" /> Nouvelle demande
+          </button>
+        </div>
       </div>
 
-      {error && <div className="bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 text-sm flex items-start gap-2"><AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
-      {roomBlocked && showForm && (
-        <div className={`p-3 rounded-lg border text-sm flex items-start gap-2 ${roomBlocked.includes('IMPOSSIBLE') ? 'bg-red-50 border-red-200 text-red-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
-          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{roomBlocked}</span>
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-4">
+          <div className="text-xs font-medium text-amber-700 mb-1">⏳ En attente</div>
+          <div className="text-2xl font-bold text-amber-900">{stats.pending}</div>
         </div>
-      )}
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+          <div className="text-xs font-medium text-blue-700 mb-1">🔧 En cours</div>
+          <div className="text-2xl font-bold text-blue-900">{stats.inProgress}</div>
+        </div>
+        <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-4">
+          <div className="text-xs font-medium text-emerald-700 mb-1">✅ Terminées</div>
+          <div className="text-2xl font-bold text-emerald-900">{stats.completed}</div>
+        </div>
+        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
+          <div className="text-xs font-medium text-red-700 mb-1">🚨 Urgentes</div>
+          <div className="text-2xl font-bold text-red-900">{stats.urgent}</div>
+        </div>
+      </div>
 
       {/* Onglets */}
       <div className="flex gap-2 border-b border-slate-200">
-        <button onClick={() => setActiveTab('active')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'active' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
-          <Wrench className="w-4 h-4" /> En cours ({requests.length})
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${
+            activeTab === 'requests' ? 'border-b-2 border-emerald-600 text-emerald-600' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Wrench className="w-4 h-4" /> Demandes ({requests.length})
         </button>
-        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'history' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
-          <History className="w-4 h-4" /> Historique ({historyRequests.length})
+        <button
+          onClick={() => setActiveTab('equipment')}
+          className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${
+            activeTab === 'equipment' ? 'border-b-2 border-slate-600 text-slate-600' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Settings className="w-4 h-4" /> Équipements ({equipment.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('preventive')}
+          className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${
+            activeTab === 'preventive' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Shield className="w-4 h-4" /> Préventive ({preventiveTasks.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${
+            activeTab === 'history' ? 'border-b-2 border-slate-600 text-slate-600' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <History className="w-4 h-4" /> Historique
         </button>
       </div>
 
-      {activeTab === 'active' && (
-        <div className="space-y-6">
-          {/* Formulaire de création */}
-          {showForm && (
-            <div className="border-2 border-slate-200 rounded-xl p-5 bg-slate-50 space-y-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Plus className="w-4 h-4" /> Nouvelle demande de maintenance</h3>
-                <button type="button" onClick={() => setShowForm(false)} className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1"><X className="w-3 h-3" /> Annuler</button>
-              </div>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Chambre concernée</label>
-                    <select value={form.room_id} onChange={(e) => setForm({ ...form, room_id: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                      <option value="">-- Aucune (maintenance générale) --</option>
-                      {rooms.map(r => (<option key={r.id} value={r.id} disabled={r.status === 'OCCUPIED'}>Chambre {r.number} ({r.room_categories?.code}) {r.status === 'OCCUPIED' ? '🚫 OCCUPÉE' : r.status === 'RESERVED' ? '⚠️ RÉSERVÉE' : '✓ Libre'}</option>))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Catégorie *</label>
-                    <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                      {categories.map(c => (<option key={c.id} value={c.id}>{c.icon} {c.label}</option>))}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Équipement / Élément concerné *</label>
-                  <input type="text" value={form.item_description} onChange={(e) => setForm({ ...form, item_description: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="Ex: Climatiseur split, Robinet salle de bain..." required />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Description du problème *</label>
-                  <textarea value={form.issue_description} onChange={(e) => setForm({ ...form, issue_description: e.target.value })} rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" required />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Priorité</label>
-                    <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                      {priorities.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Coût estimé (FCFA)</label>
-                    <input type="number" min="0" value={form.estimated_cost} onChange={(e) => setForm({ ...form, estimated_cost: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">Technicien</label>
-                    <input type="text" value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-                  </div>
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button type="button" onClick={() => setShowForm(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2.5 rounded-lg transition-colors">Annuler</button>
-                  <button type="submit" disabled={loading || Boolean(roomBlocked && roomBlocked.includes('IMPOSSIBLE'))} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
-                    <Save className="w-4 h-4" /> {loading ? 'Enregistrement...' : '✅ Créer la demande'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Liste des demandes */}
-          {requests.length === 0 ? (
-            <div className="text-center py-12 bg-slate-50 rounded-xl border border-slate-200 border-dashed">
-              <Wrench className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-              <p className="text-sm text-slate-500 font-medium">Aucune demande de maintenance en cours</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {requests.map((req) => {
-                const priority = priorities.find(p => p.id === req.priority);
-                const status = req.status === 'PENDING' ? { label: 'En attente', color: 'bg-amber-100 text-amber-900' } : { label: 'En cours', color: 'bg-blue-100 text-blue-900' };
-                const reqDocs = documents[req.id] || [];
-                const totalDocs = reqDocs.reduce((sum, d) => sum + Number(d.total_amount || 0), 0);
-                return (
-                  <div key={req.id} className="border border-slate-200 rounded-xl p-5 bg-white shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-start justify-between mb-4">
-                      <button onClick={() => setDetailId(req.id)} className="flex-1 text-left">
-                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                          <span className="font-bold text-slate-900">{categories.find(c => c.id === req.category)?.icon} {req.item_description}</span>
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${priority?.color}`}>{priority?.label}</span>
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${status.color}`}>{status.label}</span>
-                        </div>
-                        <p className="text-sm text-slate-600 mb-3">{req.issue_description}</p>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                          {req.rooms?.number && <span className="flex items-center gap-1">🚪 Chambre {req.rooms.number}</span>}
-                          {req.assigned_to && <span className="flex items-center gap-1">👷 {req.assigned_to}</span>}
-                          {req.estimated_cost > 0 && <span className="flex items-center gap-1">💰 Est: {Number(req.estimated_cost).toLocaleString('fr-FR')} F</span>}
-                          {totalDocs > 0 && <span className="font-semibold text-indigo-700 flex items-center gap-1">📄 Docs: {Number(totalDocs).toLocaleString('fr-FR')} F</span>}
-                          <span className="flex items-center gap-1">📅 {new Date(req.created_at).toLocaleDateString('fr-FR')}</span>
-                        </div>
-                      </button>
-                      <button onClick={() => handleDelete(req.id, req.room_id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-
-                    {reqDocs.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-slate-100">
-                        <h4 className="text-xs font-semibold text-slate-700 mb-3 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> Documents associés ({reqDocs.length})</h4>
-                        <div className="space-y-2">
-                          {reqDocs.map(doc => (
-                            <div key={doc.id} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-sm">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-medium text-slate-900">{docTypes.find(d => d.id === doc.doc_type)?.icon} {docTypes.find(d => d.id === doc.doc_type)?.label}</span>
-                                  <span className="text-slate-600">- {doc.provider_name}</span>
-                                  {doc.reference_number && <span className="text-slate-500 text-xs">({doc.reference_number})</span>}
-                                </div>
-                                <div className="text-slate-500 text-xs flex items-center gap-3">
-                                  <span>📅 {new Date(doc.doc_date).toLocaleDateString('fr-FR')}</span>
-                                  <span className="font-semibold text-slate-700">💰 {Number(doc.total_amount).toLocaleString('fr-FR')} F</span>
-                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${doc.status === 'PAID' ? 'bg-emerald-100 text-emerald-900' : doc.status === 'APPROVED' ? 'bg-blue-100 text-blue-900' : doc.status === 'REJECTED' ? 'bg-red-100 text-red-900' : 'bg-amber-100 text-amber-900'}`}>{doc.status}</span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                {doc.status === 'PENDING' && (<>
-                                  <button onClick={() => handleDocStatusChange(doc.id, 'APPROVED')} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors">Approuver</button>
-                                  <button onClick={() => handleDocStatusChange(doc.id, 'REJECTED')} className="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors">Rejeter</button>
-                                </>)}
-                                {doc.status === 'APPROVED' && (<button onClick={() => handleDocStatusChange(doc.id, 'PAID')} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors">Marquer payé</button>)}
-                                <button onClick={() => handleDeleteDocument(doc.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-md transition-colors"><Trash2 className="w-4 h-4" /></button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap gap-2 pt-4 mt-4 border-t border-slate-100">
-                      {req.status === 'PENDING' && (<button onClick={() => handleStatusChange(req.id, 'IN_PROGRESS', req.room_id)} className="flex-1 min-w-[120px] text-xs bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium transition-colors">▶️ Démarrer</button>)}
-                      {req.status === 'IN_PROGRESS' && (<button onClick={() => handleStatusChange(req.id, 'COMPLETED', req.room_id)} className="flex-1 min-w-[120px] text-xs bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-medium transition-colors">✅ Terminer</button>)}
-                      <button onClick={() => { setShowDocForm(showDocForm === req.id ? null : req.id); setShowForm(false); setDocForm({ ...docForm, maintenance_request_id: req.id }); }} className="flex-1 min-w-[120px] text-xs bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-colors">
-                        <FileText className="w-3.5 h-3.5" /> {reqDocs.length > 0 ? 'Ajouter document' : '📄 Facture/Cotation'}
-                      </button>
-                      <button onClick={() => handleStatusChange(req.id, 'CANCELLED', req.room_id)} className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors">Annuler</button>
-                    </div>
-
-                    {showDocForm === req.id && (
-                      <form onSubmit={handleSaveDocument} className="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-3">
-                        <h4 className="font-semibold text-sm text-indigo-900 flex items-center gap-1.5"><FileText className="w-4 h-4" /> Nouveau document</h4>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-700 mb-1">Type *</label>
-                            <select value={docForm.doc_type} onChange={(e) => setDocForm({ ...docForm, doc_type: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                              {docTypes.map(d => <option key={d.id} value={d.id}>{d.icon} {d.label}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-700 mb-1">N° référence</label>
-                            <input type="text" value={docForm.reference_number} onChange={(e) => setDocForm({ ...docForm, reference_number: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="FAC-2026-001" />
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-700 mb-1">Nom du prestataire *</label>
-                          <input type="text" value={docForm.provider_name} onChange={(e) => setDocForm({ ...docForm, provider_name: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" required placeholder="Entreprise XYZ" />
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-700 mb-1">Montant HT (FCFA) *</label>
-                            <input type="number" min="0" value={docForm.amount} onChange={(e) => setDocForm({ ...docForm, amount: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" required />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-700 mb-1">TVA / Taxes (FCFA)</label>
-                            <input type="number" min="0" value={docForm.tax_amount} onChange={(e) => setDocForm({ ...docForm, tax_amount: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" />
-                          </div>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg border border-indigo-200 text-right">
-                          <span className="text-xs text-slate-600">Total TTC: </span>
-                          <span className="font-bold text-indigo-900 text-lg">{Number(docForm.amount + docForm.tax_amount).toLocaleString('fr-FR')} F</span>
-                        </div>
-                        <div className="flex gap-3 pt-2">
-                          <button type="button" onClick={() => setShowDocForm(null)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-semibold py-2.5 rounded-lg transition-colors">Annuler</button>
-                          <button type="submit" disabled={loading} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2.5 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">{loading ? 'Enregistrement...' : '💾 Enregistrer le document'}</button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+      {/* Filtres */}
+      {activeTab === 'requests' && (
+        <div className="flex gap-2 items-center flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Rechercher..."
+              className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm"
+            />
+          </div>
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="ALL">Tous statuts</option>
+            <option value="PENDING">En attente</option>
+            <option value="IN_PROGRESS">En cours</option>
+            <option value="COMPLETED">Terminée</option>
+          </select>
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="ALL">Tous types</option>
+            <option value="CURATIVE">Curative</option>
+            <option value="PREVENTIVE">Préventive</option>
+          </select>
         </div>
       )}
 
-      {activeTab === 'history' && (
+      {/* Demandes */}
+      {activeTab === 'requests' && (
         <div>
-          {historyRequests.length === 0 ? (
-            <div className="text-center py-12 bg-slate-50 rounded-xl border border-slate-200 border-dashed">
-              <History className="w-12 h-12 mx-auto mb-3 text-slate-300" />
-              <p className="text-sm text-slate-500 font-medium">Aucun historique de maintenance</p>
+          {filteredRequests.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-lg">
+              <Wrench className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+              <p className="text-sm text-slate-500">Aucune demande de maintenance</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {historyRequests.map((req) => {
+              {filteredRequests.map(req => {
+                const status = statusConfig[req.status as keyof typeof statusConfig];
                 const priority = priorities.find(p => p.id === req.priority);
-                const isCompleted = req.status === 'COMPLETED';
+                const type = maintenanceTypes.find(t => t.id === req.type);
+                const category = equipmentCategories.find(c => c.id === req.category);
+                
                 return (
-                  <div key={req.id} className={`border rounded-xl p-4 bg-white shadow-sm ${isCompleted ? 'border-emerald-200' : 'border-slate-200'}`}>
-                    <div className="flex items-start justify-between">
+                  <div key={req.id} className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
+                    <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap mb-2">
-                          <span className="font-bold text-slate-900">{categories.find(c => c.id === req.category)?.icon} {req.item_description}</span>
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${priority?.color}`}>{priority?.label}</span>
-                          <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${isCompleted ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-700'}`}>{isCompleted ? '✅ Terminée' : '❌ Annulée'}</span>
+                          <span className="font-bold text-slate-900 text-lg">{req.title}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${type?.color}`}>
+                            {type?.icon} {type?.label}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${priority?.color}`}>
+                            {priority?.label}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${status?.color}`}>
+                            {status?.icon} {status?.label}
+                          </span>
                         </div>
-                        <p className="text-sm text-slate-600 mb-2">{req.issue_description}</p>
+                        <p className="text-sm text-slate-600 mb-2">{req.description}</p>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                          {req.rooms?.number && <span>🚪 Chambre {req.rooms.number}</span>}
+                          <span className="flex items-center gap-1">
+                            {category?.icon} {category?.label}
+                          </span>
+                          {req.equipment?.name && (
+                            <span className="flex items-center gap-1">
+                              📍 {req.equipment.name} {req.equipment.location && `(${req.equipment.location})`}
+                            </span>
+                          )}
                           {req.assigned_to && <span>👷 {req.assigned_to}</span>}
-                          <span>📅 {req.completed_at ? new Date(req.completed_at).toLocaleDateString('fr-FR') : new Date(req.created_at).toLocaleDateString('fr-FR')}</span>
+                          {req.estimated_cost > 0 && <span>💰 Est: {req.estimated_cost.toLocaleString('fr-FR')} FCFA</span>}
+                          <span>📅 {new Date(req.created_at).toLocaleDateString('fr-FR')}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {req.status === 'PENDING' && (
+                          <button
+                            onClick={() => handleStatusChange(req.id, 'IN_PROGRESS')}
+                            className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium"
+                          >
+                            ▶️ Démarrer
+                          </button>
+                        )}
+                        {req.status === 'IN_PROGRESS' && (
+                          <button
+                            onClick={() => handleStatusChange(req.id, 'COMPLETED')}
+                            className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium"
+                          >
+                            ✅ Terminer
+                          </button>
+                        )}
+                        <button
+                                                    onClick={() => {
+                            setEditingRequest(req);
+                            setRequestForm({
+                              equipment_id: req.equipment_id || '',
+                              category: req.category || 'HVAC',
+                              type: req.type || 'CURATIVE',
+                              title: req.title || '',
+                              description: req.description || '',
+                              priority: req.priority || 'MEDIUM',
+                              estimated_cost: Number(req.estimated_cost) || 0,
+                              assigned_to: req.assigned_to || '',
+                              notes: req.notes || '', // ✅ Force la chaîne vide si null
+                            });
+                            setShowRequestForm(true);
+                          }}
+                          className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg font-medium"
+                        >
+                          <Edit className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRequest(req.id)}
+                          className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg font-medium"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Équipements */}
+      {activeTab === 'equipment' && (
+        <div>
+          {equipment.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-lg">
+              <Settings className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+              <p className="text-sm text-slate-500">Aucun équipement enregistré</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {equipment.map(eq => {
+                const category = equipmentCategories.find(c => c.id === eq.category);
+                return (
+                  <div key={eq.id} className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-2xl">{category?.icon}</span>
+                          <div>
+                            <div className="font-bold text-slate-900">{eq.name}</div>
+                            <div className="text-xs text-slate-500">{category?.label}</div>
+                          </div>
+                        </div>
+                        <div className="space-y-1 text-xs text-slate-600">
+                          {eq.location && <div>📍 {eq.location}</div>}
+                          {eq.brand && <div>🏷️ {eq.brand} {eq.model}</div>}
+                          {eq.serial_number && <div>🔢 {eq.serial_number}</div>}
+                          {eq.installation_date && <div>📅 Installé: {new Date(eq.installation_date).toLocaleDateString('fr-FR')}</div>}
+                          {eq.warranty_expiry && (
+                            <div className={new Date(eq.warranty_expiry) < new Date() ? 'text-red-600 font-semibold' : 'text-emerald-600'}>
+                              ⚠️ Garantie: {new Date(eq.warranty_expiry).toLocaleDateString('fr-FR')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                                                    onClick={() => {
+                            setEditingEquipment(eq);
+                            setEquipmentForm({
+                              name: eq.name || '',
+                              category: eq.category || 'HVAC',
+                              location: eq.location || '',
+                              brand: eq.brand || '',
+                              model: eq.model || '',
+                              serial_number: eq.serial_number || '',
+                              installation_date: eq.installation_date ? eq.installation_date.split('T')[0] : '',
+                              warranty_expiry: eq.warranty_expiry ? eq.warranty_expiry.split('T')[0] : '',
+                              notes: eq.notes || '', // ✅ Force la chaîne vide
+                            });
+                            setShowEquipmentForm(true);
+                          }}
+                          className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1 rounded"
+                        >
+                          <Edit className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteEquipment(eq.id)}
+                          className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Préventive */}
+      {activeTab === 'preventive' && (
+        <div>
+          {preventiveTasks.length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-lg">
+              <Shield className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+              <p className="text-sm text-slate-500">Aucune tâche préventive planifiée</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {preventiveTasks.map(task => {
+                const category = equipmentCategories.find(c => c.id === task.equipment?.category);
+                const isOverdue = new Date(task.next_date) < new Date();
+                
+                return (
+                  <div key={task.id} className={`bg-white border-2 rounded-lg p-4 ${isOverdue ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-bold text-slate-900">{task.title}</span>
+                          {isOverdue && <span className="text-xs bg-red-200 text-red-900 px-2 py-0.5 rounded font-medium">⚠️ En retard</span>}
+                        </div>
+                        <p className="text-sm text-slate-600 mb-2">{task.description}</p>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                          {task.equipment?.name && (
+                            <span className="flex items-center gap-1">
+                              {category?.icon} {task.equipment.name}
+                            </span>
+                          )}
+                          <span>📅 Prochaine: {new Date(task.next_date).toLocaleDateString('fr-FR')}</span>
+                          <span>🔄 {task.frequency}</span>
+                          {task.assigned_to && <span>👷 {task.assigned_to}</span>}
                         </div>
                       </div>
                     </div>
@@ -487,13 +768,417 @@ export default function MaintenancePage() {
         </div>
       )}
 
-      <MaintenanceDetailModal
-  siteId={siteId}
-  requestId={detailId}
-  isOpen={!!detailId}
-  onClose={() => setDetailId(null)}
-  onSuccess={() => { loadRequests(); if (activeTab === 'history') loadHistory(); }}
-/>
+      {/* Historique */}
+      {activeTab === 'history' && (
+        <div>
+          {requests.filter(r => r.status === 'COMPLETED').length === 0 ? (
+            <div className="text-center py-12 bg-slate-50 rounded-lg">
+              <History className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+              <p className="text-sm text-slate-500">Aucun historique</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {requests.filter(r => r.status === 'COMPLETED').map(req => {
+                const category = equipmentCategories.find(c => c.id === req.category);
+                return (
+                  <div key={req.id} className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-bold text-slate-900">{req.title}</span>
+                          <span className="text-xs bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded font-medium">✅ Terminée</span>
+                        </div>
+                        <p className="text-sm text-slate-600 mb-2">{req.description}</p>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                          <span>{category?.icon} {category?.label}</span>
+                          {req.completed_at && <span>📅 Terminée le {new Date(req.completed_at).toLocaleDateString('fr-FR')}</span>}
+                          {req.actual_cost > 0 && <span>💰 Coût: {req.actual_cost.toLocaleString('fr-FR')} FCFA</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal Demande */}
+      {showRequestForm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-6 py-4 rounded-t-xl flex items-center justify-between sticky top-0">
+              <h3 className="text-lg font-bold">
+                {editingRequest ? 'Modifier la demande' : 'Nouvelle demande de maintenance'}
+              </h3>
+              <button onClick={() => { setShowRequestForm(false); setEditingRequest(null); }} className="hover:bg-white/20 p-2 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Type *</label>
+                  <select
+                    value={requestForm.type}
+                    onChange={(e) => setRequestForm({ ...requestForm, type: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    {maintenanceTypes.map(t => (
+                      <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Catégorie *</label>
+                  <select
+                    value={requestForm.category}
+                    onChange={(e) => setRequestForm({ ...requestForm, category: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    {equipmentCategories.map(c => (
+                      <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Équipement (optionnel)</label>
+                <select
+                  value={requestForm.equipment_id}
+                  onChange={(e) => setRequestForm({ ...requestForm, equipment_id: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">-- Aucun --</option>
+                  {equipment.map(eq => (
+                    <option key={eq.id} value={eq.id}>{eq.name} ({eq.location})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Titre *</label>
+                <input
+                  type="text"
+                  value={requestForm.title}
+                  onChange={(e) => setRequestForm({ ...requestForm, title: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Ex: Climatisation chambre 201 en panne"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Description *</label>
+                <textarea
+                  value={requestForm.description || ''}
+                  onChange={(e) => setRequestForm({ ...requestForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Décrivez le problème ou l'entretien nécessaire..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Priorité</label>
+                  <select
+                    value={requestForm.priority}
+                    onChange={(e) => setRequestForm({ ...requestForm, priority: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    {priorities.map(p => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Coût estimé (FCFA)</label>
+                  <input
+                    type="number"
+                    value={requestForm.estimated_cost}
+                    onChange={(e) => setRequestForm({ ...requestForm, estimated_cost: Number(e.target.value) })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Assigné à</label>
+                <input
+                  type="text"
+                  value={requestForm.assigned_to}
+                  onChange={(e) => setRequestForm({ ...requestForm, assigned_to: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Nom du technicien..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
+                <textarea
+                  value={requestForm.notes || ''}
+                  onChange={(e) => setRequestForm({ ...requestForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Informations supplémentaires..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => { setShowRequestForm(false); setEditingRequest(null); }}
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2.5 rounded-lg"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleSaveRequest}
+                  disabled={loading}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50"
+                >
+                  {loading ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Équipement */}
+      {showEquipmentForm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="bg-gradient-to-r from-slate-600 to-slate-800 text-white px-6 py-4 rounded-t-xl flex items-center justify-between sticky top-0">
+              <h3 className="text-lg font-bold">
+                {editingEquipment ? 'Modifier l\'équipement' : 'Nouvel équipement'}
+              </h3>
+              <button onClick={() => { setShowEquipmentForm(false); setEditingEquipment(null); }} className="hover:bg-white/20 p-2 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Nom *</label>
+                  <input
+                    type="text"
+                    value={equipmentForm.name}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, name: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Ex: Clim split 2CV"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Catégorie *</label>
+                  <select
+                    value={equipmentForm.category}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, category: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    {equipmentCategories.map(c => (
+                      <option key={c.id} value={c.id}>{c.icon} {c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Emplacement</label>
+                <input
+                  type="text"
+                  value={equipmentForm.location}
+                  onChange={(e) => setEquipmentForm({ ...equipmentForm, location: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Ex: Chambre 201, Cuisine, Local technique..."
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Marque</label>
+                  <input
+                    type="text"
+                    value={equipmentForm.brand}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, brand: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Modèle</label>
+                  <input
+                    type="text"
+                    value={equipmentForm.model}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, model: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">N° Série</label>
+                  <input
+                    type="text"
+                    value={equipmentForm.serial_number}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, serial_number: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Date d'installation</label>
+                  <input
+                    type="date"
+                    value={equipmentForm.installation_date}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, installation_date: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Fin de garantie</label>
+                  <input
+                    type="date"
+                    value={equipmentForm.warranty_expiry}
+                    onChange={(e) => setEquipmentForm({ ...equipmentForm, warranty_expiry: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Notes</label>
+                <textarea
+                  value={equipmentForm.notes || ''}
+                  onChange={(e) => setEquipmentForm({ ...equipmentForm, notes: e.target.value })}
+                  rows={2}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => { setShowEquipmentForm(false); setEditingEquipment(null); }}
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2.5 rounded-lg"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleSaveEquipment}
+                  disabled={loading}
+                  className="flex-1 bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50"
+                >
+                  {loading ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Préventive */}
+      {showPreventiveForm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-4 rounded-t-xl flex items-center justify-between sticky top-0">
+              <h3 className="text-lg font-bold">Nouvelle tâche préventive</h3>
+              <button onClick={() => setShowPreventiveForm(false)} className="hover:bg-white/20 p-2 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Équipement (optionnel)</label>
+                <select
+                  value={preventiveForm.equipment_id}
+                  onChange={(e) => setPreventiveForm({ ...preventiveForm, equipment_id: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">-- Aucun --</option>
+                  {equipment.map(eq => (
+                    <option key={eq.id} value={eq.id}>{eq.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Titre *</label>
+                <input
+                  type="text"
+                  value={preventiveForm.title}
+                  onChange={(e) => setPreventiveForm({ ...preventiveForm, title: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Ex: Révision climatiseurs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Description</label>
+                <textarea
+                  value={preventiveForm.description || ''}
+                  onChange={(e) => setPreventiveForm({ ...preventiveForm, description: e.target.value })}
+                  rows={2}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Détails de l'entretien..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Fréquence</label>
+                  <select
+                    value={preventiveForm.frequency}
+                    onChange={(e) => setPreventiveForm({ ...preventiveForm, frequency: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="WEEKLY">Hebdomadaire</option>
+                    <option value="MONTHLY">Mensuelle</option>
+                    <option value="QUARTERLY">Trimestrielle</option>
+                    <option value="SEMI_ANNUAL">Semestrielle</option>
+                    <option value="ANNUAL">Annuelle</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">Prochaine date *</label>
+                  <input
+                    type="date"
+                    value={preventiveForm.next_date}
+                    onChange={(e) => setPreventiveForm({ ...preventiveForm, next_date: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Assigné à</label>
+                <input
+                  type="text"
+                  value={preventiveForm.assigned_to}
+                  onChange={(e) => setPreventiveForm({ ...preventiveForm, assigned_to: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Nom du technicien..."
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowPreventiveForm(false)}
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-2.5 rounded-lg"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleSavePreventive}
+                  disabled={loading}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50"
+                >
+                  {loading ? 'Enregistrement...' : 'Créer'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

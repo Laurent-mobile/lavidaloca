@@ -16,7 +16,8 @@ import {
   Receipt,
   TrendingDown,
   X,
-  BookOpen, // ✅ Ajout de l'icône pour le menu
+  BookOpen,
+  Landmark, // ✅ Ajout de l'icône Banque
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -43,7 +44,7 @@ const MENU_ITEMS = [
       { label: 'Caisse', href: '/restaurant/caisse', icon: DollarSign, badgeKey: 'pending', roles: ['ADMIN', 'MANAGER', 'CASHIER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
       { label: 'Commandes', href: '/restaurant/commandes', icon: ClipboardList, roles: ['ADMIN', 'MANAGER', 'SERVER', 'CHEF', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
       { label: 'Cuisine / Bar', href: '/restaurant/cuisine', icon: ChefHat, badgeKey: 'kitchen', roles: ['ADMIN', 'MANAGER', 'CHEF', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
-      { label: 'Gestion du Menu', href: '/restaurant/menu', icon: BookOpen, roles: ['ADMIN', 'MANAGER', 'CHEF', 'DIRECTOR', 'RESTAURANT_MANAGER'] }, // ✅ NOUVEAU LIEN
+      { label: 'Gestion du Menu', href: '/restaurant/menu', icon: BookOpen, roles: ['ADMIN', 'MANAGER', 'CHEF', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
     ],
   },
   {
@@ -54,7 +55,18 @@ const MENU_ITEMS = [
       { label: 'Commandes Fourn.', href: '/restaurant/commandes-frs', icon: Receipt, roles: ['ADMIN', 'MANAGER', 'STOCK_MANAGER', 'DIRECTOR', 'RESTAURANT_MANAGER'] },
       { label: 'Dépenses', href: '/restaurant/depenses', icon: TrendingDown, roles: ['ADMIN', 'MANAGER', 'CASHIER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
       { label: 'Historique Caisses', href: '/restaurant/historique-caisse', icon: Receipt, roles: ['ADMIN', 'MANAGER', 'CASHIER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER'] },
-  
+    ],
+  },
+  // ✅ NOUVELLE SECTION SÉPARÉE : BANQUE
+  {
+    section: 'Banque',
+    items: [
+      { 
+        label: 'Comptes & Rapprochement', 
+        href: '/banque', 
+        icon: Landmark, 
+        roles: ['ADMIN', 'MANAGER', 'DIRECTOR', 'RESTAURANT_MANAGER', 'RESTAURANT_CASHIER', 'CASHIER'] 
+      },
     ],
   },
   {

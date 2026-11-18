@@ -3,19 +3,18 @@ import './globals.css'; // ✅ Chemin corrigé
 
 export const metadata: Metadata = {
   title: 'LA VIDA-LOCA',
-  description: 'Système de gestion Hôtel & Restaurant',
+  description: 'Hôtel • Restaurant • Lounge - Ouagadougou',
+  icons: {
+    icon: '/logo.png',           // ✅ Chemin vers votre logo
+    shortcut: '/logo.png',
+    apple: '/logo.png',
+  },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr">
-      <body className="antialiased">
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

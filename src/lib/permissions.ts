@@ -3,11 +3,25 @@ export type UserRole =
   | 'SERVER' | 'CHEF' | 'BARTENDER' | 'CASHIER' | 'HOUSEKEEPING';
 
 export interface Module {
-  id: string; name: string; icon: string; path: string;
-  section: 'HOTEL' | 'RESTAURANT' | 'ADMIN'; roles: UserRole[];
+  id: string; 
+  name: string; 
+  icon: string; 
+  path: string;
+  section: 'PRINCIPAL' | 'HOTEL' | 'RESTAURANT' | 'BANQUE' | 'ADMIN'; 
+  roles: UserRole[];
 }
 
 export const MODULES: Module[] = [
+  // 🏠 PRINCIPAL (Tableau de bord unifié)
+  { 
+    id: 'unified-dashboard', 
+    name: 'Tableau de bord', 
+    icon: 'LayoutDashboard', 
+    path: '/', // ✅ Pointe vers src/app/(app)/page.tsx
+    section: 'PRINCIPAL', 
+    roles: ['DIRECTOR', 'RECEPTIONIST', 'RESTAURANT_MANAGER', 'SERVER', 'CHEF', 'BARTENDER', 'CASHIER', 'HOUSEKEEPING'] 
+  },
+
   // 🏨 HÔTEL
   { id: 'hotel-dashboard', name: 'Tableau de bord', icon: 'LayoutDashboard', path: '/hotel', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST', 'RESTAURANT_MANAGER'] },
   { id: 'rooms', name: 'Chambres', icon: 'Bed', path: '/hotel/chambres', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST', 'HOUSEKEEPING'] },
@@ -35,6 +49,9 @@ export const MODULES: Module[] = [
   { id: 'resto-reports', name: 'Rapports Resto', icon: 'BarChart3', path: '/restaurant/rapports', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
   { id: 'employees', name: 'Employés', icon: 'Users', path: '/restaurant/employes', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
 
+  // 🏦 BANQUE
+  { id: 'banque-comptes', name: 'Comptes & Rapprochement', icon: 'Landmark', path: '/banque', section: 'BANQUE', roles: ['DIRECTOR', 'CASHIER', 'RESTAURANT_MANAGER', 'RECEPTIONIST'] },
+
   // ⚙️ ADMIN
   { id: 'settings', name: 'Paramètres', icon: 'Settings', path: '/parametres', section: 'ADMIN', roles: ['DIRECTOR'] },
   { id: 'users', name: 'Utilisateurs', icon: 'UserCog', path: '/utilisateurs', section: 'ADMIN', roles: ['DIRECTOR'] },
@@ -43,15 +60,19 @@ export const MODULES: Module[] = [
 export function getModulesForRole(role: UserRole): Module[] {
   return MODULES.filter(m => m.roles.includes(role));
 }
+
 export function hasAccess(role: UserRole, moduleId: string): boolean {
   const m = MODULES.find(x => x.id === moduleId);
   return m ? m.roles.includes(role) : false;
 }
+
 export function getModulesBySection(role: UserRole): Record<string, Module[]> {
   const modules = getModulesForRole(role);
   return {
+    PRINCIPAL: modules.filter(m => m.section === 'PRINCIPAL'),
     HOTEL: modules.filter(m => m.section === 'HOTEL'),
     RESTAURANT: modules.filter(m => m.section === 'RESTAURANT'),
+    BANQUE: modules.filter(m => m.section === 'BANQUE'),
     ADMIN: modules.filter(m => m.section === 'ADMIN'),
   };
 }

@@ -8,7 +8,8 @@ import {
     LayoutDashboard, Bed, Calendar, Users, Utensils, DollarSign,
     BarChart3, Moon, Grid3X3, ClipboardList, ChefHat, BookOpen,
     Package, Truck, ShoppingCart, TrendingDown, History, Settings,
-    UserCog, Building, ChevronDown, ChevronRight, Palmtree, LogOut
+    UserCog, Building, ChevronDown, ChevronRight, Palmtree, LogOut,
+    Wrench, Landmark // ✅ Wrench ajouté aussi (il manquait pour Maintenance)
 } from 'lucide-react';
 
 // Mapping des icônes
@@ -16,7 +17,7 @@ const iconMap: Record<string, any> = {
     LayoutDashboard, Bed, Calendar, Users, Utensils, DollarSign,
     BarChart3, Moon, Grid3X3, ClipboardList, ChefHat, BookOpen,
     Package, Truck, ShoppingCart, TrendingDown, History, Settings,
-    UserCog, Building
+    UserCog, Building, Wrench, Landmark // ✅ Ajoutés
 };
 
 interface Props {
@@ -30,8 +31,10 @@ export default function UnifiedSidebar({ role, siteName, userEmail, onLogout }: 
     const pathname = usePathname();
     const modulesBySection = getModulesBySection(role);
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+        PRINCIPAL: true,
         HOTEL: true,
         RESTAURANT: true,
+        BANQUE: true, // ✅ Section Banque ouverte par défaut
         ADMIN: role === 'DIRECTOR',
     });
 
@@ -87,26 +90,33 @@ export default function UnifiedSidebar({ role, siteName, userEmail, onLogout }: 
     return (
         <aside className="w-64 bg-slate-900 text-white flex flex-col h-screen sticky top-0">
             {/* Header */}
-            <div className="p-4 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
-                        <Palmtree className="w-6 h-6 text-yellow-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <h1 className="font-bold text-sm truncate">LA VIDA-LOCA</h1>
-                        <p className="text-xs text-slate-400 truncate">{siteName}</p>
-                    </div>
-                </div>
-                <div className="mt-3 px-2 py-1 bg-slate-800 rounded text-xs">
-                    <span className="text-slate-400">Rôle : </span>
-                    <span className="font-semibold text-indigo-400">{role.replace('_', ' ')}</span>
-                </div>
-            </div>
+{/* Header */}
+<div className="p-4 border-b border-slate-800">
+  <div className="flex items-center gap-3">
+    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center p-1 shadow-sm">
+      <img
+        src="/logo.png"
+        alt="LA VIDA-LOCA"
+        className="w-full h-full object-contain"
+      />
+    </div>
+    <div className="flex-1 min-w-0">
+      <h1 className="font-bold text-sm truncate">LA VIDA-LOCA</h1>
+      <p className="text-xs text-slate-400 truncate">{siteName}</p>
+    </div>
+  </div>
+  <div className="mt-3 px-2 py-1 bg-slate-800 rounded text-xs">
+    <span className="text-slate-400">Rôle : </span>
+    <span className="font-semibold text-indigo-400">{role.replace('_', ' ')}</span>
+  </div>
+</div>
 
             {/* Navigation */}
             <nav className="flex-1 overflow-y-auto p-3">
+                {renderSection('PRINCIPAL', '🏠', modulesBySection.PRINCIPAL || [], 'PRINCIPAL')}
                 {renderSection('HÔTEL', '🏨', modulesBySection.HOTEL, 'HOTEL')}
                 {renderSection('RESTAURANT', '🍽️', modulesBySection.RESTAURANT, 'RESTAURANT')}
+                {renderSection('BANQUE', '🏦', modulesBySection.BANQUE || [], 'BANQUE')} {/* ✅ NOUVELLE SECTION */}
                 {renderSection('ADMINISTRATION', '⚙️', modulesBySection.ADMIN, 'ADMIN')}
             </nav>
 

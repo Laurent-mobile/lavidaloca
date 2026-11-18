@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useProfile } from '@/hooks/useHotel';
 import RoomServiceOrderDetailModal from '@/components/RoomServiceOrderDetailModal';
@@ -37,6 +36,7 @@ interface RoomServiceOrder {
   paid_at?: string;
   items: any[];
   server_name?: string;
+  order_type?: string;
 }
 
 export default function RoomServicePage() {
@@ -46,7 +46,6 @@ export default function RoomServicePage() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'new' | 'pending' | 'history'>('new');
   
-  // États pour nouvelle commande
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>('ALL');
@@ -60,38 +59,37 @@ export default function RoomServicePage() {
   const [servers, setServers] = useState<any[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   
-  // États pour les commandes
   const [pendingOrders, setPendingOrders] = useState<RoomServiceOrder[]>([]);
   const [paidOrders, setPaidOrders] = useState<RoomServiceOrder[]>([]);
-  // ✅ Période calibrée sur la semaine en cours (lundi → dimanche)
-const getWeekRange = () => {
-  const now = new Date();
-  const day = now.getDay(); // 0=dimanche, 1=lundi...
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diffToMonday);
-  monday.setHours(0, 0, 0, 0);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
-  return {
-    start: monday.toISOString().split('T')[0],
-    end: sunday.toISOString().split('T')[0],
+  
+  const getWeekRange = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMonday);
+    monday.setHours(0, 0, 0, 0);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    return {
+      start: monday.toISOString().split('T')[0],
+      end: sunday.toISOString().split('T')[0],
+    };
   };
-};
 
-const weekRange = getWeekRange();
-const [startDate, setStartDate] = useState(weekRange.start);
-const [endDate, setEndDate] = useState(weekRange.end);
+  const weekRange = getWeekRange();
+  const [startDate, setStartDate] = useState(weekRange.start);
+  const [endDate, setEndDate] = useState(weekRange.end);
 
   useEffect(() => {
-  if (siteId) {
-    loadMenuData();
-    loadOccupiedRooms();
-    loadPendingOrders();
-    loadPaidOrders();
-  }
-}, [siteId, startDate, endDate]);
+    if (siteId) {
+      loadMenuData();
+      loadOccupiedRooms();
+      loadPendingOrders();
+      loadPaidOrders();
+    }
+  }, [siteId, startDate, endDate]);
 
   const loadMenuData = async () => {
     try {
@@ -124,100 +122,85 @@ const [endDate, setEndDate] = useState(weekRange.end);
     }
   };
 
-const loadOccupiedRooms = async () => {
-  try {
-    // ✅ ÉTAPE 1 : Charger les chambres avec statut OCCUPIED (source de vérité)
-    const { data: occupiedRooms, error: roomsError } = await supabase
-      .from('rooms')
-      .select(`
-        id, number, floor, status, category_id,
-        room_categories (code, name, base_price)
-      `)
-      .eq('site_id', siteId)
-      .eq('status', 'OCCUPIED')
-      .order('number', { ascending: true });
+  const loadOccupiedRooms = async () => {
+    try {
+      const { data: occupiedRooms, error: roomsError } = await supabase
+        .from('rooms')
+        .select(`
+          id, number, floor, status, category_id,
+          room_categories (code, name, base_price)
+        `)
+        .eq('site_id', siteId)
+        .eq('status', 'OCCUPIED')
+        .order('number', { ascending: true });
 
-    if (roomsError) throw roomsError;
-    if (!occupiedRooms || occupiedRooms.length === 0) {
+      if (roomsError) throw roomsError;
+      if (!occupiedRooms || occupiedRooms.length === 0) {
+        setOccupiedRooms([]);
+        return;
+      }
+
+      const formatted = [];
+      for (const room of occupiedRooms) {
+        const { data: stays } = await supabase
+          .from('stays')
+          .select('id, customer_id, folio_balance, reservation_id')
+          .eq('room_id', room.id)
+          .eq('status', 'IN_HOUSE')
+          .limit(1);
+
+        const stay = stays?.[0] || null;
+
+        let customerInfo = { first_name: 'Client', last_name: 'Inconnu', phone: '' };
+        if (stay?.customer_id) {
+          const { data: customer } = await supabase
+            .from('customers')
+            .select('first_name, last_name, phone')
+            .eq('id', stay.customer_id)
+            .maybeSingle();
+          if (customer) customerInfo = customer;
+        }
+
+        formatted.push({
+          id: stay?.id || room.id,
+          room_id: room.id,
+          room_number: room.number,
+          folio_balance: stay?.folio_balance || 0,
+          has_stay: !!stay,
+          rooms: { id: room.id, number: room.number },
+          customers: customerInfo,
+        });
+      }
+      setOccupiedRooms(formatted);
+    } catch (error: any) {
+      console.error('❌ Erreur chargement chambres:', error?.message || error);
       setOccupiedRooms([]);
-      return;
     }
+  };
 
-    console.log(`🛏️ ${occupiedRooms.length} chambre(s) OCCUPIÉE(s) trouvée(s)`);
-
-    // ✅ ÉTAPE 2 : Pour chaque chambre, récupérer le séjour actif et le client
-    const formatted = [];
-    for (const room of occupiedRooms) {
-      // Chercher un séjour IN_HOUSE pour cette chambre
-      const { data: stays } = await supabase
-        .from('stays')
-        .select('id, customer_id, folio_balance, reservation_id')
-        .eq('room_id', room.id)
-        .eq('status', 'IN_HOUSE')
-        .limit(1);
-
-      const stay = stays?.[0] || null;
-
-      // Récupérer les infos du client
-      let customerInfo = { first_name: 'Client', last_name: 'Inconnu', phone: '' };
-      if (stay?.customer_id) {
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('first_name, last_name, phone')
-          .eq('id', stay.customer_id)
-          .maybeSingle();
-        if (customer) customerInfo = customer;
-      }
-
-      // Récupérer le numéro de réservation si disponible
-      let reservationNumber = '';
-      if (stay?.reservation_id) {
-        const { data: res } = await supabase
-          .from('reservations')
-          .select('number')
-          .eq('id', stay.reservation_id)
-          .maybeSingle();
-        if (res) reservationNumber = res.number;
-      }
-
-      formatted.push({
-        id: stay?.id || room.id,
-        room_id: room.id,
-        room_number: room.number,
-        folio_balance: stay?.folio_balance || 0,
-        has_stay: !!stay,
-        reservation_number: reservationNumber,
-        rooms: { id: room.id, number: room.number },
-        customers: customerInfo,
-        room_categories: room.room_categories,
-      });
-    }
-
-    console.log(`✅ ${formatted.length} chambre(s) occupée(s) chargée(s) pour Room Service`);
-    setOccupiedRooms(formatted);
-  } catch (error: any) {
-    console.error('❌ Erreur chargement chambres:', error?.message || error);
-    setOccupiedRooms([]);
-  }
-};
-
+  // ✅ CORRECTION : Inclure TOUTES les commandes liées à une chambre
+  // (ROOM_SERVICE + TABLE avec stay_id ou room_id)
   const loadPendingOrders = async () => {
     try {
       const { data } = await supabase
         .from('restaurant_orders')
         .select(`
-          id, order_number, stay_id, room_id, total_amount, status, created_at, server_id,
+          id, order_number, order_type, stay_id, room_id, total_amount, status, created_at, server_id,
           restaurant_order_items(id, item_name, quantity, unit_price, total_price)
         `)
         .eq('site_id', siteId)
-        .eq('order_type', 'ROOM_SERVICE')
-        .in('status', ['ROOM_CHARGE', 'SENT', 'READY'])
+        // ✅ Toutes les commandes en cours, peu importe order_type
+        .in('status', ['ROOM_CHARGE', 'SENT', 'READY', 'SERVED'])
         .order('created_at', { ascending: false });
 
+      // Filtrer côté client : ne garder que celles liées à une chambre
+      const roomLinked = (data || []).filter(o => o.stay_id || o.room_id);
+
       const formatted: RoomServiceOrder[] = [];
-      for (const order of (data || [])) {
+      for (const order of roomLinked) {
         let roomNumber = '—';
         let customerName = 'Client';
+        
         if (order.room_id) {
           const { data: room } = await supabase
             .from('rooms')
@@ -226,6 +209,7 @@ const loadOccupiedRooms = async () => {
             .maybeSingle();
           if (room) roomNumber = room.number;
         }
+        
         if (order.stay_id) {
           const { data: stay } = await supabase
             .from('stays')
@@ -241,6 +225,7 @@ const loadOccupiedRooms = async () => {
             if (cust) customerName = `${cust.last_name} ${cust.first_name}`;
           }
         }
+        
         let serverName = '—';
         if (order.server_id) {
           const { data: srv } = await supabase
@@ -250,6 +235,7 @@ const loadOccupiedRooms = async () => {
             .maybeSingle();
           if (srv) serverName = `${srv.first_name} ${srv.last_name}`;
         }
+        
         formatted.push({
           ...order,
           room_number: roomNumber,
@@ -265,30 +251,32 @@ const loadOccupiedRooms = async () => {
   };
 
   const loadPaidOrders = async () => {
-  try {
-    // ✅ Utiliser la période startDate → endDate
-    const startOfDay = new Date(startDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(endDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    try {
+      const startOfDay = new Date(startDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(endDate);
+      endOfDay.setHours(23, 59, 59, 999);
 
-    const { data } = await supabase
-      .from('restaurant_orders')
-      .select(`
-        id, order_number, stay_id, room_id, total_amount, status, created_at, paid_at, server_id,
-        restaurant_order_items(id, item_name, quantity, unit_price, total_price)
-      `)
-      .eq('site_id', siteId)
-      .eq('order_type', 'ROOM_SERVICE')
-      .eq('status', 'PAID')
-      .gte('paid_at', startOfDay.toISOString())
-      .lte('paid_at', endOfDay.toISOString())
-      .order('paid_at', { ascending: false });
+      const { data } = await supabase
+        .from('restaurant_orders')
+        .select(`
+          id, order_number, order_type, stay_id, room_id, total_amount, status, created_at, paid_at, server_id,
+          restaurant_order_items(id, item_name, quantity, unit_price, total_price)
+        `)
+        .eq('site_id', siteId)
+        .eq('status', 'PAID')
+        .gte('paid_at', startOfDay.toISOString())
+        .lte('paid_at', endOfDay.toISOString())
+        .order('paid_at', { ascending: false });
+
+      // Filtrer : commandes liées à une chambre
+      const roomLinked = (data || []).filter(o => o.stay_id || o.room_id);
 
       const formatted: RoomServiceOrder[] = [];
-      for (const order of (data || [])) {
+      for (const order of roomLinked) {
         let roomNumber = '—';
         let customerName = 'Client';
+        
         if (order.room_id) {
           const { data: room } = await supabase
             .from('rooms')
@@ -297,6 +285,7 @@ const loadOccupiedRooms = async () => {
             .maybeSingle();
           if (room) roomNumber = room.number;
         }
+        
         if (order.stay_id) {
           const { data: stay } = await supabase
             .from('stays')
@@ -312,6 +301,7 @@ const loadOccupiedRooms = async () => {
             if (cust) customerName = `${cust.last_name} ${cust.first_name}`;
           }
         }
+        
         formatted.push({
           ...order,
           room_number: roomNumber,
@@ -347,10 +337,6 @@ const loadOccupiedRooms = async () => {
     }).filter(c => c.quantity > 0));
   };
 
-  const removeFromCart = (itemId: string) => {
-    setCart(prev => prev.filter(c => c.id !== itemId));
-  };
-
   const cartTotal = cart.reduce((sum, item) => sum + item.total_price, 0);
 
   const handleSendOrder = async () => {
@@ -368,6 +354,7 @@ const loadOccupiedRooms = async () => {
         const { data: newStay, error: stayError } = await supabase
           .from('stays')
           .insert({
+            site_id: siteId,
             reservation_id: selectedStay.reservation_id,
             room_id: selectedStay.room_id,
             customer_id: null,
@@ -413,7 +400,7 @@ const loadOccupiedRooms = async () => {
       }));
       await supabase.from('restaurant_order_items').insert(orderItems);
 
-      alert(`✅ Commande ${orderNumber} envoyée en cuisine !\nChambre ${selectedStay.rooms?.number}\nMontant : ${cartTotal.toLocaleString('fr-FR')} F`);
+      alert(`✅ Commande ${orderNumber} envoyée en cuisine !\nChambre ${selectedStay.rooms?.number}\nMontant : ${cartTotal.toLocaleString('fr-FR')} fcfa`);
 
       setCart([]);
       setSelectedStay(null);
@@ -435,12 +422,10 @@ const loadOccupiedRooms = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // 1. Marquer la commande comme payée
       await supabase.from('restaurant_orders')
         .update({ status: 'PAID', paid_at: new Date().toISOString() })
         .eq('id', order.id);
 
-      // 2. Créer l'imputation dans room_charges
       if (order.stay_id) {
         await supabase.from('room_charges').insert({
           site_id: siteId,
@@ -448,18 +433,12 @@ const loadOccupiedRooms = async () => {
           room_id: order.room_id,
           order_id: order.id,
           charge_type: 'RESTAURANT',
-          description: `Room Service - Commande ${order.order_number}`,
+          description: `Commande ${order.order_number}`,
           amount: order.total_amount,
           charge_date: new Date().toISOString().split('T')[0],
           charged_by: user?.id
         });
 
-        // 3. Mettre à jour le folio
-        await supabase.from('stays')
-          .update({ folio_balance: supabase.rpc('inc_folio', { stay_id: order.stay_id, amount: order.total_amount }) })
-          .eq('id', order.stay_id);
-        
-        // Fallback simple si la RPC n'existe pas
         const { data: stay } = await supabase
           .from('stays')
           .select('folio_balance')
@@ -472,7 +451,7 @@ const loadOccupiedRooms = async () => {
         }
       }
 
-      alert(`✅ Paiement enregistré !\nImputé à la chambre ${order.room_number}\nMontant : ${order.total_amount.toLocaleString('fr-FR')} F`);
+      alert(`✅ Paiement enregistré !\nImputé à la chambre ${order.room_number}\nMontant : ${order.total_amount.toLocaleString('fr-FR')} fcfa`);
       
       loadPendingOrders();
       loadPaidOrders();
@@ -502,7 +481,6 @@ const loadOccupiedRooms = async () => {
 
   return (
     <div className="p-6 space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -513,21 +491,20 @@ const loadOccupiedRooms = async () => {
         </div>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-4">
           <div className="text-xs font-medium text-amber-700 mb-1 flex items-center gap-1">
             <Clock className="w-4 h-4" /> En cours
           </div>
           <div className="text-2xl font-bold text-amber-900">{pendingOrders.length}</div>
-          <div className="text-xs text-amber-700">{Number(totalPending).toLocaleString('fr-FR')} F</div>
+          <div className="text-xs text-amber-700">{Number(totalPending).toLocaleString('fr-FR')} fcfa</div>
         </div>
         <div className="bg-emerald-50 border-2 border-emerald-200 rounded-lg p-4">
           <div className="text-xs font-medium text-emerald-700 mb-1 flex items-center gap-1">
-            <TrendingUp className="w-4 h-4" /> Encaissé aujourd'hui
+            <TrendingUp className="w-4 h-4" /> Encaissé (période)
           </div>
           <div className="text-2xl font-bold text-emerald-900">{paidOrders.length}</div>
-          <div className="text-xs text-emerald-700">{Number(totalPaid).toLocaleString('fr-FR')} F</div>
+          <div className="text-xs text-emerald-700">{Number(totalPaid).toLocaleString('fr-FR')} fcfa</div>
         </div>
         <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
           <div className="text-xs font-medium text-blue-700 mb-1 flex items-center gap-1">
@@ -538,8 +515,7 @@ const loadOccupiedRooms = async () => {
         </div>
       </div>
 
-      {/* Onglets */}
-      <div className="flex gap-2 border-b border-slate-200">
+      <div className="flex gap-2 border-b border-slate-200 flex-wrap">
         <button
           onClick={() => setActiveTab('new')}
           className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${
@@ -565,81 +541,70 @@ const loadOccupiedRooms = async () => {
           <FileText className="w-4 h-4" /> Historique ({paidOrders.length})
         </button>
         <div className="ml-auto flex items-center gap-2">
-  <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
-    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-    <input
-      type="date"
-      value={startDate}
-      max={endDate}
-      onChange={(e) => setStartDate(e.target.value)}
-      className="text-xs font-medium text-slate-700 outline-none bg-transparent"
-    />
-    <span className="text-xs text-slate-400">→</span>
-    <input
-      type="date"
-      value={endDate}
-      min={startDate}
-      onChange={(e) => setEndDate(e.target.value)}
-      className="text-xs font-medium text-slate-700 outline-none bg-transparent"
-    />
-  </div>
-  <button
-    onClick={() => {
-      const today = new Date().toISOString().split('T')[0];
-      setStartDate(today);
-      setEndDate(today);
-    }}
-    className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200 transition-colors"
-    title="Aujourd'hui uniquement"
-  >
-    Jour
-  </button>
-  <button
-    onClick={() => {
-      const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const today = now.toISOString().split('T')[0];
-      setStartDate(weekAgo);
-      setEndDate(today);
-    }}
-    className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-1 rounded hover:bg-amber-200 transition-colors"
-    title="7 derniers jours"
-  >
-    7j
-  </button>
-  <button
-    onClick={() => {
-      const now = new Date();
-      const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const today = now.toISOString().split('T')[0];
-      setStartDate(first);
-      setEndDate(today);
-    }}
-    className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded hover:bg-emerald-200 transition-colors"
-    title="Du 1er du mois à aujourd'hui"
-  >
-    Mois
-  </button>
-  <button
-    onClick={() => {
-      const range = getWeekRange();
-      setStartDate(range.start);
-      setEndDate(range.end);
-    }}
-    className="text-[10px] font-semibold bg-purple-100 text-purple-700 px-2 py-1 rounded hover:bg-purple-200 transition-colors"
-    title="Semaine en cours (lundi → dimanche)"
-  >
-    Semaine
-  </button>
-</div>
+          <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-sm">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="date"
+              value={startDate}
+              max={endDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="text-xs font-medium text-slate-700 outline-none bg-transparent"
+            />
+            <span className="text-xs text-slate-400">→</span>
+            <input
+              type="date"
+              value={endDate}
+              min={startDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="text-xs font-medium text-slate-700 outline-none bg-transparent"
+            />
+          </div>
+          <button
+            onClick={() => {
+              const today = new Date().toISOString().split('T')[0];
+              setStartDate(today);
+              setEndDate(today);
+            }}
+            className="text-[10px] font-semibold bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200"
+          >
+            Jour
+          </button>
+          <button
+            onClick={() => {
+              const now = new Date();
+              setStartDate(new Date(now.getTime() - 7 * 86400000).toISOString().split('T')[0]);
+              setEndDate(now.toISOString().split('T')[0]);
+            }}
+            className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-1 rounded hover:bg-amber-200"
+          >
+            7j
+          </button>
+          <button
+            onClick={() => {
+              const now = new Date();
+              setStartDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]);
+              setEndDate(now.toISOString().split('T')[0]);
+            }}
+            className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded hover:bg-emerald-200"
+          >
+            Mois
+          </button>
+          <button
+            onClick={() => {
+              const range = getWeekRange();
+              setStartDate(range.start);
+              setEndDate(range.end);
+            }}
+            className="text-[10px] font-semibold bg-purple-100 text-purple-700 px-2 py-1 rounded hover:bg-purple-200"
+          >
+            Semaine
+          </button>
+        </div>
       </div>
 
-      {/* ================= NOUVELLE COMMANDE ================= */}
       {activeTab === 'new' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Colonne gauche : Menu */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Sélection chambre */}
             <div className="bg-indigo-50 border-2 border-indigo-200 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Hotel className="w-5 h-5 text-indigo-700" />
@@ -661,7 +626,7 @@ const loadOccupiedRooms = async () => {
                         👤 {selectedStay.customers?.first_name} {selectedStay.customers?.last_name}
                       </div>
                       <div className="text-xs text-indigo-600 mt-1 font-semibold">
-                        Solde folio: {Number(selectedStay.folio_balance || 0).toLocaleString('fr-FR')} F
+                        Solde folio: {Number(selectedStay.folio_balance || 0).toLocaleString('fr-FR')} fcfa
                       </div>
                     </div>
                     <button
@@ -693,7 +658,6 @@ const loadOccupiedRooms = async () => {
               )}
             </div>
 
-            {/* Menu */}
             <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
               <div className="bg-slate-100 px-4 py-3 border-b border-slate-200">
                 <h3 className="font-semibold text-slate-900 text-sm mb-2">📋 Menu ({menuItems.length} articles)</h3>
@@ -741,7 +705,7 @@ const loadOccupiedRooms = async () => {
                   >
                     <div className="font-semibold text-sm text-slate-900">{item.name}</div>
                     <div className="text-indigo-700 font-bold text-sm mt-2">
-                      {Number(item.price).toLocaleString('fr-FR')} F
+                      {Number(item.price).toLocaleString('fr-FR')} fcfa
                     </div>
                     <div className="text-[10px] text-slate-400 mt-1">
                       {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : item.destination === 'BAR' ? '🍹 Bar' : '👨‍🍳 Les deux'}
@@ -755,7 +719,6 @@ const loadOccupiedRooms = async () => {
             </div>
           </div>
 
-          {/* Colonne droite : Panier */}
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 flex flex-col">
             <h4 className="font-bold text-slate-900 flex items-center gap-2 mb-3">
               <ShoppingCart className="w-5 h-5" />
@@ -783,7 +746,7 @@ const loadOccupiedRooms = async () => {
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
-                      <span className="font-bold text-sm">{item.total_price.toLocaleString('fr-FR')} F</span>
+                      <span className="font-bold text-sm">{item.total_price.toLocaleString('fr-FR')} fcfa</span>
                     </div>
                   </div>
                 ))
@@ -812,7 +775,7 @@ const loadOccupiedRooms = async () => {
               />
               <div className="flex justify-between items-center text-lg font-bold pt-2 border-t border-slate-200">
                 <span>Total</span>
-                <span className="text-indigo-600">{cartTotal.toLocaleString('fr-FR')} F</span>
+                <span className="text-indigo-600">{cartTotal.toLocaleString('fr-FR')} fcfa</span>
               </div>
               <button
                 onClick={handleSendOrder}
@@ -827,7 +790,6 @@ const loadOccupiedRooms = async () => {
         </div>
       )}
 
-      {/* ================= COMMANDES EN COURS ================= */}
       {activeTab === 'pending' && (
         <div>
           {pendingOrders.length === 0 ? (
@@ -837,7 +799,7 @@ const loadOccupiedRooms = async () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {pendingOrders.map(order => (
+              {pendingOrders.map(order => (
                 <div
                   key={order.id}
                   onClick={() => setSelectedOrder(order)}
@@ -849,23 +811,33 @@ const loadOccupiedRooms = async () => {
                       <div className="text-xs text-slate-600">#{order.order_number}</div>
                       <div className="text-xs text-indigo-700 mt-1">👤 {order.customer_name}</div>
                       <div className="text-xs text-slate-500">👷 {order.server_name}</div>
+                      {order.order_type && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded mt-1 inline-block ${
+                          order.order_type === 'ROOM_SERVICE' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {order.order_type === 'ROOM_SERVICE' ? '🏨 Room Service' : '🍽️ Restaurant'}
+                        </span>
+                      )}
                     </div>
                     <div className="text-right">
                       <div className="text-xl font-bold text-amber-900">
-                        {Number(order.total_amount).toLocaleString('fr-FR')} F
+                        {Number(order.total_amount).toLocaleString('fr-FR')} fcfa
                       </div>
                       <div className="text-xs text-amber-700 bg-amber-200 px-2 py-0.5 rounded inline-block mt-1">
-                        {order.status === 'ROOM_CHARGE' ? 'Imputé' : 'À payer'}
+                        {order.status === 'ROOM_CHARGE' ? 'Imputé' : order.status === 'SENT' ? 'Envoyé' : 'Prêt'}
                       </div>
                     </div>
                   </div>
                   <div className="text-xs text-slate-500 mt-2 border-t border-amber-100 pt-2 space-y-1">
-                    {order.items.map((item: any, idx: number) => (
+                    {order.items.slice(0, 3).map((item: any, idx: number) => (
                       <div key={idx} className="flex justify-between">
                         <span>{item.quantity}x {item.item_name}</span>
-                        <span className="font-medium">{Number(item.total_price).toLocaleString('fr-FR')} F</span>
+                        <span className="font-medium">{Number(item.total_price).toLocaleString('fr-FR')} fcfa</span>
                       </div>
                     ))}
+                    {order.items.length > 3 && (
+                      <div className="text-[10px] text-slate-400 italic">+ {order.items.length - 3} autre(s) article(s)</div>
+                    )}
                   </div>
                   <div className="text-xs text-slate-400 mt-2">
                     🕐 {new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
@@ -873,7 +845,7 @@ const loadOccupiedRooms = async () => {
                   {order.status !== 'ROOM_CHARGE' && (
                     <button
                       onClick={(e) => {
-                        e.stopPropagation(); // ✅ Empêche d'ouvrir le modal détail quand on clique sur "Encaisser"
+                        e.stopPropagation();
                         handlePayOrder(order);
                       }}
                       disabled={loading}
@@ -890,59 +862,133 @@ const loadOccupiedRooms = async () => {
         </div>
       )}
 
-      {/* ================= HISTORIQUE ================= */}
       {activeTab === 'history' && (
-        <div>
-          {paidOrders.length === 0 ? (
-            <div className="text-center py-12 bg-slate-50 rounded-lg">
-              <FileText className="w-12 h-12 mx-auto mb-2 text-slate-300" />
-              <p className="text-sm text-slate-500">Aucune commande payée pour cette date</p>
-            </div>
-          ) : (
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-2 text-left">N°</th>
-                    <th className="px-4 py-2 text-left">Chambre</th>
-                    <th className="px-4 py-2 text-left">Client</th>
-                    <th className="px-4 py-2 text-left">Articles</th>
-                    <th className="px-4 py-2 text-right">Montant</th>
-                    <th className="px-4 py-2 text-left">Heure</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paidOrders.map(order => (
-                    <tr key={order.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-2 font-mono text-xs">{order.order_number}</td>
-                      <td className="px-4 py-2 font-semibold">🛏️ {order.room_number}</td>
-                      <td className="px-4 py-2">{order.customer_name}</td>
-                      <td className="px-4 py-2 text-xs">{order.items.length} article(s)</td>
-                      <td className="px-4 py-2 text-right font-bold text-emerald-700">
-                        {Number(order.total_amount).toLocaleString('fr-FR')} F
-                      </td>
-                      <td className="px-4 py-2 text-xs text-slate-500">
-                        {order.paid_at ? new Date(order.paid_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+  <div>
+    {paidOrders.length === 0 ? (
+      <div className="text-center py-12 bg-slate-50 rounded-lg">
+        <FileText className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+        <p className="text-sm text-slate-500">Aucune commande payée pour cette période</p>
+      </div>
+    ) : (
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-100 text-xs uppercase text-slate-600 font-semibold border-b border-slate-200">
+              <tr>
+                <th className="px-3 py-3 text-left">N° Commande</th>
+                <th className="px-3 py-3 text-left">Chambre / Client</th>
+                <th className="px-3 py-3 text-left">Date & Heure</th>
+                <th className="px-3 py-3 text-left">Articles</th>
+                <th className="px-3 py-3 text-right">Montant</th>
+                <th className="px-3 py-3 text-center">Statut</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {paidOrders.map(order => (
+                <tr key={order.id} className="hover:bg-slate-50 transition-colors">
+                  {/* Colonne 1 : N° Commande + Type */}
+                  <td className="px-3 py-3">
+                    <div className="font-mono font-bold text-slate-900 text-xs">#{order.order_number}</div>
+                    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded mt-1 ${
+                      order.order_type === 'ROOM_SERVICE' 
+                        ? 'bg-purple-100 text-purple-700' 
+                        : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {order.order_type === 'ROOM_SERVICE' ? '🏨 Room Service' : '🍽️ Restaurant'}
+                    </span>
+                  </td>
+
+                  {/* Colonne 2 : Chambre + Client */}
+                  <td className="px-3 py-3">
+                    <div className="font-semibold text-slate-900 text-xs flex items-center gap-1">
+                      🛏️ Ch. {order.room_number}
+                    </div>
+                    <div className="text-xs text-slate-600 mt-0.5">👤 {order.customer_name}</div>
+                  </td>
+
+                  {/* Colonne 3 : Date & Heure */}
+                  <td className="px-3 py-3">
+                    <div className="text-xs text-slate-700 flex items-center gap-1">
+                      <Calendar className="w-3 h-3 text-slate-400" />
+                      {new Date(order.paid_at || order.created_at).toLocaleDateString('fr-FR')}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5 ml-4">
+                      🕐 {new Date(order.paid_at || order.created_at).toLocaleTimeString('fr-FR', { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </div>
+                  </td>
+
+                  {/* Colonne 4 : Articles (liste compacte) */}
+                  <td className="px-3 py-3">
+                    <div className="text-xs text-slate-700 space-y-0.5">
+                      {order.items.slice(0, 3).map((item: any, idx: number) => (
+                        <div key={idx} className="flex justify-between gap-2">
+                          <span className="truncate">
+                            <span className="font-bold text-slate-900">{item.quantity}x</span> {item.item_name}
+                          </span>
+                          <span className="text-slate-500 whitespace-nowrap">
+                            {Number(item.total_price).toLocaleString('fr-FR')} fcfa
+                          </span>
+                        </div>
+                      ))}
+                      {order.items.length > 3 && (
+                        <div className="text-[10px] text-slate-400 italic">
+                          + {order.items.length - 3} autre(s)
+                        </div>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Colonne 5 : Montant */}
+                  <td className="px-3 py-3 text-right">
+                    <div className="font-bold text-emerald-900 text-sm">
+                      {Number(order.total_amount).toLocaleString('fr-FR')} fcfa
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      {order.items.length} article(s)
+                    </div>
+                  </td>
+
+                  {/* Colonne 6 : Statut */}
+                  <td className="px-3 py-3 text-center">
+                    <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium bg-emerald-100 text-emerald-800">
+                      <CheckCircle className="w-3 h-3" /> Payé
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-emerald-50 border-t-2 border-emerald-200">
+              <tr>
+                <td colSpan={4} className="px-3 py-3 text-right font-bold text-slate-700">
+                  TOTAL ({paidOrders.length} commande(s))
+                </td>
+                <td className="px-3 py-3 text-right font-bold text-emerald-900 text-base">
+                  {Number(totalPaid).toLocaleString('fr-FR')} fcfa
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
-      )}
+      </div>
+    )}
+  </div>
+)}
+
       <RoomServiceOrderDetailModal
-  siteId={siteId}
-  order={selectedOrder}
-  isOpen={!!selectedOrder}
-  onClose={() => setSelectedOrder(null)}
-  onSuccess={() => {
-    loadPendingOrders();
-    loadPaidOrders();
-    loadOccupiedRooms();
-  }}
-/>
+        siteId={siteId}
+        order={selectedOrder}
+        isOpen={!!selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        onSuccess={() => {
+          loadPendingOrders();
+          loadPaidOrders();
+          loadOccupiedRooms();
+        }}
+      />
     </div>
   );
 }
