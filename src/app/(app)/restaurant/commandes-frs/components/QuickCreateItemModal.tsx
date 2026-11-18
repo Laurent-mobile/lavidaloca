@@ -146,7 +146,7 @@ export default function QuickCreateStockItemModal({ siteId, isOpen, onClose, onS
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                Prix d'achat (F) *
+                Prix d'achat (fcfa) *
               </label>
               <input
                 type="number"

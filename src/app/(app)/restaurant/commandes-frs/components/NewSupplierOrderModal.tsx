@@ -342,7 +342,7 @@ export default function NewSupplierOrderModal({ siteId, isOpen, onClose, onSucce
                           </div>
                           <div className="text-right">
                             <div className="text-sm font-bold text-indigo-600">
-                              {item.last_purchase_price?.toLocaleString('fr-FR')} F
+                              {item.last_purchase_price?.toLocaleString('fr-FR')} fcfa
                             </div>
                           </div>
                         </div>
@@ -440,7 +440,7 @@ export default function NewSupplierOrderModal({ siteId, isOpen, onClose, onSucce
 
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div>
-                      <label className="block text-xs font-medium text-indigo-800 mb-1">Prix unitaire d'achat (F) *</label>
+                      <label className="block text-xs font-medium text-indigo-800 mb-1">Prix unitaire d'achat (fcfa) *</label>
                       <input
                         type="number"
                         value={itemPrice}
@@ -529,7 +529,7 @@ export default function NewSupplierOrderModal({ siteId, isOpen, onClose, onSucce
                       <tr>
                         <td colSpan={4} className="px-4 py-2 text-right">Total:</td>
                         <td className="px-4 py-2 text-right text-lg text-indigo-600">
-                          {totalAmount.toLocaleString('fr-FR')} F
+                          {totalAmount.toLocaleString('fr-FR')} fcfa
                         </td>
                         <td></td>
                       </tr>

@@ -783,7 +783,7 @@ export default function CommandesPage() {
     const printWindow = window.open('', '_blank', 'width=400,height=600');
     if (!printWindow) { alert('Autorisez les popups.'); return; }
     const items = order.restaurant_order_items || [];
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>Ticket ${order.order_number}</title><style>body{font-family:'Courier New',monospace;font-size:12px;padding:10px;max-width:300px;margin:0 auto;}.header{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px;margin-bottom:10px;}.header h1{font-size:16px;margin:0;}.header p{margin:2px 0;font-size:11px;}.info{margin:10px 0;font-size:11px;}.info div{display:flex;justify-content:space-between;}.items{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:10px 0;margin:10px 0;}.item{display:flex;justify-content:space-between;margin:4px 0;}.total{display:flex;justify-content:space-between;font-weight:bold;font-size:14px;margin-top:10px;}.footer{text-align:center;margin-top:20px;font-size:10px;}</style></head><body><div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p><p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div><div class="info"><div><span>N°:</span><span>${order.order_number}</span></div><div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div><div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}${order.order_type === 'ROOM_SERVICE' ? ' (Folio)' : ''}</span></div></div><div class="items">${items.map(i => `<div class="item"><span>${i.item_name} x${i.quantity}</span><span>${Number(i.total_price).toLocaleString('fr-FR')} F</span></div>`).join('')}</div><div class="total"><span>TOTAL</span><span>${Number(order.total_amount).toLocaleString('fr-FR')} F</span></div><div class="footer"><p>Merci de votre visite !</p></div></body></html>`);
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Ticket ${order.order_number}</title><style>body{font-family:'Courier New',monospace;font-size:12px;padding:10px;max-width:300px;margin:0 auto;}.header{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px;margin-bottom:10px;}.header h1{font-size:16px;margin:0;}.header p{margin:2px 0;font-size:11px;}.info{margin:10px 0;font-size:11px;}.info div{display:flex;justify-content:space-between;}.items{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:10px 0;margin:10px 0;}.item{display:flex;justify-content:space-between;margin:4px 0;}.total{display:flex;justify-content:space-between;font-weight:bold;font-size:14px;margin-top:10px;}.footer{text-align:center;margin-top:20px;font-size:10px;}</style></head><body><div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p><p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div><div class="info"><div><span>N°:</span><span>${order.order_number}</span></div><div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div><div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}${order.order_type === 'ROOM_SERVICE' ? ' (Folio)' : ''}</span></div></div><div class="items">${items.map(i => `<div class="item"><span>${i.item_name} x${i.quantity}</span><span>${Number(i.total_price).toLocaleString('fr-FR')} fcfa</span></div>`).join('')}</div><div class="total"><span>TOTAL</span><span>${Number(order.total_amount).toLocaleString('fr-FR')} fcfa</span></div><div class="footer"><p>Merci de votre visite !</p></div></body></html>`);
     printWindow.document.close();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
   };
@@ -824,7 +824,7 @@ export default function CommandesPage() {
     doc.text(`Lieu: ${getLocationLabel(order)}`, 20, 59);
     doc.text(`Type: ${getOrderTypeLabel(order.order_type || 'DINE_IN')}`, 20, 66);
     doc.text(`Statut: ${getStatusConfig(order.status).label}`, 20, 73);
-    const tableData = items.map(i => [i.item_name, i.quantity.toString(), `${Number(i.unit_price).toLocaleString('fr-FR')} F`, `${Number(i.total_price).toLocaleString('fr-FR')} F`]);
+    const tableData = items.map(i => [i.item_name, i.quantity.toString(), `${Number(i.unit_price).toLocaleString('fr-FR')} fcfa`, `${Number(i.total_price).toLocaleString('fr-FR')} fcfa`]);
     autoTable(doc, {
       startY: 80, head: [['Article', 'Qté', 'Prix unit.', 'Total']], body: tableData,
       theme: 'striped', headStyles: { fillColor: [79, 70, 229], textColor: 255 },
@@ -833,7 +833,7 @@ export default function CommandesPage() {
     });
     const finalY = (doc as any).lastAutoTable.finalY + 10;
     doc.setFontSize(14); doc.setTextColor(79, 70, 229); doc.setFont('helvetica', 'bold');
-    doc.text('TOTAL:', 140, finalY); doc.text(`${Number(order.total_amount).toLocaleString('fr-FR')} F`, 190, finalY, { align: 'right' });
+    doc.text('TOTAL:', 140, finalY); doc.text(`${Number(order.total_amount).toLocaleString('fr-FR')} fcfa`, 190, finalY, { align: 'right' });
     doc.setFontSize(9); doc.setTextColor(150, 150, 150); doc.setFont('helvetica', 'normal');
     doc.text('Merci de votre visite !', 105, 280, { align: 'center' });
     doc.save(`Commande_${order.order_number}.pdf`);
@@ -966,7 +966,7 @@ export default function CommandesPage() {
                     </div>
                     <div className="text-right">
                       <div className="text-xs text-indigo-700 font-medium">Solde folio actuel</div>
-                      <div className="text-sm font-bold text-indigo-900">{Number(occupiedRooms.find(r => r.id === selectedRoomId)?.folio_balance || 0).toLocaleString('fr-FR')} F</div>
+                      <div className="text-sm font-bold text-indigo-900">{Number(occupiedRooms.find(r => r.id === selectedRoomId)?.folio_balance || 0).toLocaleString('fr-FR')} fcfa</div>
                     </div>
                   </div>
                   <p className="text-xs text-indigo-700 mt-2">💡 Cette commande sera ajoutée au folio du client et payable lors du check-out.</p>
@@ -997,7 +997,7 @@ export default function CommandesPage() {
                       {isOutOfStock && <div className="absolute top-2 right-2 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded-full">RUPTURE</div>}
                       <div className="font-semibold text-slate-900 mb-1">{item.name}</div>
                       <div className="text-xs text-slate-500 mb-2">{item.category}</div>
-                      <div className="text-lg font-bold text-indigo-600">{Number(item.price).toLocaleString('fr-FR')} F</div>
+                      <div className="text-lg font-bold text-indigo-600">{Number(item.price).toLocaleString('fr-FR')} fcfa</div>
                       <div className={`text-xs mt-2 font-medium flex items-center gap-1 ${isOutOfStock ? 'text-red-600' : 'text-emerald-600'}`}>
                         {isOutOfStock ? <>❌ Indisponible</> : <>✅ Stock: {item.stock}</>}
                       </div>
@@ -1037,7 +1037,7 @@ export default function CommandesPage() {
                         <span className="font-bold text-slate-900 w-6 text-center">{item.quantity}</span>
                         <button onClick={() => addToCart(item)} className="w-7 h-7 flex items-center justify-center rounded-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700"><Plus className="w-4 h-4" /></button>
                       </div>
-                      <div className="font-bold text-slate-900">{Number(item.price * item.quantity).toLocaleString('fr-FR')} F</div>
+                      <div className="font-bold text-slate-900">{Number(item.price * item.quantity).toLocaleString('fr-FR')} fcfa</div>
                     </div>
                   </div>
                 ))
@@ -1046,7 +1046,7 @@ export default function CommandesPage() {
             <div className="p-4 border-t border-slate-200 space-y-3 bg-slate-50">
               <div className="flex items-center justify-between text-lg font-bold text-slate-900">
                 <span>Total</span>
-                <span className="text-indigo-600">{Number(totalAmount).toLocaleString('fr-FR')} F</span>
+                <span className="text-indigo-600">{Number(totalAmount).toLocaleString('fr-FR')} fcfa</span>
               </div>
                 <div className="grid grid-cols-2 gap-2">
   <button 
@@ -1095,7 +1095,7 @@ export default function CommandesPage() {
             </div>
             <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-4 shadow-sm">
               <div className="text-xs text-indigo-700 mb-1">Chiffre d'affaires</div>
-              <div className="text-2xl font-bold text-indigo-900">{Number(stats.revenue).toLocaleString('fr-FR')} F</div>
+              <div className="text-2xl font-bold text-indigo-900">{Number(stats.revenue).toLocaleString('fr-FR')} fcfa</div>
             </div>
           </div>
 
@@ -1184,7 +1184,7 @@ export default function CommandesPage() {
                           )}
                         </div>
                         <div className="border-t border-slate-200/50 pt-3 flex items-center justify-between">
-                          <div className="text-xl font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} F</div>
+                          <div className="text-xl font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} fcfa</div>
                           <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                             {canEdit && <button onClick={() => openEditOrder(order)} className="p-2 bg-white text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors shadow-sm" title="Modifier la commande"><Edit className="w-4 h-4" /></button>}
                             {canAdvance && order.order_type !== 'ROOM_SERVICE' && (
@@ -1237,7 +1237,7 @@ export default function CommandesPage() {
                               <td className="px-6 py-4 text-sm text-slate-700">{order.restaurant_employees ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}` : <span className="text-slate-400">-</span>}</td>
                               <td className="px-6 py-4 text-sm text-slate-700">{getOrderTypeIcon(order.order_type || 'DINE_IN')} {getOrderTypeLabel(order.order_type || 'DINE_IN')}</td>
                               <td className="px-6 py-4 text-center text-sm text-slate-700"><span className="font-medium">{itemsQty}</span><span className="text-xs text-slate-500 ml-1">({itemsCount} type(s))</span></td>
-                              <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} F</td>
+                              <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(order.total_amount).toLocaleString('fr-FR')} fcfa</td>
                               <td className="px-6 py-4 text-sm text-slate-600">
                                 <div className="flex items-center gap-1">
                                   <Calendar className="w-3.5 h-3.5 text-slate-400" />
@@ -1281,7 +1281,7 @@ export default function CommandesPage() {
                 <div className="bg-slate-50 p-3 rounded-lg"><div className="text-xs text-slate-500 mb-1">Lieu</div><div className="font-semibold text-slate-900">{getLocationLabel(selectedOrder)}</div></div>
                 <div className="bg-slate-50 p-3 rounded-lg"><div className="text-xs text-slate-500 mb-1">Serveur</div><div className="font-semibold text-slate-900">{selectedOrder.restaurant_employees ? `${selectedOrder.restaurant_employees.first_name} ${selectedOrder.restaurant_employees.last_name}` : '-'}</div></div>
                 <div className="bg-slate-50 p-3 rounded-lg"><div className="text-xs text-slate-500 mb-1">Type</div><div className="font-semibold text-slate-900">{getOrderTypeIcon(selectedOrder.order_type || 'DINE_IN')} {getOrderTypeLabel(selectedOrder.order_type || 'DINE_IN')}</div></div>
-                <div className="bg-slate-50 p-3 rounded-lg"><div className="text-xs text-slate-500 mb-1">Total</div><div className="font-bold text-indigo-600 text-lg">{Number(selectedOrder.total_amount).toLocaleString('fr-FR')} F</div></div>
+                <div className="bg-slate-50 p-3 rounded-lg"><div className="text-xs text-slate-500 mb-1">Total</div><div className="font-bold text-indigo-600 text-lg">{Number(selectedOrder.total_amount).toLocaleString('fr-FR')} fcfa</div></div>
               </div>
               {selectedOrder.restaurant_order_items && selectedOrder.restaurant_order_items.length > 0 && (
                 <div>
@@ -1295,12 +1295,12 @@ export default function CommandesPage() {
                             <td className="px-4 py-2 font-medium text-slate-900">{item.item_name}</td>
                             <td className="px-4 py-2 text-center">{item.quantity}</td>
                             <td className="px-4 py-2 text-center"><span className={`px-2 py-1 rounded-full text-xs font-medium ${item.destination === 'KITCHEN' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : '🍹 Bar'}</span></td>
-                            <td className="px-4 py-2 text-right">{Number(item.unit_price).toLocaleString('fr-FR')} F</td>
-                            <td className="px-4 py-2 text-right font-bold">{Number(item.total_price).toLocaleString('fr-FR')} F</td>
+                            <td className="px-4 py-2 text-right">{Number(item.unit_price).toLocaleString('fr-FR')} fcfa</td>
+                            <td className="px-4 py-2 text-right font-bold">{Number(item.total_price).toLocaleString('fr-FR')} fcfa</td>
                           </tr>
                         ))}
                       </tbody>
-                      <tfoot className="bg-slate-50 font-bold"><tr><td colSpan={4} className="px-4 py-3 text-right">TOTAL :</td><td className="px-4 py-3 text-right text-lg text-indigo-600">{Number(selectedOrder.total_amount).toLocaleString('fr-FR')} F</td></tr></tfoot>
+                      <tfoot className="bg-slate-50 font-bold"><tr><td colSpan={4} className="px-4 py-3 text-right">TOTAL :</td><td className="px-4 py-3 text-right text-lg text-indigo-600">{Number(selectedOrder.total_amount).toLocaleString('fr-FR')} fcfa</td></tr></tfoot>
                     </table>
                   </div>
                 </div>
@@ -1355,7 +1355,7 @@ export default function CommandesPage() {
             <div className="p-6 space-y-4">
               <div className="bg-red-50 p-3 rounded-lg border border-red-200 text-sm text-red-900">
                 <strong>Commande :</strong> {selectedOrder.order_number}<br />
-                <strong>Total :</strong> {Number(selectedOrder.total_amount).toLocaleString('fr-FR')} F
+                <strong>Total :</strong> {Number(selectedOrder.total_amount).toLocaleString('fr-FR')} fcfa
               </div>
               <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 text-sm text-amber-900 flex items-start gap-2">
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
@@ -1382,7 +1382,7 @@ export default function CommandesPage() {
             <div className="bg-amber-600 text-white px-6 py-4 flex items-center justify-between sticky top-0 z-10">
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2">🍕 Personnaliser votre pizza</h3>
-                <p className="text-sm opacity-90 mt-1">{selectedPizza.name} - {Number(selectedPizza.price).toLocaleString('fr-FR')} F</p>
+                <p className="text-sm opacity-90 mt-1">{selectedPizza.name} - {Number(selectedPizza.price).toLocaleString('fr-FR')} fcfa</p>
               </div>
               <button onClick={() => setShowSupplementsModal(false)} className="hover:bg-amber-700 p-1 rounded"><X className="w-5 h-5" /></button>
             </div>
@@ -1395,7 +1395,7 @@ export default function CommandesPage() {
                     return (
                       <button key={sup.id} onClick={() => toggleSupplement(sup)} className={`p-3 rounded-lg border-2 text-left transition-all ${isSelected ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-amber-300'}`}>
                         <div className="font-medium text-slate-900">{sup.name}</div>
-                        <div className="text-sm text-amber-600 font-bold">+{Number(sup.price).toLocaleString('fr-FR')} F</div>
+                        <div className="text-sm text-amber-600 font-bold">+{Number(sup.price).toLocaleString('fr-FR')} fcfa</div>
                       </button>
                     );
                   })}
@@ -1408,13 +1408,13 @@ export default function CommandesPage() {
                     {selectedSupplements.map(sup => (
                       <div key={sup.id} className="flex justify-between text-sm text-amber-800">
                         <span>{sup.name}</span>
-                        <span>+{Number(sup.price).toLocaleString('fr-FR')} F</span>
+                        <span>+{Number(sup.price).toLocaleString('fr-FR')} fcfa</span>
                       </div>
                     ))}
                   </div>
                   <div className="mt-3 pt-3 border-t border-amber-200 flex justify-between font-bold text-amber-900">
                     <span>Total avec suppléments :</span>
-                    <span>{Number(selectedPizza.price + selectedSupplements.reduce((sum, s) => sum + s.price, 0)).toLocaleString('fr-FR')} F</span>
+                    <span>{Number(selectedPizza.price + selectedSupplements.reduce((sum, s) => sum + s.price, 0)).toLocaleString('fr-FR')} fcfa</span>
                   </div>
                 </div>
               )}
