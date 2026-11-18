@@ -334,7 +334,7 @@ export default function StockPage() {
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
           <div className="flex items-center gap-2 text-emerald-700 mb-2"><DollarSign className="w-5 h-5" /><span className="text-sm font-medium">Valeur du stock</span></div>
-          <div className="text-2xl font-bold text-slate-900">{Number(stats.totalValue).toLocaleString('fr-FR')} F</div>
+          <div className="text-2xl font-bold text-slate-900">{Number(stats.totalValue).toLocaleString('fr-FR')} fcfa</div>
         </div>
         <div className="bg-white rounded-xl border border-amber-200 p-5 shadow-sm bg-amber-50">
           <div className="flex items-center gap-2 text-amber-700 mb-2"><AlertTriangle className="w-5 h-5" /><span className="text-sm font-medium">Stock bas</span></div>
@@ -408,7 +408,7 @@ export default function StockPage() {
                           <td className="px-6 py-4 text-center text-xs text-slate-600">1 {item.purchase_unit || 'unité'}<br/>= {item.conversion_factor || 1} {item.unit}</td>
                           <td className="px-6 py-4 text-center text-sm text-slate-600">{item.min_threshold}</td>
                           <td className="px-6 py-4 text-center"><span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${status.color}`}><StatusIcon className="w-3.5 h-3.5" />{status.label}</span></td>
-                          <td className="px-6 py-4 text-right text-sm text-slate-700 font-medium">{Number(item.unit_cost).toLocaleString('fr-FR')} F</td>
+                          <td className="px-6 py-4 text-right text-sm text-slate-700 font-medium">{Number(item.unit_cost).toLocaleString('fr-FR')} fcfa</td>
                           <td className="px-6 py-4 text-center">
                             <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                               <button onClick={() => openAdjustModal(item, 'IN')} className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg" title="Entrée"><TrendingUp className="w-4 h-4" /></button>
@@ -487,7 +487,7 @@ export default function StockPage() {
               <div className="grid grid-cols-3 gap-4">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Qté initiale</label><input type="number" min="0" value={newItem.quantity} onChange={(e) => setNewItem({ ...newItem, quantity: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Seuil d'alerte</label><input type="number" min="0" value={newItem.min_threshold} onChange={(e) => setNewItem({ ...newItem, min_threshold: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Coût unit. (F)</label><input type="number" min="0" value={newItem.unit_cost} onChange={(e) => setNewItem({ ...newItem, unit_cost: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Coût unit. (fcfa)</label><input type="number" min="0" value={newItem.unit_cost} onChange={(e) => setNewItem({ ...newItem, unit_cost: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
               </div>
 
               <div className="flex gap-3 pt-2">
@@ -551,7 +551,7 @@ export default function StockPage() {
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Facteur de conv.</label><input type="number" min="1" value={editForm.conversion_factor} onChange={(e) => setEditForm({ ...editForm, conversion_factor: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Seuil d'alerte</label><input type="number" min="0" value={editForm.min_threshold} onChange={(e) => setEditForm({ ...editForm, min_threshold: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
               </div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Coût unitaire (F)</label><input type="number" min="0" value={editForm.unit_cost} onChange={(e) => setEditForm({ ...editForm, unit_cost: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Coût unitaire (fcfa)</label><input type="number" min="0" value={editForm.unit_cost} onChange={(e) => setEditForm({ ...editForm, unit_cost: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg">Annuler</button>
                 <button type="submit" disabled={isEditing} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg disabled:opacity-50 flex items-center justify-center gap-2">

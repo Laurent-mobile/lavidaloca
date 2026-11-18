@@ -178,7 +178,7 @@ export default function ReservationsPage() {
                       </div>
                       <div className="text-xs text-slate-500 ml-5">au {r.check_out_date}</div>
                     </td>
-                    <td className="px-4 py-3 text-right font-bold text-slate-900">{Number(r.total_amount || 0).toLocaleString('fr-FR')} F</td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-900">{Number(r.total_amount || 0).toLocaleString('fr-FR')} fcfa</td>
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium ${status.color}`}>
                         <span>{status.icon}</span> {status.label}

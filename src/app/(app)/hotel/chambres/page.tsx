@@ -248,7 +248,7 @@ setActiveStays(normalizedStays);
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 font-semibold">{room.room_categories?.code}</span>
                       </div>
                       <div className="text-[10px] opacity-80">{cfg.label}</div>
-                      <div className="text-[10px] mt-1 font-semibold">{Number(room.room_categories?.base_price || 0).toLocaleString('fr-FR')} F</div>
+                      <div className="text-[10px] mt-1 font-semibold">{Number(room.room_categories?.base_price || 0).toLocaleString('fr-FR')} fcfa</div>
                     </button>
                   );
                 })}
@@ -301,7 +301,7 @@ setActiveStays(normalizedStays);
                       Depuis le {new Date(stay.check_in_at).toLocaleDateString('fr-FR')}
                     </div>
                     <div className="text-[10px] font-semibold text-blue-800 mt-1">
-                      Folio : {Number(stay.folio_balance || 0).toLocaleString('fr-FR')} F
+                      Folio : {Number(stay.folio_balance || 0).toLocaleString('fr-FR')} fcfa
                     </div>
                   </div>
                 ))
