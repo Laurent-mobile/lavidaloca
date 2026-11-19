@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { X, Hotel, DollarSign, CreditCard, Printer, FileText, AlertCircle, CheckCircle, Bed, Utensils, ArrowRight, ArrowLeft } from 'lucide-react';
+import { X, Hotel, DollarSign, CreditCard, Printer, FileText, AlertCircle, CheckCircle, Bed, Utensils, ArrowRight, ArrowLeft, Lock } from 'lucide-react';
 
 interface Props {
   siteId: string;
@@ -27,7 +27,6 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
   const [changeAmount, setChangeAmount] = useState(0);
   const [notes, setNotes] = useState('');
 
-  // ✅ Fallback robuste pour le numéro de chambre (objets normalisés OU tableaux)
   const roomNum = stay?.rooms?.[0]?.number || stay?.rooms?.number || stay?.room_number || '—';
 
   useEffect(() => {
@@ -124,66 +123,78 @@ export default function CheckoutModal({ siteId, stay, isOpen, onClose, onSuccess
     `);
     printWindow.document.close();
   };
-const handleAutoReconcile = async () => {
-  if (!confirm('Régulariser automatiquement toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0 ?')) return;
-  setLoading(true);
-  try {
-    // 1. Récupérer les commandes anomales
-    const { data: anomalies } = await supabase
-      .from('restaurant_orders')
-      .select('id, order_number, total_amount, site_id, stay_id')
-      .eq('status', 'ROOM_CHARGE')
-      .eq('site_id', siteId);
-    
-    let fixed = 0;
-    for (const order of (anomalies || [])) {
-      // Vérifier que le séjour est bien clôturé avec folio 0
-      const { data: stay } = await supabase
-        .from('stays')
-        .select('status, folio_balance')
-        .eq('id', order.stay_id)
-        .maybeSingle();
+
+  const handleAutoReconcile = async () => {
+    if (!confirm('Régulariser automatiquement toutes les commandes dont le séjour est CHECKED_OUT avec folio à 0 ?')) return;
+    setLoading(true);
+    try {
+      const { data: anomalies } = await supabase
+        .from('restaurant_orders')
+        .select('id, order_number, total_amount, site_id, stay_id')
+        .eq('status', 'ROOM_CHARGE')
+        .eq('site_id', siteId);
       
-      if (!stay || stay.status !== 'CHECKED_OUT' || Number(stay.folio_balance) > 0) continue;
-      
-      // 2. Créer le paiement
-      const { error: payErr } = await supabase.from('restaurant_payments').insert({
-        site_id: order.site_id,
-        order_id: order.id,
-        session_id: null,
-        method: 'ROOM_CHARGE',
-        amount: Number(order.total_amount),
-        received_amount: Number(order.total_amount),
-        change_amount: 0,
-        paid_at: new Date().toISOString(),
-        status: 'COMPLETED',
-        notes: 'Régularisation automatique (Réconciliations)'
-      });
-      if (payErr) { console.error(payErr); continue; }
-      
-      // 3. Marquer la commande payée
-      await supabase.from('restaurant_orders')
-        .update({ status: 'PAID', paid_at: new Date().toISOString() })
-        .eq('id', order.id);
-      
-      fixed++;
+      let fixed = 0;
+      for (const order of (anomalies || [])) {
+        const { data: stayData } = await supabase
+          .from('stays')
+          .select('status, folio_balance')
+          .eq('id', order.stay_id)
+          .maybeSingle();
+        
+        if (!stayData || stayData.status !== 'CHECKED_OUT' || Number(stayData.folio_balance) > 0) continue;
+        
+        const { error: payErr } = await supabase.from('restaurant_payments').insert({
+          site_id: order.site_id,
+          order_id: order.id,
+          session_id: null,
+          method: 'ROOM_CHARGE',
+          amount: Number(order.total_amount),
+          received_amount: Number(order.total_amount),
+          change_amount: 0,
+          paid_at: new Date().toISOString(),
+          status: 'COMPLETED',
+          notes: 'Régularisation automatique (Réconciliations)'
+        });
+        if (payErr) { console.error(payErr); continue; }
+        
+        await supabase.from('restaurant_orders')
+          .update({ status: 'PAID', paid_at: new Date().toISOString() })
+          .eq('id', order.id);
+        
+        fixed++;
+      }
+      alert(`✅ ${fixed} commande(s) régularisée(s)`);
+    } catch (err: any) {
+      alert(`Erreur: ${err.message}`);
     }
-    
-    alert(`✅ ${fixed} commande(s) régularisée(s)`);
-    
-  } catch (err: any) {
-    alert(`Erreur: ${err.message}`);
-  }
-  setLoading(false);
-};
-    const handleCheckout = async () => {
+    setLoading(false);
+  };
+
+  const handleCheckout = async () => {
     if (amountReceived < grandTotal) {
       setError('Le montant reçu est insuffisant');
       return;
-      }
+    }
+    
     setLoading(true);
     setError('');
+    
     try {
+      // ✅ VÉRIFICATION CRITIQUE : La caisse doit être ouverte pour encaisser
+      const { data: cashSession } = await supabase
+        .from('cash_sessions')
+        .select('id')
+        .eq('site_id', siteId)
+        .eq('status', 'OPEN')
+        .maybeSingle();
+
+      if (!cashSession) {
+        setError('⚠️ La caisse est actuellement fermée. Veuillez d\'abord ouvrir la caisse dans le menu "Caisse Hôtel" avant de procéder au check-out et à l\'encaissement.');
+        setLoading(false);
+        return; // 🛑 On arrête tout ici, le check-out est bloqué
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       const roomNumber = stay.rooms?.[0]?.number || stay.rooms?.number || stay.room_number || '—';
       const reconciliation: string[] = [];
@@ -220,7 +231,7 @@ const handleAutoReconcile = async () => {
         for (const charge of roomCharges) {
           if (charge.order_id && charge.charge_type === 'RESTAURANT') {
             await supabase.from('restaurant_payments').insert({
-              site_id: siteId, // ✅ CRITIQUE
+              site_id: siteId,
               order_id: charge.order_id,
               session_id: null,
               method: 'ROOM_CHARGE',
@@ -265,7 +276,7 @@ const handleAutoReconcile = async () => {
 
       alert(`✅ CHECK-OUT TERMINÉ — Chambre ${roomNumber}\n\nMontant: ${grandTotal.toLocaleString('fr-FR')} F\nMode: ${paymentMethod}\n\nRéconciliation:\n${reconciliation.join('\n')}`);
       
-      onSuccess(); // ✅ SEUL APPEL ICI
+      onSuccess();
     } catch (err: any) {
       console.error('Erreur check-out:', err);
       setError(err.message || 'Erreur lors du check-out');
@@ -296,8 +307,13 @@ const handleAutoReconcile = async () => {
 
         <div className="p-6 space-y-4">
           {error && (
-            <div className="bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 text-sm flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span>
+            <div className={`p-3 rounded-lg border text-sm flex items-start gap-2 ${
+              error.includes('caisse est actuellement fermée') 
+                ? 'bg-amber-50 text-amber-900 border-amber-300' 
+                : 'bg-red-50 text-red-700 border-red-200'
+            }`}>
+              {error.includes('caisse est actuellement fermée') ? <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+              <span>{error}</span>
             </div>
           )}
 

@@ -19,6 +19,7 @@ interface MenuItem {
   category: string;
   price: number;
   stock: number;
+  stockManaged: boolean;
   destination?: string;
 }
 
@@ -249,126 +250,101 @@ export default function CommandesPage() {
     }
   };
 
-      const loadMenu = async () => {
-    try {
-      // 1. Charger tous les articles du menu disponibles
-      const { data: menuData, error: menuError } = await supabase
-        .from('restaurant_items')
-        .select(`id, name, restaurant_categories(name), price, destination, is_available`)
-        .eq('site_id', siteId)
-        .eq('is_available', true)
-        .order('name');
+const loadMenu = async () => {
+  try {
+    const { data: menuData, error: menuError } = await supabase
+      .from('restaurant_items')
+      .select(`id, name, restaurant_categories(name), price, destination, is_available`)
+      .eq('site_id', siteId)
+      .eq('is_available', true)
+      .order('name');
 
-      if (menuError) throw menuError;
-      if (!menuData || menuData.length === 0) {
-        setMenuItems([]);
-        return;
-      }
+    if (menuError) throw menuError;
+    if (!menuData || menuData.length === 0) { setMenuItems([]); return; }
 
-      // 2. Charger TOUTES les fiches techniques du site
-      const { data: allRecipes } = await supabase
-        .from('item_recipes')
-        .select('menu_item_id, stock_item_id, quantity')
-        .eq('site_id', siteId);
+    const { data: allRecipes } = await supabase
+      .from('item_recipes')
+      .select('menu_item_id, stock_item_id, quantity')
+      .eq('site_id', siteId);
 
-      // 3. Charger TOUS les articles de stock avec leur stock actuel
-      const { data: allStockItems } = await supabase
-        .from('stock_items')
-        .select('id, name, current_stock, unit')
-        .eq('site_id', siteId);
+    const { data: allStockItems } = await supabase
+      .from('stock_items')
+      .select('id, name, current_stock, unit')
+      .eq('site_id', siteId);
 
-      // 4. Créer un map pour accès rapide aux stocks
-      const stockMap = new Map();
-      allStockItems?.forEach(stock => {
-        stockMap.set(stock.id, {
-          current_stock: stock.current_stock || 0,
-          unit: stock.unit
-        });
-      });
+    const stockMap = new Map();
+    allStockItems?.forEach(stock => {
+      stockMap.set(stock.id, { current_stock: Number(stock.current_stock) || 0, unit: stock.unit });
+    });
 
-      // 5. Calculer le stock pour chaque article du menu
-      const menuItemsWithStock = menuData.map(menuItem => {
-        // Trouver toutes les recettes pour cet article
-        const itemRecipes = allRecipes?.filter(r => r.menu_item_id === menuItem.id) || [];
+    const menuItemsWithStock = menuData.map(menuItem => {
+      const itemRecipes = allRecipes?.filter(r => r.menu_item_id === menuItem.id) || [];
 
-        // Si pas de fiche technique, stock = 0 (indisponible)
-        if (itemRecipes.length === 0) {
-          return {
-            id: menuItem.id,
-            name: menuItem.name,
-            category: (menuItem as any).restaurant_categories?.name || 'Autres',
-            price: menuItem.price,
-            destination: menuItem.destination || undefined,
-            stock: 0
-          };
-        }
-
-        // Calculer le stock maximum possible basé sur les ingrédients
-        let maxPossibleStock = Infinity;
-        let hasValidStock = true;
-
-        for (const recipe of itemRecipes) {
-          const stockInfo = stockMap.get(recipe.stock_item_id);
-          
-          if (!stockInfo) {
-            // Ingrédient introuvable dans le stock
-            hasValidStock = false;
-            break;
-          }
-
-          const currentStock = stockInfo.current_stock;
-          const requiredQty = recipe.quantity || 1;
-          const possibleWithThisIngredient = Math.floor(currentStock / requiredQty);
-          
-          if (possibleWithThisIngredient < maxPossibleStock) {
-            maxPossibleStock = possibleWithThisIngredient;
-          }
-        }
-
-        // Si un ingrédient est introuvable, stock = 0
-        if (!hasValidStock) {
-          maxPossibleStock = 0;
-        }
-
+      // ✅ RÈGLE STRICTE : Pas de fiche technique = Stock à 0 (Indisponible)
+      if (itemRecipes.length === 0) {
         return {
           id: menuItem.id,
           name: menuItem.name,
           category: (menuItem as any).restaurant_categories?.name || 'Autres',
           price: menuItem.price,
           destination: menuItem.destination || undefined,
-          stock: maxPossibleStock === Infinity ? 0 : maxPossibleStock
+          stock: 0, // ✅ Force le blocage de la vente
+          stockManaged: true
         };
-      });
-
-      setMenuItems(menuItemsWithStock);
-    } catch (error) {
-      console.error('Erreur chargement menu:', error);
-    }
-  };
-
-  const loadSupplements = async () => {
-    try {
-      const { data } = await supabase
-        .from('restaurant_items')
-        .select('id, name, category:restaurant_categories(name), price, destination, stock')
-        .eq('site_id', siteId)
-        .eq('is_available', true)
-        .eq('restaurant_categories.name', 'SUPPLÉMENTS');
-
-      if (data && data.length > 0) {
-        setSupplements(data.map(item => ({
-          id: item.id,
-          name: item.name,
-          category: (item as any).category?.name || 'Suppléments',
-          price: item.price,
-          destination: 'KITCHEN',
-          stock: item.stock || 0
-        })));
       }
-    } catch (error) {
-      console.error('Erreur chargement suppléments:', error);
+
+      // ✅ CAS 2 : Fiche technique présente → calcul du stock réel
+      let maxPossibleStock = Infinity;
+      let hasValidStock = true;
+      for (const recipe of itemRecipes) {
+        const stockInfo = stockMap.get(recipe.stock_item_id);
+        if (!stockInfo) { hasValidStock = false; break; }
+        const requiredQty = Number(recipe.quantity) || 1;
+        const possibleWithThisIngredient = Math.floor(Number(stockInfo.current_stock) / requiredQty);
+        if (possibleWithThisIngredient < maxPossibleStock) maxPossibleStock = possibleWithThisIngredient;
+      }
+
+      return {
+        id: menuItem.id,
+        name: menuItem.name,
+        category: (menuItem as any).restaurant_categories?.name || 'Autres',
+        price: menuItem.price,
+        destination: menuItem.destination || undefined,
+        stock: hasValidStock ? Math.max(0, maxPossibleStock) : 0,
+        stockManaged: true
+      };
+    });
+
+    setMenuItems(menuItemsWithStock);
+  } catch (error) {
+    console.error('Erreur chargement menu:', error);
+  }
+};
+
+const loadSupplements = async () => {
+  try {
+    const { data } = await supabase
+      .from('restaurant_items')
+      .select('id, name, category:restaurant_categories(name), price, destination')
+      .eq('site_id', siteId)
+      .eq('is_available', true)
+      .eq('restaurant_categories.name', 'SUPPLÉMENTS');
+
+    if (data && data.length > 0) {
+      setSupplements(data.map(item => ({
+        id: item.id,
+        name: item.name,
+        category: (item as any).category?.name || 'Suppléments',
+        price: item.price,
+        destination: 'KITCHEN',
+        stock: Infinity,
+        stockManaged: false
+      })));
     }
-  };
+  } catch (error) {
+    console.error('Erreur chargement suppléments:', error);
+  }
+};
 
   const openPizzaWithSupplements = (item: MenuItem) => {
     setSelectedPizza(item);
@@ -489,30 +465,41 @@ export default function CommandesPage() {
     }
   };
 
-  const addToCart = (item: MenuItem) => {
-    if (item.stock <= 0) {
-      alert(`⚠️ Rupture de stock pour : ${item.name}`);
-      return;
-    }
-    setCart(prev => {
-      const existingIndex = prev.findIndex(i => {
-        if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
-        if (item.id && i.id === item.id) return true;
-        return i.name.toLowerCase() === item.name.toLowerCase();
-      });
-      const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
-      if (currentQty + 1 > item.stock) {
-        alert(`⚠️ Stock insuffisant pour : ${item.name}\nDisponible : ${item.stock}`);
-        return prev;
-      }
-      if (existingIndex >= 0) {
-        const newCart = [...prev];
-        newCart[existingIndex] = { ...newCart[existingIndex], quantity: newCart[existingIndex].quantity + 1 };
-        return newCart;
-      }
-      return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
+const addToCart = (item: MenuItem) => {
+  // Vérifier le stock FRAIS depuis menuItems
+  const fresh = menuItems.find(m =>
+    m.id === (item as any).menuItemId ||
+    m.id === item.id ||
+    m.name.toLowerCase() === item.name.toLowerCase()
+  ) || item;
+
+  // ✅ BLOQUER SI STOCK À 0 (Rupture OU Fiche technique manquante)
+  if (fresh.stock <= 0) {
+    alert(`⚠️ Indisponible : ${fresh.name}\n(Veuillez définir sa fiche technique dans la Gestion du Menu)`);
+    return;
+  }
+
+  setCart(prev => {
+    const existingIndex = prev.findIndex(i => {
+      if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
+      if (item.id && i.id === item.id) return true;
+      return i.name.toLowerCase() === item.name.toLowerCase();
     });
-  };
+    const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
+
+    if (currentQty + 1 > fresh.stock) {
+      alert(`⚠️ Stock insuffisant pour : ${fresh.name}\nDisponible : ${fresh.stock}`);
+      return prev;
+    }
+
+    if (existingIndex >= 0) {
+      const newCart = [...prev];
+      newCart[existingIndex] = { ...newCart[existingIndex], quantity: newCart[existingIndex].quantity + 1 };
+      return newCart;
+    }
+    return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
+  });
+};
 
   const removeFromCart = (itemId: string) => {
     setCart(prev => {
@@ -545,17 +532,18 @@ export default function CommandesPage() {
     setSelectedRoomId(order.room_id || '');
     setSelectedServerId(order.server_id || '');
 
-    const cartItems = order.restaurant_order_items?.map(item => ({
-      orderItemId: item.id,
-      menuItemId: (item as any).menu_item_id || '',
-      id: item.id,
-      name: item.item_name,
-      category: '',
-      price: item.unit_price,
-      quantity: item.quantity,
-      destination: item.destination,
-      stock: 0
-    })) || [];
+  const cartItems = order.restaurant_order_items?.map(item => ({
+  orderItemId: item.id,
+  menuItemId: (item as any).menu_item_id || '',
+  id: item.id,
+  name: item.item_name,
+  category: '',
+  price: item.unit_price,
+  quantity: item.quantity,
+  destination: item.destination,
+  stock: Infinity,
+  stockManaged: false
+})) || [];
 
     setCart(cartItems);
     setOriginalItems(order.restaurant_order_items || []);
