@@ -250,7 +250,7 @@ export default function MenuManagementPage() {
                         {item.destination === 'KITCHEN' ? 'Cuisine' : 'Bar'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(item.price).toLocaleString('fr-FR')} F</td>
+                    <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(item.price).toLocaleString('fr-FR')} fcfa</td>
                     <td className="px-6 py-4 text-center">
                       <button onClick={() => toggleAvailability(item)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${item.is_available ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                         {item.is_available ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}{item.is_available ? 'Disponible' : 'Indisponible'}
