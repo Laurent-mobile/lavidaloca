@@ -7,17 +7,17 @@ export interface Module {
   name: string; 
   icon: string; 
   path: string;
-  section: 'PRINCIPAL' | 'HOTEL' | 'RESTAURANT' | 'BANQUE' | 'ADMIN'; 
+  section: 'PRINCIPAL' | 'HOTEL' | 'RESTAURANT' | 'ACHATS' | 'BANQUE' | 'ADMIN'; 
   roles: UserRole[];
 }
 
 export const MODULES: Module[] = [
-  // 🏠 PRINCIPAL (Tableau de bord unifié)
+  // 🏠 PRINCIPAL
   { 
     id: 'unified-dashboard', 
     name: 'Tableau de bord', 
     icon: 'LayoutDashboard', 
-    path: '/', // ✅ Pointe vers src/app/(app)/page.tsx
+    path: '/', 
     section: 'PRINCIPAL', 
     roles: ['DIRECTOR', 'RECEPTIONIST', 'RESTAURANT_MANAGER', 'SERVER', 'CHEF', 'BARTENDER', 'CASHIER', 'HOUSEKEEPING'] 
   },
@@ -29,8 +29,7 @@ export const MODULES: Module[] = [
   { id: 'customers', name: 'Clients', icon: 'Users', path: '/hotel/clients', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST'] },
   { id: 'room-service', name: 'Room Service', icon: 'Utensils', path: '/hotel/room-service', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST', 'SERVER'] },
   { id: 'hotel-cashier', name: 'Caisse Hôtel', icon: 'DollarSign', path: '/hotel/caisse', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST', 'CASHIER'] },
-  { id: 'maintenance', name: 'Maintenance', icon: 'Wrench', path: '/hotel/maintenance', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST', 'HOUSEKEEPING'] },
-  { id: 'hotel-expenses', name: 'Dépenses Hôtel', icon: 'TrendingDown', path: '/hotel/depenses', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST', 'CASHIER'] },
+  // ✅ Maintenance déplacée vers ACHATS
   { id: 'hotel-reports', name: 'Rapports', icon: 'BarChart3', path: '/hotel/rapports', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST'] },
   { id: 'night-audit', name: 'Audit de nuit', icon: 'Moon', path: '/hotel/audit', section: 'HOTEL', roles: ['DIRECTOR', 'RECEPTIONIST'] },
 
@@ -42,12 +41,15 @@ export const MODULES: Module[] = [
   { id: 'resto-cashier', name: 'Caisse Resto', icon: 'DollarSign', path: '/restaurant/caisse', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER', 'CASHIER'] },
   { id: 'menu', name: 'Gestion du Menu', icon: 'BookOpen', path: '/restaurant/menu', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
   { id: 'stock', name: 'Stock / Inventaire', icon: 'Package', path: '/restaurant/stock', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
-  { id: 'suppliers', name: 'Fournisseurs', icon: 'Truck', path: '/restaurant/fournisseurs', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
-  { id: 'supplier-orders', name: 'Commandes Fourn.', icon: 'ShoppingCart', path: '/restaurant/commandes-frs', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
-  { id: 'expenses', name: 'Dépenses', icon: 'TrendingDown', path: '/restaurant/depenses', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER', 'CASHIER'] },
   { id: 'cash-history', name: 'Historique Caisses', icon: 'History', path: '/restaurant/historique-caisses', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER', 'CASHIER'] },
   { id: 'resto-reports', name: 'Rapports Resto', icon: 'BarChart3', path: '/restaurant/rapports', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
   { id: 'employees', name: 'Employés', icon: 'Users', path: '/restaurant/employes', section: 'RESTAURANT', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
+
+  // 📦 ACHATS & MAINTENANCE (Nouvelle section unifiée)
+  { id: 'maintenance', name: 'Maintenance', icon: 'Wrench', path: '/hotel/maintenance', section: 'ACHATS', roles: ['DIRECTOR', 'RECEPTIONIST', 'HOUSEKEEPING'] },
+  { id: 'suppliers', name: 'Fournisseurs', icon: 'Truck', path: '/restaurant/fournisseurs', section: 'ACHATS', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
+  { id: 'supplier-orders', name: 'Commandes Fourn.', icon: 'ShoppingCart', path: '/restaurant/commandes-frs', section: 'ACHATS', roles: ['DIRECTOR', 'RESTAURANT_MANAGER'] },
+  { id: 'expenses', name: 'Dépenses', icon: 'TrendingDown', path: '/restaurant/depenses', section: 'ACHATS', roles: ['DIRECTOR', 'RESTAURANT_MANAGER', 'CASHIER'] },
 
   // 🏦 BANQUE
   { id: 'banque-comptes', name: 'Comptes & Rapprochement', icon: 'Landmark', path: '/banque', section: 'BANQUE', roles: ['DIRECTOR', 'CASHIER', 'RESTAURANT_MANAGER', 'RECEPTIONIST'] },
@@ -72,6 +74,7 @@ export function getModulesBySection(role: UserRole): Record<string, Module[]> {
     PRINCIPAL: modules.filter(m => m.section === 'PRINCIPAL'),
     HOTEL: modules.filter(m => m.section === 'HOTEL'),
     RESTAURANT: modules.filter(m => m.section === 'RESTAURANT'),
+    ACHATS: modules.filter(m => m.section === 'ACHATS'), // ✅ Nouvelle section
     BANQUE: modules.filter(m => m.section === 'BANQUE'),
     ADMIN: modules.filter(m => m.section === 'ADMIN'),
   };

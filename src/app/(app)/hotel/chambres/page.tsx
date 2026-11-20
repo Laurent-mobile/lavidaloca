@@ -1,4 +1,5 @@
 ﻿'use client';
+
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useProfile } from '@/hooks/useHotel';
@@ -12,7 +13,6 @@ import WaitlistModal from '@/components/WaitlistModal';
 import WaitlistAlert from '@/components/WaitlistAlert';
 import MaintenanceModal from '@/components/MaintenanceModal';
 import AdminModal from '@/components/AdminModal';
-//import RoomServiceModal from '@/components/RoomServiceModal';
 import CashierModal from '@/components/CashierModal';
 
 const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
@@ -26,22 +26,26 @@ const statusConfig: Record<string, { label: string; color: string; icon: any }> 
 export default function ChambresPage() {
   const supabase = createClient();
   const { siteId: profileSiteId, loading: profileLoading } = useProfile();
+  
   const [rooms, setRooms] = useState<any[]>([]);
   const [stats, setStats] = useState<Record<string, number>>({});
   const [upcomingReservations, setUpcomingReservations] = useState<any[]>([]);
-  const [activeStays, setActiveStays] = useState<any[]>([]);   // ✅ source de vérité
+  const [activeStays, setActiveStays] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
+  
   const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
   const [waitlistCount, setWaitlistCount] = useState(0);
   const [showWaitlistAlert, setShowWaitlistAlert] = useState(false);
+  
   const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [maintenanceRoomId, setMaintenanceRoomId] = useState<string | undefined>();
+  
   const [isCashOpen, setIsCashOpen] = useState(false);
   const [isRoomServiceOpen, setIsRoomServiceOpen] = useState(false);
 
@@ -58,35 +62,35 @@ export default function ChambresPage() {
         .select('id, number, floor, status, category_id, out_of_order_reason, room_categories (code, name, base_price)')
         .eq('site_id', profileSiteId)
         .order('number', { ascending: true });
+      
       if (roomsData) {
         setRooms(roomsData);
         const s = roomsData.reduce((acc: any, r: any) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {});
         setStats(s);
       }
 
-    // 2. ✅ EN SÉJOUR = séjours IN_HOUSE liés aux chambres du site
-// (on passe par room_id, car stays.site_id peut être NULL)
-const { data: staysData } = await supabase
-  .from('stays')
-  .select(`
-    id, room_id, reservation_id, customer_id, check_in_at, folio_balance, nightly_rate,
-    rooms (id, number, site_id),
-    customers (first_name, last_name, phone),
-    reservations (number, check_in_date, check_out_date)
-  `)
-  .eq('status', 'IN_HOUSE')
-  .eq('rooms.site_id', profileSiteId)
-  .order('check_in_at', { ascending: false });
+      // 2. EN SÉJOUR = séjours IN_HOUSE liés aux chambres du site
+      const { data: staysData } = await supabase
+        .from('stays')
+        .select(`
+          id, room_id, reservation_id, customer_id, check_in_at, folio_balance, nightly_rate,
+          rooms (id, number, site_id),
+          customers (first_name, last_name, phone),
+          reservations (number, check_in_date, check_out_date)
+        `)
+        .eq('status', 'IN_HOUSE')
+        .eq('rooms.site_id', profileSiteId)
+        .order('check_in_at', { ascending: false });
 
-const normalizedStays = (staysData || []).map((s: any) => ({
-  ...s,
-  rooms: Array.isArray(s.rooms) ? s.rooms[0] : s.rooms,
-  customers: Array.isArray(s.customers) ? s.customers[0] : s.customers,
-  reservations: Array.isArray(s.reservations) ? s.reservations[0] : s.reservations,
-}));
-setActiveStays(normalizedStays);
+      const normalizedStays = (staysData || []).map((s: any) => ({
+        ...s,
+        rooms: Array.isArray(s.rooms) ? s.rooms[0] : s.rooms,
+        customers: Array.isArray(s.customers) ? s.customers[0] : s.customers,
+        reservations: Array.isArray(s.reservations) ? s.reservations[0] : s.reservations,
+      }));
+      setActiveStays(normalizedStays);
 
-      // 3. Réservations À VENIR (confirmees, pas encore check-in)
+      // 3. Réservations À VENIR
       const today = new Date().toISOString().split('T')[0];
       const { data: resData } = await supabase
         .from('reservations')
@@ -104,6 +108,7 @@ setActiveStays(normalizedStays);
         .eq('site_id', profileSiteId)
         .eq('status', 'WAITING');
       if (count !== null) setWaitlistCount(count);
+      
     } catch (err) {
       console.error('Erreur chargement:', err);
     } finally {
@@ -111,18 +116,16 @@ setActiveStays(normalizedStays);
     }
   };
 
-  // ✅ Synchronisation chambres <-> séjours en un clic
+  // Synchronisation chambres <-> séjours
   const [syncing, setSyncing] = useState(false);
   const syncRooms = async () => {
     if (!confirm('Synchroniser le statut des chambres avec les séjours actifs ?')) return;
     setSyncing(true);
     try {
       const stayRoomIds = activeStays.map(s => s.room_id).filter(Boolean);
-      // chambres à passer OCCUPIED
       for (const rid of stayRoomIds) {
         await supabase.from('rooms').update({ status: 'OCCUPIED' }).eq('id', rid);
       }
-      // chambres OCCUPIED sans séjour -> DIRTY (à nettoyer)
       const { data: occupied } = await supabase
         .from('rooms').select('id').eq('site_id', profileSiteId).eq('status', 'OCCUPIED');
       for (const r of (occupied || [])) {
@@ -163,7 +166,7 @@ setActiveStays(normalizedStays);
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">🚪 Chambres</h1>
-          <p className="text-sm text-slate-500 mt-1">Plan de l'hôtel — {total} chambre(s)</p>
+          <p className="text-sm text-slate-500 mt-1">Plan de l'hôtel — {total} chambre(s) • Clic gauche : Réserver/Actions • Clic droit : Maintenance</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setIsWaitlistOpen(true)} className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-3 py-2 rounded-lg text-sm font-medium relative">
@@ -177,13 +180,13 @@ setActiveStays(normalizedStays);
           <button onClick={() => setIsCashOpen(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm font-medium">
             <Bed className="w-4 h-4" /> Caisse
           </button>
-          <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-indigo-900 px-3 py-2 rounded-lg text-sm font-bold">
+          <button onClick={() => { setSelectedRoom(null); setIsModalOpen(true); }} className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-indigo-900 px-3 py-2 rounded-lg text-sm font-bold">
             <Plus className="w-4 h-4" /> Nouvelle Réservation
           </button>
         </div>
       </div>
 
-      {/* ⚠️ Alerte de désynchronisation */}
+      {/* Alerte de désynchronisation */}
       {desync && (
         <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-sm text-amber-900">
@@ -238,11 +241,35 @@ setActiveStays(normalizedStays);
                   return (
                     <button
                       key={room.id}
-                      onClick={() => { setSelectedRoom(room); setIsRoomModalOpen(true); }}
-                      onContextMenu={(e) => { e.preventDefault(); setMaintenanceRoomId(room.id); setIsMaintenanceOpen(true); }}
+                      // ✅ NOUVEAU : Logique de clic intelligente
+                      onClick={() => {
+                        setSelectedRoom(room);
+                        if (room.status === 'VACANT') {
+                          setIsModalOpen(true); // Ouvre directement la réservation pour une chambre libre
+                        } else {
+                          setIsRoomModalOpen(true); // Ouvre les actions (check-out, etc.) pour une chambre occupée
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setMaintenanceRoomId(room.id);
+                        setIsMaintenanceOpen(true);
+                      }}
                       className={`rounded-lg border-2 p-2 text-left hover:shadow-md transition-all cursor-pointer relative ${cfg.color}`}
                     >
-                      {room.status === 'OUT_OF_ORDER' && <div className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs">🔧</div>}
+                      {room.status === 'OUT_OF_ORDER' && (
+                        <div className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs z-10">🔧</div>
+                      )}
+                      
+                      {/* ✅ Indice visuel au survol pour les chambres libres */}
+                      {room.status === 'VACANT' && (
+                        <div className="absolute inset-0 bg-emerald-600/90 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity rounded-lg z-20">
+                          <span className="font-bold text-sm flex items-center gap-1">
+                            <Plus className="w-4 h-4" /> Réserver
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-base font-bold">{room.number}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 font-semibold">{room.room_categories?.code}</span>
@@ -280,7 +307,7 @@ setActiveStays(normalizedStays);
             </div>
           </div>
 
-          {/* ✅ EN SÉJOUR = séjours IN_HOUSE */}
+          {/* EN SÉJOUR */}
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
             <div className="bg-blue-100 px-3 py-2 border-b border-blue-200">
               <h3 className="font-semibold text-blue-900 text-sm">🔑 En séjour ({activeStays.length})</h3>
@@ -312,14 +339,52 @@ setActiveStays(normalizedStays);
       </div>
 
       {/* Modals */}
-      <ReservationModal siteId={profileSiteId} isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
-      <RoomActionModal siteId={profileSiteId} room={selectedRoom} isOpen={isRoomModalOpen} onClose={() => setIsRoomModalOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
-      <WaitlistModal siteId={profileSiteId} isOpen={isWaitlistOpen} onClose={() => setIsWaitlistOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
-      <WaitlistAlert siteId={profileSiteId} isOpen={showWaitlistAlert} onClose={() => setShowWaitlistAlert(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
-      <MaintenanceModal siteId={profileSiteId} rooms={rooms} isOpen={isMaintenanceOpen} onClose={() => setIsMaintenanceOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} preselectRoomId={maintenanceRoomId} />
-      <AdminModal siteId={profileSiteId} isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
-      <CashierModal siteId={profileSiteId} isOpen={isCashOpen} onClose={() => setIsCashOpen(false)} onSuccess={() => setRefreshKey(k => k + 1)} />
-      
+      <ReservationModal 
+        siteId={profileSiteId} 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onSuccess={() => { setRefreshKey(k => k + 1); setIsModalOpen(false); }} 
+        preselectedRoom={selectedRoom} // ✅ Passe la chambre cliquée pour pré-remplir le formulaire (si votre composant le supporte)
+      />
+      <RoomActionModal 
+        siteId={profileSiteId} 
+        room={selectedRoom} 
+        isOpen={isRoomModalOpen} 
+        onClose={() => setIsRoomModalOpen(false)} 
+        onSuccess={() => setRefreshKey(k => k + 1)} 
+      />
+      <WaitlistModal 
+        siteId={profileSiteId} 
+        isOpen={isWaitlistOpen} 
+        onClose={() => setIsWaitlistOpen(false)} 
+        onSuccess={() => setRefreshKey(k => k + 1)} 
+      />
+      <WaitlistAlert 
+        siteId={profileSiteId} 
+        isOpen={showWaitlistAlert} 
+        onClose={() => setShowWaitlistAlert(false)} 
+        onSuccess={() => setRefreshKey(k => k + 1)} 
+      />
+      <MaintenanceModal 
+        siteId={profileSiteId} 
+        rooms={rooms} 
+        isOpen={isMaintenanceOpen} 
+        onClose={() => setIsMaintenanceOpen(false)} 
+        onSuccess={() => setRefreshKey(k => k + 1)} 
+        preselectRoomId={maintenanceRoomId} 
+      />
+      <AdminModal 
+        siteId={profileSiteId} 
+        isOpen={isAdminOpen} 
+        onClose={() => setIsAdminOpen(false)} 
+        onSuccess={() => setRefreshKey(k => k + 1)} 
+      />
+      <CashierModal 
+        siteId={profileSiteId} 
+        isOpen={isCashOpen} 
+        onClose={() => setIsCashOpen(false)} 
+        onSuccess={() => setRefreshKey(k => k + 1)} 
+      />
     </div>
   );
 }
