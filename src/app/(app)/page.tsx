@@ -19,17 +19,19 @@ export default function UnifiedDashboard() {
   const [period, setPeriod] = useState<Period>('day');
   
   const [stats, setStats] = useState({
-    totalRevenueToday: 0,
-    hotelRevenueToday: 0,
-    restoRevenueToday: 0,
-    totalExpensesToday: 0,
+    totalRevenue: 0,
+    hotelRevenue: 0,
+    restoRevenue: 0,
+    totalExpenses: 0,
+    hotelExpenses: 0,
+    restoExpenses: 0,
     netCashFlow: 0,
     totalRooms: 0,
     occupiedRooms: 0,
     vacantRooms: 0,
     dirtyRooms: 0,
-    todayCheckIns: 0,
-    todayCheckOuts: 0,
+    periodCheckIns: 0,
+    periodCheckOuts: 0,
     activeOrders: 0,
     kitchenOrders: 0,
     urgentMaintenance: 0,
@@ -108,7 +110,10 @@ export default function UnifiedDashboard() {
     setLoading(true);
     try {
       const { start, end } = getPeriodDates(p);
-      const today = new Date().toISOString().split('T')[0];
+      const startISO = start.toISOString();
+      const endISO = end.toISOString();
+      const startDateStr = start.toISOString().split('T')[0];
+      const endDateStr = end.toISOString().split('T')[0];
 
       setPeriodLabel(getPeriodLabel(p));
 
@@ -123,59 +128,80 @@ export default function UnifiedDashboard() {
         .from('reservations')
         .select('*', { count: 'exact', head: true })
         .eq('site_id', sid)
-        .gte('check_in_date', start.toISOString().split('T')[0])
-        .lte('check_in_date', end.toISOString().split('T')[0])
+        .gte('check_in_date', startDateStr)
+        .lte('check_in_date', endDateStr)
         .in('status', ['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT']);
 
       const { count: checkOuts } = await supabase
         .from('reservations')
         .select('*', { count: 'exact', head: true })
         .eq('site_id', sid)
-        .gte('check_out_date', start.toISOString().split('T')[0])
-        .lte('check_out_date', end.toISOString().split('T')[0])
-        .in('status', ['CHECKED_OUT']);
+        .gte('check_out_date', startDateStr)
+        .lte('check_out_date', endDateStr)
+        .eq('status', 'CHECKED_OUT');
 
-      // 3. RESTAURANT : Commandes actives (temps réel) + commandes de la période
+      // 3. RESTAURANT : Commandes actives (temps réel)
       const { data: orders } = await supabase
         .from('restaurant_orders')
-        .select('status, created_at')
+        .select('status')
         .eq('site_id', sid)
         .in('status', ['DRAFT', 'SENT', 'PREPARING', 'READY', 'SERVED']);
       const activeOrders = orders?.length || 0;
       const kitchenOrders = orders?.filter(o => o.status === 'PREPARING' || o.status === 'SENT').length || 0;
 
-      // 4. FINANCES : CA Hôtel sur la période
+      // 4. FINANCES : CA Hôtel sur la période (Encaissements caisse)
       const { data: hotelPayments } = await supabase
         .from('cash_transactions')
         .select('amount')
         .eq('site_id', sid)
         .eq('type', 'INCOME')
         .eq('status', 'PAID')
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
+        .gte('created_at', startISO)
+        .lte('created_at', endISO);
       const hotelRev = hotelPayments?.reduce((sum, p) => sum + Number(p.amount || 0), 0) || 0;
 
-      // 5. FINANCES : CA Restaurant sur la période
-      const { data: restoPayments } = await supabase
-        .from('restaurant_cash_transactions')
-        .select('amount')
+      // 5. FINANCES : CA Restaurant sur la période (Commandes payées)
+      const { data: restoOrders } = await supabase
+        .from('restaurant_orders')
+        .select('total_amount')
         .eq('site_id', sid)
-        .eq('type', 'INCOME')
         .eq('status', 'PAID')
-        .gte('transaction_date', start.toISOString())
-        .lte('transaction_date', end.toISOString());
-      const restoRev = restoPayments?.reduce((sum, p) => sum + Number(p.amount || 0), 0) || 0;
+        .gte('created_at', startISO)
+        .lte('created_at', endISO);
+      const restoRev = restoOrders?.reduce((sum, o) => sum + Number(o.total_amount || 0), 0) || 0;
 
-      // 6. FINANCES : Dépenses sur la période
-      const { data: expenses } = await supabase
+      // 6. FINANCES : Dépenses Hôtel sur la période
+      const { data: hotelExpenses } = await supabase
         .from('expenses')
         .select('amount')
         .eq('site_id', sid)
-        .gte('date', start.toISOString().split('T')[0])
-        .lte('date', end.toISOString().split('T')[0]);
-      const totalExpenses = expenses?.reduce((sum, e) => sum + Number(e.amount || 0), 0) || 0;
+        .eq('subtype', 'HOTEL')
+        .gte('date', startDateStr)
+        .lte('date', endDateStr);
+      const hotelExp = hotelExpenses?.reduce((sum, e) => sum + Number(e.amount || 0), 0) || 0;
 
-      // 7. ALERTES : Maintenance urgente (toujours en temps réel)
+      // 7. FINANCES : Dépenses Restaurant sur la période (Dépenses directes + Paiements fournisseurs)
+      const { data: restoExpenses } = await supabase
+        .from('expenses')
+        .select('amount')
+        .eq('site_id', sid)
+        .eq('subtype', 'RESTAURANT')
+        .gte('date', startDateStr)
+        .lte('date', endDateStr);
+      const restoExpDirect = restoExpenses?.reduce((sum, e) => sum + Number(e.amount || 0), 0) || 0;
+
+      const { data: supplierPayments } = await supabase
+        .from('supplier_payments')
+        .select('amount')
+        .eq('site_id', sid)
+        .gte('paid_at', startISO)
+        .lte('paid_at', endISO);
+      const supplierExp = supplierPayments?.reduce((sum, p) => sum + Number(p.amount || 0), 0) || 0;
+      
+      const restoExpTotal = restoExpDirect + supplierExp;
+      const totalExpenses = hotelExp + restoExpTotal;
+
+      // 8. ALERTES : Maintenance urgente (toujours en temps réel)
       const { count: maint } = await supabase
         .from('maintenance_requests')
         .select('*', { count: 'exact', head: true })
@@ -183,41 +209,66 @@ export default function UnifiedDashboard() {
         .in('status', ['PENDING', 'IN_PROGRESS'])
         .eq('priority', 'URGENT');
 
-      // 8. ACTIVITÉ RÉCENTE : Transactions de la période
-      const { data: recentTrans } = await supabase
+      // 9. ACTIVITÉ RÉCENTE : Mélange des transactions caisse et dépenses récentes
+      const { data: recentCash } = await supabase
         .from('cash_transactions')
-        .select('*')
+        .select('id, type, description, room_number, amount, created_at')
         .eq('site_id', sid)
         .eq('status', 'PAID')
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
+        .gte('created_at', startISO)
+        .lte('created_at', endISO)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(5);
 
-      const recent = (recentTrans || []).map(t => ({
-        id: t.id,
-        type: t.type === 'INCOME' ? 'income' : 'expense',
-        text: `${t.type === 'INCOME' ? '💰 Encaissement' : '💸 Dépense'} : ${t.description || 'Sans description'}${t.room_number ? ` (Ch. ${t.room_number})` : ''}`,
-        time: new Date(t.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
-        amount: t.amount,
-        icon: t.type === 'INCOME' ? DollarSign : TrendingDown,
-        color: t.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600',
-        bg: t.type === 'INCOME' ? 'bg-emerald-100' : 'bg-red-100'
-      }));
+      const { data: recentExp } = await supabase
+        .from('expenses')
+        .select('id, type, description, amount, date')
+        .eq('site_id', sid)
+        .gte('date', startDateStr)
+        .lte('date', endDateStr)
+        .order('date', { ascending: false })
+        .limit(5);
+
+      const recent = [
+        ...(recentCash || []).map(t => ({
+          id: `cash_${t.id}`,
+          type: t.type === 'INCOME' ? 'income' : 'expense',
+          text: `${t.type === 'INCOME' ? '💰 Encaissement' : '💸 Dépense'} : ${t.description || 'Sans description'}${t.room_number ? ` (Ch. ${t.room_number})` : ''}`,
+          sortDate: new Date(t.created_at).getTime(),
+          time: new Date(t.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+          amount: t.amount,
+          icon: t.type === 'INCOME' ? DollarSign : TrendingDown,
+          color: t.type === 'INCOME' ? 'text-emerald-600' : 'text-red-600',
+          bg: t.type === 'INCOME' ? 'bg-emerald-100' : 'bg-red-100'
+        })),
+        ...(recentExp || []).map(e => ({
+          id: `exp_${e.id}`,
+          type: 'expense',
+          text: `💸 Dépense (${e.type}) : ${e.description || 'Sans description'}`,
+          sortDate: new Date(e.date).getTime(),
+          time: new Date(e.date).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit' }),
+          amount: e.amount,
+          icon: TrendingDown,
+          color: 'text-red-600',
+          bg: 'bg-red-100'
+        }))
+      ].sort((a, b) => b.sortDate - a.sortDate).slice(0, 10);
 
       setStats({
         totalRooms: rooms?.length || 0,
         occupiedRooms: occupied,
         vacantRooms: vacant,
         dirtyRooms: dirty,
-        todayCheckIns: checkIns || 0,
-        todayCheckOuts: checkOuts || 0,
+        periodCheckIns: checkIns || 0,
+        periodCheckOuts: checkOuts || 0,
         activeOrders,
         kitchenOrders,
-        hotelRevenueToday: hotelRev,
-        restoRevenueToday: restoRev,
-        totalRevenueToday: hotelRev + restoRev,
-        totalExpensesToday: totalExpenses,
+        hotelRevenue: hotelRev,
+        restoRevenue: restoRev,
+        totalRevenue: hotelRev + restoRev,
+        hotelExpenses: hotelExp,
+        restoExpenses: restoExpTotal,
+        totalExpenses: totalExpenses,
         netCashFlow: (hotelRev + restoRev) - totalExpenses,
         urgentMaintenance: maint || 0,
       });
@@ -253,22 +304,17 @@ export default function UnifiedDashboard() {
       {/* En-tête avec sélecteur de période */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-  <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-    <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center p-1 shadow-sm border border-slate-200">
-      <img
-        src="/logo.png"
-        alt="LA VIDA-LOCA"
-        className="w-full h-full object-contain"
-      />
-    </div>
-    Tableau de bord unifié
-  </h1>
-  <p className="text-sm text-slate-500 mt-1">
-    Vue d'ensemble financière et opérationnelle • <span className="font-medium text-slate-700">{periodLabel}</span>
-  </p>
-</div>
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
+            <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center p-1 shadow-sm border border-slate-200">
+              <img src="/logo.png" alt="LA VIDA-LOCA" className="w-full h-full object-contain" />
+            </div>
+            Tableau de bord unifié
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Vue d'ensemble financière et opérationnelle • <span className="font-medium text-slate-700">{periodLabel}</span>
+          </p>
+        </div>
         <div className="flex items-center gap-2">
-          {/* ✅ Sélecteur de période */}
           <div className="flex bg-slate-100 rounded-lg p-1 border border-slate-200">
             {([
               { id: 'day', label: 'Jour', icon: CalendarDays },
@@ -302,22 +348,22 @@ export default function UnifiedDashboard() {
       {/* 💰 KPIs FINANCIERS GLOBAUX */}
       <div>
         <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-          <DollarSign className="w-4 h-4" /> Performance financière {period === 'day' ? 'du jour' : period === 'week' ? 'de la semaine' : period === 'month' ? 'du mois' : 'de l\'année'}
+          <DollarSign className="w-4 h-4" /> Performance financière globale
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard 
             icon={DollarSign} 
-            label="Chiffre d'affaires" 
-            value={`${stats.totalRevenueToday.toLocaleString('fr-FR')} F`} 
-            subValue={`Hôtel: ${stats.hotelRevenueToday.toLocaleString('fr-FR')} F • Resto: ${stats.restoRevenueToday.toLocaleString('fr-FR')} F`}
+            label="Chiffre d'affaires total" 
+            value={`${stats.totalRevenue.toLocaleString('fr-FR')} F`} 
+            subValue={`Hôtel: ${stats.hotelRevenue.toLocaleString('fr-FR')} F • Resto: ${stats.restoRevenue.toLocaleString('fr-FR')} F`}
             color="emerald" 
             trend="up"
           />
           <KPICard 
             icon={TrendingDown} 
-            label="Dépenses" 
-            value={`${stats.totalExpensesToday.toLocaleString('fr-FR')} F`} 
-            subValue="Toutes catégories confondues"
+            label="Dépenses totales" 
+            value={`${stats.totalExpenses.toLocaleString('fr-FR')} F`} 
+            subValue="Toutes catégories et entités confondues"
             color="red" 
           />
           <KPICard 
@@ -337,7 +383,7 @@ export default function UnifiedDashboard() {
         </div>
       </div>
 
-      {/* 📊 RÉPARTITION FINANCIÈRE DÉTAILLÉE */}
+      {/* 📊 RÉPARTITION FINANCIÈRE DÉTAILLÉE PAR ENTITÉ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Hôtel */}
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
@@ -351,13 +397,16 @@ export default function UnifiedDashboard() {
             </Link>
           </div>
           <div className="space-y-3">
-            <FinanceRow icon={Banknote} label="CA Hôtel" value={stats.hotelRevenueToday} color="emerald" />
-            <FinanceRow icon={Users} label="Arrivées" value={stats.todayCheckIns} color="blue" isCount />
-            <FinanceRow icon={Calendar} label="Départs" value={stats.todayCheckOuts} color="purple" isCount />
+            <FinanceRow icon={Banknote} label="Chiffre d'affaires" value={stats.hotelRevenue} color="emerald" />
+            <FinanceRow icon={TrendingDown} label="Dépenses" value={stats.hotelExpenses} color="red" />
+            <FinanceRow icon={Users} label="Arrivées (période)" value={stats.periodCheckIns} color="blue" isCount />
+            <FinanceRow icon={Calendar} label="Départs (période)" value={stats.periodCheckOuts} color="purple" isCount />
             <div className="pt-3 border-t border-slate-100">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-medium text-slate-600">Taux d'occupation</span>
-                <span className="text-sm font-bold text-slate-900">{occupancyRate}%</span>
+                <span className="text-xs font-medium text-slate-600">Flux net (CA - Dépenses)</span>
+                <span className={`text-sm font-bold ${stats.hotelRevenue - stats.hotelExpenses >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {(stats.hotelRevenue - stats.hotelExpenses).toLocaleString('fr-FR')} F
+                </span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
                 <div className="bg-indigo-600 h-2 rounded-full" style={{ width: `${occupancyRate}%` }} />
@@ -373,25 +422,26 @@ export default function UnifiedDashboard() {
               <span className="p-2 bg-amber-100 rounded-lg"><Utensils className="w-4 h-4 text-amber-600" /></span>
               Restaurant
             </h3>
-            <Link href="/restaurant/caisse" className="text-xs font-medium text-amber-600 hover:text-amber-800 flex items-center gap-1">
+            <Link href="/restaurant/depenses" className="text-xs font-medium text-amber-600 hover:text-amber-800 flex items-center gap-1">
               Détails <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
           <div className="space-y-3">
-            <FinanceRow icon={Banknote} label="CA Restaurant" value={stats.restoRevenueToday} color="emerald" />
+            <FinanceRow icon={Banknote} label="Chiffre d'affaires" value={stats.restoRevenue} color="emerald" />
+            <FinanceRow icon={TrendingDown} label="Dépenses (incl. fournisseurs)" value={stats.restoExpenses} color="red" />
             <FinanceRow icon={ShoppingCart} label="Commandes actives" value={stats.activeOrders} color="indigo" isCount />
             <FinanceRow icon={ChefHat} label="En cuisine" value={stats.kitchenOrders} color="amber" isCount />
             <div className="pt-3 border-t border-slate-100">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-medium text-slate-600">Part du CA total</span>
-                <span className="text-sm font-bold text-slate-900">
-                  {stats.totalRevenueToday > 0 ? Math.round((stats.restoRevenueToday / stats.totalRevenueToday) * 100) : 0}%
+                <span className="text-xs font-medium text-slate-600">Flux net (CA - Dépenses)</span>
+                <span className={`text-sm font-bold ${stats.restoRevenue - stats.restoExpenses >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {(stats.restoRevenue - stats.restoExpenses).toLocaleString('fr-FR')} F
                 </span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
                 <div 
                   className="bg-amber-500 h-2 rounded-full" 
-                  style={{ width: `${stats.totalRevenueToday > 0 ? (stats.restoRevenueToday / stats.totalRevenueToday) * 100 : 0}%` }} 
+                  style={{ width: `${stats.totalRevenue > 0 ? (stats.restoRevenue / stats.totalRevenue) * 100 : 0}%` }} 
                 />
               </div>
             </div>
@@ -509,7 +559,7 @@ function FinanceRow({ icon: Icon, label, value, color, isCount }: any) {
         <Icon className={`w-4 h-4 ${colors[color]}`} />
         <span className="text-sm font-medium text-slate-700">{label}</span>
       </div>
-      <span className={`font-bold ${isCount ? 'text-slate-900' : 'text-emerald-900'}`}>
+      <span className={`font-bold ${isCount ? 'text-slate-900' : (color === 'red' ? 'text-red-700' : 'text-emerald-900')}`}>
         {isCount ? value : `${Number(value).toLocaleString('fr-FR')} F`}
       </span>
     </div>
