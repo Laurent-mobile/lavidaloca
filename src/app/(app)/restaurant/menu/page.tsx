@@ -6,12 +6,11 @@ import {
   Plus, Search, Edit, Trash2, ToggleLeft, ToggleRight, 
   X, Save, Utensils, Wine, LayoutGrid, BookOpen, Package,
   Coffee, Beer, GlassWater, Pizza, Sandwich, Salad, IceCream,
-  Soup, Cake, Cookie, Apple, Cherry, Citrus, Grape, Lemon,
-  Peach, Pear, Strawberry, Tomato, Carrot, Corn, Mushroom,
-  Leaf, Flower, Tree, Sun, Cloud, Snow, Wind, Flame,
+  Soup, Cake, Cookie, Apple, Cherry, Citrus,
+  Leaf, Flower, Sun, Cloud, Wind, Flame,
   Zap, Star, Heart, Award, Trophy, Medal, Crown, Gem,
-  Sparkles, Fire, Lightning, Thunder, Rainbow, CloudRain,
-  CloudSnow, CloudLightning, CloudSun, CloudMoon, Moon, SunMedium
+  Sparkles, Rainbow, Moon, CloudSun, CloudRain, CloudLightning,
+  Trees, FlameKindling, ZapOff, SunDim
 } from 'lucide-react';
 
 interface Category {
