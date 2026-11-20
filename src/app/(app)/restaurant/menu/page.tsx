@@ -4,7 +4,14 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { 
   Plus, Search, Edit, Trash2, ToggleLeft, ToggleRight, 
-  X, Save, Utensils, Wine, LayoutGrid, BookOpen 
+  X, Save, Utensils, Wine, LayoutGrid, BookOpen, Package,
+  Coffee, Beer, GlassWater, Pizza, Sandwich, Salad, IceCream,
+  Soup, Cake, Cookie, Apple, Cherry, Citrus, Grape, Lemon,
+  Peach, Pear, Strawberry, Tomato, Carrot, Corn, Mushroom,
+  Leaf, Flower, Tree, Sun, Cloud, Snow, Wind, Flame,
+  Zap, Star, Heart, Award, Trophy, Medal, Crown, Gem,
+  Sparkles, Fire, Lightning, Thunder, Rainbow, CloudRain,
+  CloudSnow, CloudLightning, CloudSun, CloudMoon, Moon, SunMedium
 } from 'lucide-react';
 
 interface Category {
@@ -32,6 +39,58 @@ interface RecipeIngredient {
   quantity: number;
   unit: string;
 }
+
+// Icônes par catégorie
+const categoryIcons: Record<string, any> = {
+  'PLATS PRINCIPAUX': Utensils,
+  'PLATS CHAUDS': Utensils,
+  'ENTRÉES': Soup,
+  'SALADES': Salad,
+  'SANDWICHS': Sandwich,
+  'PIZZAS': Pizza,
+  'TAPAS': Sandwich,
+  'SNACKS': Cookie,
+  'DESSERTS': IceCream,
+  'BOISSONS': GlassWater,
+  'SOFTS': GlassWater,
+  'JUS': GlassWater,
+  'CAFÉS': Coffee,
+  'THÉS': Coffee,
+  'BIÈRES': Beer,
+  'VINS': Wine,
+  'VINS ROUGE': Wine,
+  'VINS BLANC': Wine,
+  'VINS ROSÉ': Wine,
+  'CHAMPAGNES': Wine,
+  'COCKTAILS': GlassWater,
+  'LIQUEURS & SPIRITUEUX': Wine,
+  'SHOTS': GlassWater,
+  'SUPPLÉMENTS': Sparkles,
+};
+
+const getCategoryIcon = (categoryName: string) => {
+  const upperName = categoryName.toUpperCase();
+  for (const [key, icon] of Object.entries(categoryIcons)) {
+    if (upperName.includes(key)) return icon;
+  }
+  return Package;
+};
+
+const getCategoryColor = (categoryName: string) => {
+  const upperName = categoryName.toUpperCase();
+  if (upperName.includes('PLAT')) return 'from-orange-500 to-red-500';
+  if (upperName.includes('ENTRÉE') || upperName.includes('SALAD')) return 'from-green-500 to-emerald-500';
+  if (upperName.includes('PIZZA')) return 'from-yellow-500 to-orange-500';
+  if (upperName.includes('SANDWICH') || upperName.includes('SNACK') || upperName.includes('TAPA')) return 'from-amber-500 to-yellow-500';
+  if (upperName.includes('DESSERT')) return 'from-pink-500 to-rose-500';
+  if (upperName.includes('BOISSON') || upperName.includes('SOFT') || upperName.includes('JUS')) return 'from-blue-500 to-cyan-500';
+  if (upperName.includes('CAFÉ') || upperName.includes('THÉ')) return 'from-amber-600 to-orange-600';
+  if (upperName.includes('BIÈRE')) return 'from-yellow-600 to-amber-600';
+  if (upperName.includes('VIN') || upperName.includes('CHAMPAGNE')) return 'from-purple-500 to-pink-500';
+  if (upperName.includes('COCKTAIL') || upperName.includes('LIQUEUR') || upperName.includes('SPIRIT') || upperName.includes('SHOT')) return 'from-indigo-500 to-purple-500';
+  if (upperName.includes('SUPPLÉMENT')) return 'from-violet-500 to-purple-500';
+  return 'from-slate-500 to-gray-500';
+};
 
 export default function MenuManagementPage() {
   const supabase = createClient();
@@ -143,27 +202,23 @@ export default function MenuManagementPage() {
   };
 
   // --- Gestion des Fiches Techniques (Recettes) ---
-    const openRecipeModal = async (item: MenuItem) => {
+  const openRecipeModal = async (item: MenuItem) => {
     setSelectedMenuItem(item);
     
-    // 1. Charger les articles du stock et garder la donnée dans une variable locale
     const { data: stockData } = await supabase
       .from('stock_items')
       .select('id, name, unit')
       .eq('site_id', siteId)
       .order('name');
     
-    // Mettre à jour l'état pour le dropdown (sera disponible au prochain rendu)
     setStockItems(stockData || []);
     
-    // 2. Charger les recettes
     const { data: recipes } = await supabase
       .from('item_recipes')
       .select('*')
       .eq('menu_item_id', item.id)
       .eq('site_id', siteId);
     
-    // 3. Enrichir avec la variable locale `stockData` (et non l'état `stockItems`)
     const enriched = recipes?.map(r => ({
       ...r,
       stock_name: stockData?.find(s => s.id === r.stock_item_id)?.name || 'Inconnu',
@@ -180,7 +235,7 @@ export default function MenuManagementPage() {
     try {
       const { error } = await supabase.from('item_recipes').insert(payload);
       if (error) throw error;
-      await openRecipeModal(selectedMenuItem!); // Recharger
+      await openRecipeModal(selectedMenuItem!);
       setSelectedStockItem(''); setRecipeQuantity('');
     } catch (error: any) { alert('Erreur : ' + error.message); }
   };
@@ -189,7 +244,7 @@ export default function MenuManagementPage() {
     if (!confirm('Supprimer cet ingrédient ?')) return;
     try {
       await supabase.from('item_recipes').delete().eq('id', recipeId);
-      await openRecipeModal(selectedMenuItem!); // Recharger
+      await openRecipeModal(selectedMenuItem!);
     } catch (error: any) { alert('Erreur : ' + error.message); }
   };
 
@@ -198,6 +253,14 @@ export default function MenuManagementPage() {
     const matchesCategory = filterCategory === 'ALL' || item.category_id === filterCategory;
     return matchesSearch && matchesCategory;
   });
+
+  // Grouper les articles par catégorie
+  const itemsByCategory = filteredItems.reduce((acc, item) => {
+    const catName = item.category_name || 'Non catégorisé';
+    if (!acc[catName]) acc[catName] = [];
+    acc[catName].push(item);
+    return acc;
+  }, {} as Record<string, MenuItem[]>);
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div></div>;
 
@@ -222,53 +285,99 @@ export default function MenuManagementPage() {
         </select>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
-                <th className="px-6 py-4">Article</th>
-                <th className="px-6 py-4">Catégorie</th>
-                <th className="px-6 py-4">Destination</th>
-                <th className="px-6 py-4 text-right">Prix</th>
-                <th className="px-6 py-4 text-center">Statut</th>
-                <th className="px-6 py-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredItems.length === 0 ? (<tr><td colSpan={6} className="px-6 py-12 text-center text-slate-500">Aucun article trouvé.</td></tr>) : (
-                filteredItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-slate-900">{item.name}</div>
-                      {item.description && <div className="text-xs text-slate-500 mt-1 truncate max-w-xs">{item.description}</div>}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-700">{item.category_name}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${item.destination === 'KITCHEN' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                        {item.destination === 'KITCHEN' ? <Utensils className="w-3.5 h-3.5" /> : <Wine className="w-3.5 h-3.5" />}
-                        {item.destination === 'KITCHEN' ? 'Cuisine' : 'Bar'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right font-bold text-slate-900">{Number(item.price).toLocaleString('fr-FR')} fcfa</td>
-                    <td className="px-6 py-4 text-center">
-                      <button onClick={() => toggleAvailability(item)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${item.is_available ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                        {item.is_available ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}{item.is_available ? 'Disponible' : 'Indisponible'}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => openRecipeModal(item)} className="p-1.5 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg" title="Fiche technique (Ingrédients)"><BookOpen className="w-4 h-4" /></button>
-                        <button onClick={() => openModal(item)} className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg" title="Modifier"><Edit className="w-4 h-4" /></button>
-                        <button onClick={() => deleteItem(item.id)} className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
+      {/* Affichage par cartes de catégories */}
+      <div className="space-y-6">
+        {Object.keys(itemsByCategory).length === 0 ? (
+          <div className="text-center py-16 bg-white rounded-xl border border-slate-200">
+            <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+            <h3 className="text-lg font-medium text-slate-900">Aucun article trouvé</h3>
+            <p className="text-sm text-slate-500 mt-1">Ajoutez votre premier article ou modifiez votre recherche.</p>
+          </div>
+        ) : (
+          Object.entries(itemsByCategory).map(([categoryName, categoryItems]) => {
+            const Icon = getCategoryIcon(categoryName);
+            const gradient = getCategoryColor(categoryName);
+            const availableCount = categoryItems.filter(i => i.is_available).length;
+            
+            return (
+              <div key={categoryName} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                {/* Header de la catégorie */}
+                <div className={`bg-gradient-to-r ${gradient} p-4 text-white`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                        <Icon className="w-6 h-6" />
                       </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      <div>
+                        <h3 className="text-lg font-bold">{categoryName}</h3>
+                        <p className="text-sm text-white/80">{categoryItems.length} article{categoryItems.length > 1 ? 's' : ''} • {availableCount} disponible{availableCount > 1 ? 's' : ''}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grille d'articles */}
+                <div className="p-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {categoryItems.map((item) => (
+                      <div key={item.id} className={`border-2 rounded-xl p-4 transition-all hover:shadow-md ${item.is_available ? 'border-slate-200 bg-white' : 'border-red-200 bg-red-50 opacity-75'}`}>
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-slate-900 truncate">{item.name}</h4>
+                            {item.description && (
+                              <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.description}</p>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => toggleAvailability(item)}
+                            className={`ml-2 p-1.5 rounded-lg transition-colors ${item.is_available ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            title={item.is_available ? 'Disponible' : 'Indisponible'}
+                          >
+                            {item.is_available ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="text-2xl font-bold text-indigo-600">{Number(item.price).toLocaleString('fr-FR')} F</div>
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${item.destination === 'KITCHEN' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : '🍹 Bar'}
+                          </span>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-1 pt-2 border-t border-slate-100">
+                          <button
+                            onClick={() => openRecipeModal(item)}
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-lg text-xs font-medium transition-colors"
+                            title="Fiche technique"
+                          >
+                            <BookOpen className="w-3.5 h-3.5" />
+                            Recette
+                          </button>
+                          <button
+                            onClick={() => openModal(item)}
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-medium transition-colors"
+                            title="Modifier"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            Modifier
+                          </button>
+                          <button
+                            onClick={() => deleteItem(item.id)}
+                            className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Modal Ajout/Modif Article */}
