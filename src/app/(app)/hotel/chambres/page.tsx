@@ -251,7 +251,12 @@ export default function ChambresPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-white text-base">{cat.name}</h3>
-                    <p className="text-xs text-indigo-100">Code: {cat.code} • {Number(cat.price).toLocaleString('fr-FR')} fcfa / nuit</p>
+                                        <p className="text-xs text-indigo-100">
+                      Code: {cat.code} • {Number(cat.price).toLocaleString('fr-FR')} fcfa / nuit
+                    </p>
+                    <p className="text-[10px] text-indigo-200 mt-0.5">
+                      🏢 Étages : {[...new Set(cat.rooms.map((r: any) => r.floor ?? '—'))].sort((a: any, b: any) => a - b).join(', ')}
+                    </p>
                   </div>
                 </div>
                 <div className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold text-white backdrop-blur-sm">
@@ -294,10 +299,17 @@ export default function ChambresPage() {
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-base font-bold">{room.number}</span>
+                                            <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-base font-bold">{room.number}</span>
+                          <span className="text-[9px] font-semibold text-slate-500 bg-white/60 px-1 py-0.5 rounded">
+                            📍 É{room.floor ?? '—'}
+                          </span>
+                        </div>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 font-semibold">{cat.code}</span>
                       </div>
+                      <div className="text-[10px] opacity-80">{cfg.label}</div>
+                      <div className="text-[10px] mt-1 font-semibold">{Number(cat.price).toLocaleString('fr-FR')} fcfa</div>
                       <div className="text-[10px] opacity-80">{cfg.label}</div>
                       <div className="text-[10px] mt-1 font-semibold">{Number(cat.price).toLocaleString('fr-FR')} fcfa</div>
                     </button>
