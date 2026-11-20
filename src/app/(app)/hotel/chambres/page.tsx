@@ -153,12 +153,23 @@ export default function ChambresPage() {
   const occRate = total ? Math.round((occupied / total) * 100) : 0;
   const desync = activeStays.length !== occupied;
 
-  const byFloor = rooms.reduce((acc: any, room: any) => {
-    const floor = room.floor || 0;
-    if (!acc[floor]) acc[floor] = [];
-    acc[floor].push(room);
+    // ✅ Regroupement des chambres par catégorie
+  const byCategory = rooms.reduce((acc: any, room: any) => {
+    const catName = room.room_categories?.name || 'Non catégorisé';
+    if (!acc[catName]) {
+      acc[catName] = {
+        name: catName,
+        code: room.room_categories?.code || 'NC',
+        price: room.room_categories?.base_price || 0,
+        rooms: []
+      };
+    }
+    acc[catName].rooms.push(room);
     return acc;
   }, {});
+
+  // Trier les catégories par prix décroissant (ex: Suites en premier, puis Standard)
+  const sortedCategories = Object.values(byCategory).sort((a: any, b: any) => b.price - a.price);
 
   return (
     <div className="p-6 space-y-4">
@@ -230,24 +241,37 @@ export default function ChambresPage() {
       {/* Plan + colonne droite */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
-          {Object.keys(byFloor).sort().map((floor: string) => (
-            <div key={floor} className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm">
-              <div className="bg-slate-100 px-3 py-1.5 border-b border-slate-200">
-                <h3 className="font-semibold text-slate-800 text-sm">Étage {floor}</h3>
+                    {sortedCategories.map((cat: any) => (
+            <div key={cat.name} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+              {/* En-tête de la catégorie */}
+              <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 border-b border-indigo-200 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm">
+                    <Bed className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base">{cat.name}</h3>
+                    <p className="text-xs text-indigo-100">Code: {cat.code} • {Number(cat.price).toLocaleString('fr-FR')} fcfa / nuit</p>
+                  </div>
+                </div>
+                <div className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold text-white backdrop-blur-sm">
+                  {cat.rooms.length} chambre{cat.rooms.length > 1 ? 's' : ''}
+                </div>
               </div>
+
+              {/* Grille des chambres */}
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 p-3">
-                {byFloor[floor].map((room: any) => {
+                {cat.rooms.map((room: any) => {
                   const cfg = statusConfig[room.status] || statusConfig.VACANT;
                   return (
                     <button
                       key={room.id}
-                      // ✅ NOUVEAU : Logique de clic intelligente
                       onClick={() => {
                         setSelectedRoom(room);
                         if (room.status === 'VACANT') {
-                          setIsModalOpen(true); // Ouvre directement la réservation pour une chambre libre
+                          setIsModalOpen(true); // Ouvre directement la réservation
                         } else {
-                          setIsRoomModalOpen(true); // Ouvre les actions (check-out, etc.) pour une chambre occupée
+                          setIsRoomModalOpen(true); // Ouvre les actions (check-out, etc.)
                         }
                       }}
                       onContextMenu={(e) => {
@@ -272,10 +296,10 @@ export default function ChambresPage() {
 
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-base font-bold">{room.number}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 font-semibold">{room.room_categories?.code}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 font-semibold">{cat.code}</span>
                       </div>
                       <div className="text-[10px] opacity-80">{cfg.label}</div>
-                      <div className="text-[10px] mt-1 font-semibold">{Number(room.room_categories?.base_price || 0).toLocaleString('fr-FR')} fcfa</div>
+                      <div className="text-[10px] mt-1 font-semibold">{Number(cat.price).toLocaleString('fr-FR')} fcfa</div>
                     </button>
                   );
                 })}
@@ -344,6 +368,7 @@ export default function ChambresPage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onSuccess={() => { setRefreshKey(k => k + 1); setIsModalOpen(false); }} 
+        
         
       />
       <RoomActionModal 
