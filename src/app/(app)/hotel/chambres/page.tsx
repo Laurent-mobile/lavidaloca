@@ -344,7 +344,7 @@ export default function ChambresPage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onSuccess={() => { setRefreshKey(k => k + 1); setIsModalOpen(false); }} 
-        preselectedRoom={selectedRoom} // ✅ Passe la chambre cliquée pour pré-remplir le formulaire (si votre composant le supporte)
+        
       />
       <RoomActionModal 
         siteId={profileSiteId} 
