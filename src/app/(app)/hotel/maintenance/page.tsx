@@ -1,11 +1,12 @@
 'use client';
+
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useProfile } from '@/hooks/useHotel';
 import {
   Wrench, Plus, Trash2, FileText, AlertTriangle, CheckCircle, History, X, Save,
   Settings, Calendar, Clock, TrendingUp, Loader2, Filter, Search, Edit,
-  Zap, Wind, Droplets, Flame, Car, Building, Cpu, Shield, AlertCircle, Truck, Receipt, ArrowUpCircle
+  Shield, AlertCircle, Truck, Receipt, ArrowUpCircle
 } from 'lucide-react';
 
 // ✅ Catégories d'équipements
@@ -56,8 +57,8 @@ export default function MaintenancePage() {
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [editingRequest, setEditingRequest] = useState<any>(null);
   const [requestForm, setRequestForm] = useState({
-    room_id: '',          // ✅ NOUVEAU : Chambre concernée
-    supplier_id: '',      // ✅ NOUVEAU : Prestataire (Fournisseur)
+    room_id: '',
+    supplier_id: '',
     equipment_id: '',
     category: 'HVAC',
     type: 'CURATIVE',
@@ -65,25 +66,19 @@ export default function MaintenancePage() {
     description: '',
     priority: 'MEDIUM',
     estimated_cost: 0,
-    actual_cost: 0,  
-    payment_method: 'Espèces',        // ✅ NOUVEAU
-    payment_reference: '',      
+    actual_cost: 0,
+    payment_method: 'Espèces',
+    payment_reference: '',
     assigned_to: '',
     notes: '',
   });
 
   // Données annexes
   const [equipment, setEquipment] = useState<any[]>([]);
-  const [showEquipmentForm, setShowEquipmentForm] = useState(false); // ✅ Défini ici
-  const [editingEquipment, setEditingEquipment] = useState<any>(null);
-  const [equipmentForm, setEquipmentForm] = useState({
-    name: '', category: 'HVAC', location: '', brand: '', model: '',
-    serial_number: '', installation_date: '', warranty_expiry: '', notes: ''
-  });
-
-  const [suppliers, setSuppliers] = useState<any[]>([]); // ✅ Liste des fournisseurs
-  const [rooms, setRooms] = useState<any[]>([]);         // ✅ Liste des chambres
-    const [bankAccounts, setBankAccounts] = useState<any[]>([]); // ✅ Pour la transaction bancaire
+  const [showEquipmentForm, setShowEquipmentForm] = useState(false);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
 
   // Maintenance préventive
   const [preventiveTasks, setPreventiveTasks] = useState<any[]>([]);
@@ -104,7 +99,7 @@ export default function MaintenancePage() {
       loadPreventiveTasks();
       loadSuppliers();
       loadRooms();
-      loadBankAccounts(); 
+      loadBankAccounts();
     }
   }, [siteId]);
 
@@ -112,13 +107,9 @@ export default function MaintenancePage() {
     const { data } = await supabase.from('suppliers').select('id, name').eq('site_id', siteId).eq('is_active', true).order('name');
     setSuppliers(data || []);
   };
-    const loadBankAccounts = async () => {
-    const { data } = await supabase
-      .from('bank_accounts')
-      .select('id, bank_name, account_name')
-      .eq('site_id', siteId)
-      .eq('is_active', true)
-      .limit(1);
+
+  const loadBankAccounts = async () => {
+    const { data } = await supabase.from('bank_accounts').select('id, bank_name, account_name').eq('site_id', siteId).eq('is_active', true).limit(1);
     setBankAccounts(data || []);
   };
 
@@ -135,26 +126,22 @@ export default function MaintenancePage() {
         .from('maintenance_requests')
         .select(`
           id, equipment_id, room_id, supplier_id, category, type, title, description, priority, status,
-          estimated_cost, actual_cost, assigned_to, notes, created_at, completed_at,
-          item_description, issue_description,
+          estimated_cost, actual_cost, assigned_to, notes, created_at, completed_at, expense_id,
+          item_description, issue_description, payment_method, payment_reference,
           equipment:equipment_id (name, category, location)
         `)
         .eq('site_id', siteId)
         .order('created_at', { ascending: false });
       
-      if (error) {
-        console.error('Erreur chargement demandes:', error);
-        const { data: fallbackData } = await supabase.from('maintenance_requests').select('*').eq('site_id', siteId).order('created_at', { ascending: false });
-        setRequests(fallbackData || []);
-      } else {
-        const normalized = (data || []).map(r => ({
-          ...r,
-          title: r.title || r.item_description || 'Sans titre',
-          description: r.description || r.issue_description || '',
-          equipment: Array.isArray(r.equipment) ? r.equipment[0] : r.equipment,
-        }));
-        setRequests(normalized);
-      }
+      if (error) throw error;
+      
+      const normalized = (data || []).map(r => ({
+        ...r,
+        title: r.title || r.item_description || 'Sans titre',
+        description: r.description || r.issue_description || '',
+        equipment: Array.isArray(r.equipment) ? r.equipment[0] : r.equipment,
+      }));
+      setRequests(normalized);
     } catch (err: any) {
       console.error('Erreur chargement demandes:', err);
       setRequests([]);
@@ -166,10 +153,9 @@ export default function MaintenancePage() {
     if (!siteId) return;
     try {
       const { data, error } = await supabase.from('maintenance_equipment').select('*').eq('site_id', siteId).order('name');
-      if (error) { console.error('Erreur chargement équipements:', error); setEquipment([]); } 
-      else { setEquipment(data || []); }
+      if (error) throw error;
+      setEquipment(data || []);
     } catch (err: any) {
-      console.error('Erreur chargement équipements:', err);
       setEquipment([]);
     }
   };
@@ -183,53 +169,14 @@ export default function MaintenancePage() {
         .eq('site_id', siteId)
         .order('next_date', { ascending: true });
       
-      if (error) { console.error('Erreur chargement préventif:', error); setPreventiveTasks([]); } 
-      else {
-        const normalized = (data || []).map(t => ({ ...t, equipment: Array.isArray(t.equipment) ? t.equipment[0] : t.equipment }));
-        setPreventiveTasks(normalized);
-      }
+      if (error) throw error;
+      const normalized = (data || []).map(t => ({ ...t, equipment: Array.isArray(t.equipment) ? t.equipment[0] : t.equipment }));
+      setPreventiveTasks(normalized);
     } catch (err: any) {
-      console.error('Erreur chargement préventif:', err);
       setPreventiveTasks([]);
     }
   };
-  // ✅ Crée la transaction bancaire si le paiement est d'un type "bancaire"
-  const createBankTransactionIfNeeded = async (
-    paymentMethod: string,
-    reference: string,
-    amount: number,
-    description: string,
-    counterparty: string,
-    date: string,
-    expenseId?: string
-  ) => {
-    const bankMethods: Record<string, string> = {
-      'Virement': 'TRANSFER',
-      'Chèque': 'CHECK',
-      'Mobile Money': 'MOBILE_MONEY',
-    };
-    const transactionType = bankMethods[paymentMethod];
-    if (!transactionType || !reference?.trim() || amount <= 0) return null;
 
-    const bankAccount = bankAccounts[0];
-    const { error } = await supabase.from('bank_transactions').insert({
-      site_id: siteId,
-      bank_account_id: bankAccount?.id || null,
-      reference: reference.trim(),
-      transaction_type: transactionType,
-      direction: 'EXPENSE',
-      amount: amount,
-      counterparty: counterparty || 'Prestataire',
-      description: `Dépense Maintenance: ${description}`,
-      transaction_date: date,
-      status: 'PENDING',
-      source_table: 'expenses',
-      source_id: expenseId || null,
-    });
-
-    if (error) console.error('Erreur création transaction bancaire:', error);
-    return transactionType;
-  };
   const handleSaveRequest = async () => {
     if (!requestForm.title.trim() || !requestForm.description.trim()) {
       alert('Le titre et la description sont obligatoires.');
@@ -253,7 +200,7 @@ export default function MaintenancePage() {
         priority: requestForm.priority,
         estimated_cost: requestForm.estimated_cost,
         actual_cost: requestForm.actual_cost || requestForm.estimated_cost,
-                payment_method: requestForm.payment_method,
+        payment_method: requestForm.payment_method,
         payment_reference: requestForm.payment_reference?.trim() || null,
         assigned_to: requestForm.assigned_to,
         notes: requestForm.notes,
@@ -263,15 +210,26 @@ export default function MaintenancePage() {
 
       if (requestForm.equipment_id) requestData.equipment_id = requestForm.equipment_id;
 
+      // ✅ SÉCURITÉ : Empêcher la modification d'une demande déjà clôturée
+      if (editingRequest && (editingRequest.status === 'COMPLETED' || editingRequest.status === 'CANCELLED')) {
+        alert('⚠️ Une maintenance terminée ou annulée ne peut plus être modifiée.');
+        setLoading(false);
+        return;
+      }
+
+      let finalMaintenanceId = editingRequest?.id || null;
+
       if (editingRequest) {
         const { error } = await supabase.from('maintenance_requests').update(requestData).eq('id', editingRequest.id);
         if (error) throw error;
+        finalMaintenanceId = editingRequest.id;
       } else {
-        const { error } = await supabase.from('maintenance_requests').insert(requestData);
+        const { data: created, error } = await supabase.from('maintenance_requests').insert(requestData).select('id').single();
         if (error) throw error;
+        finalMaintenanceId = created?.id || null;
       }
 
-      // ✅ 1. GESTION DU STATUT DE LA CHAMBRE
+      // ✅ 1. GESTION DU STATUT DE LA CHAMBRE (Indisponible si en cours, Libre si terminée)
       if (requestForm.room_id) {
         if (requestData.status === 'COMPLETED') {
           await supabase.from('rooms').update({ status: 'VACANT', out_of_order_reason: null }).eq('id', requestForm.room_id);
@@ -279,62 +237,71 @@ export default function MaintenancePage() {
           await supabase.from('rooms').update({ status: 'OUT_OF_ORDER', out_of_order_reason: requestForm.title }).eq('id', requestForm.room_id);
         }
       }
-      // ✅ Avertissement si mode bancaire mais coût à 0
-      const bankMethods = ['Virement', 'Chèque', 'Mobile Money', 'Carte bancaire'];
-      const finalCostCheck = Number(requestData.actual_cost) || Number(requestData.estimated_cost) || 0;
-      if (
-        requestData.status === 'COMPLETED' &&
-        bankMethods.includes(requestForm.payment_method) &&
-        finalCostCheck <= 0
-      ) {
-        alert(
-          '⚠️ Mode de paiement bancaire sélectionné mais coût à 0.\n\n' +
-          'La transaction de rapprochement bancaire ne sera PAS créée.\n' +
-          'Saisissez un "Coût réel" > 0 pour générer la ligne Banque.'
-        );
-      }
-          // ✅ 2. CRÉATION AUTOMATIQUE DE LA DÉPENSE SI TERMINÉE
+
+      // ✅ 2. CRÉATION DÉPENSE + TRANSACTION BANCAIRE (si terminée)
       if (requestData.status === 'COMPLETED') {
         const finalCost = Number(requestData.actual_cost) || Number(requestData.estimated_cost) || 0;
         if (finalCost > 0) {
           const selectedSupplier = suppliers.find(s => s.id === requestForm.supplier_id);
           const selectedRoom = rooms.find(r => r.id === requestForm.room_id);
-          
           const expenseDescription = `Maintenance ${selectedRoom ? `Ch. ${selectedRoom.number}` : 'Équipement'} : ${requestForm.title}`;
-          const reference = selectedSupplier?.name || 'Prestataire non spécifié';
+          const counterparty = selectedSupplier?.name || 'Prestataire non spécifié';
           const expenseDate = new Date().toISOString().split('T')[0];
 
-          // 2a. Créer la dépense
-          const { data: createdExpense, error: expenseError } = await supabase.from('expenses').insert({
-            site_id: siteId,
-            date: expenseDate,
-            category: 'Maintenance',
-            description: expenseDescription,
-            type: 'COURANTE',
-            subtype: 'HOTEL',
-            amount: finalCost,
-            payment_method: requestForm.payment_method, // ✅ Utilise le mode choisi
-            reference: requestForm.payment_reference?.trim() || null, // ✅ Référence bancaire
-            notes: `Réparation terminée. Prestataire: ${reference}`,
-            created_by: user?.id
-          }).select('id').single();
+          // a. Créer ou mettre à jour la dépense dans le menu unifié
+          let expenseId = editingRequest?.expense_id || null;
+          if (expenseId) {
+            await supabase.from('expenses').update({
+              amount: finalCost,
+              payment_method: requestForm.payment_method,
+              reference: requestForm.payment_reference?.trim() || null,
+            }).eq('id', expenseId);
+          } else {
+            const { data: createdExpense } = await supabase.from('expenses').insert({
+              site_id: siteId,
+              date: expenseDate,
+              category: 'Maintenance',
+              description: expenseDescription,
+              type: 'COURANTE',
+              subtype: 'HOTEL', // ✅ Apparaîtra dans le filtre "Hôtel" du menu Dépenses
+              amount: finalCost,
+              payment_method: requestForm.payment_method,
+              reference: requestForm.payment_reference?.trim() || null,
+              notes: `Réparation terminée. Prestataire: ${counterparty}`,
+              created_by: user?.id
+            }).select('id').single();
+            
+            expenseId = createdExpense?.id || null;
+            if (expenseId && finalMaintenanceId) {
+              await supabase.from('maintenance_requests').update({ expense_id: expenseId }).eq('id', finalMaintenanceId);
+            }
+          }
 
-          if (expenseError) {
-            console.error('Erreur création dépense auto:', expenseError);
-            alert('⚠️ Maintenance terminée, mais la dépense n\'a pas pu être créée.');
-          } else if (createdExpense?.id) {
-            // 2b. ✅ Créer la transaction bancaire si mode bancaire + référence
-            const bankTxType = await createBankTransactionIfNeeded(
-              requestForm.payment_method,
-              requestForm.payment_reference,
-              finalCost,
-              expenseDescription,
-              reference,
-              expenseDate,
-              createdExpense.id
-            );
-            if (bankTxType) {
-              alert(`✅ Dépense créée + Transaction "${bankTxType}" enregistrée pour le rapprochement bancaire.`);
+          // b. Gérer la transaction bancaire pour le rapprochement
+          if (expenseId) {
+            // Supprimer l'ancienne transaction liée à cette dépense pour éviter les doublons
+            await supabase.from('bank_transactions').delete().eq('source_id', expenseId).eq('source_table', 'expenses');
+            
+            const bankMethods: Record<string, string> = { 'Virement': 'TRANSFER', 'Chèque': 'CHECK', 'Mobile Money': 'MOBILE_MONEY' };
+            const tType = bankMethods[requestForm.payment_method];
+            
+            // Créer la transaction uniquement si c'est un mode bancaire ET qu'il y a une référence
+            if (tType && requestForm.payment_reference?.trim()) {
+              const bankAccount = bankAccounts[0]; // Prendre le premier compte bancaire actif par défaut
+              await supabase.from('bank_transactions').insert({
+                site_id: siteId,
+                bank_account_id: bankAccount?.id || null,
+                reference: requestForm.payment_reference.trim(),
+                transaction_type: tType,
+                direction: 'EXPENSE',
+                amount: finalCost,
+                counterparty: counterparty,
+                description: `Dépense Maintenance: ${expenseDescription}`,
+                transaction_date: expenseDate,
+                status: 'PENDING', // ✅ En attente de rapprochement dans le menu Banque
+                source_table: 'expenses',
+                source_id: expenseId,
+              });
             }
           }
         }
@@ -346,12 +313,12 @@ export default function MaintenancePage() {
       
       setShowRequestForm(false);
       setEditingRequest(null);
-            setRequestForm({
-  room_id: '', supplier_id: '', equipment_id: '', category: 'HVAC',
-  type: 'CURATIVE', title: '', description: '', priority: 'MEDIUM',
-  estimated_cost: 0, actual_cost: 0, payment_method: 'Espèces',
-  payment_reference: '', assigned_to: '', notes: ''
-});
+      setRequestForm({
+        room_id: '', supplier_id: '', equipment_id: '', category: 'HVAC',
+        type: 'CURATIVE', title: '', description: '', priority: 'MEDIUM',
+        estimated_cost: 0, actual_cost: 0, payment_method: 'Espèces',
+        payment_reference: '', assigned_to: '', notes: ''
+      });
       await loadRequests();
       await loadRooms();
     } catch (err: any) {
@@ -359,12 +326,19 @@ export default function MaintenancePage() {
     }
     setLoading(false);
   };
-
+  
   const handleStatusChange = async (requestId: string, newStatus: string) => {
     setLoading(true);
     try {
       const req = requests.find(r => r.id === requestId);
       if (!req) return;
+
+      // Sécurité
+      if (req.status === 'COMPLETED' || req.status === 'CANCELLED') {
+        alert('⚠️ Cette maintenance est déjà clôturée et ne peut plus être modifiée.');
+        setLoading(false);
+        return;
+      }
 
       const updates: any = { status: newStatus };
       if (newStatus === 'COMPLETED') {
@@ -375,7 +349,7 @@ export default function MaintenancePage() {
       const { error } = await supabase.from('maintenance_requests').update(updates).eq('id', requestId);
       if (error) throw error;
 
-      // ✅ GESTION DU STATUT DE LA CHAMBRE (si changement via les boutons)
+      // ✅ GESTION DU STATUT DE LA CHAMBRE
       if (req.room_id) {
         if (newStatus === 'COMPLETED') {
           await supabase.from('rooms').update({ status: 'VACANT', out_of_order_reason: null }).eq('id', req.room_id);
@@ -384,7 +358,7 @@ export default function MaintenancePage() {
         }
       }
 
-          // ✅ CRÉATION AUTOMATIQUE DE LA DÉPENSE
+      // ✅ CRÉATION DÉPENSE + BANQUE (si passage à Terminée)
       if (newStatus === 'COMPLETED') {
         const finalCost = Number(req.actual_cost) || Number(req.estimated_cost) || 0;
         if (finalCost > 0) {
@@ -392,12 +366,12 @@ export default function MaintenancePage() {
           const selectedSupplier = suppliers.find(s => s.id === req.supplier_id);
           const selectedRoom = rooms.find(r => r.id === req.room_id);
           const expenseDescription = `Maintenance ${selectedRoom ? `Ch. ${selectedRoom.number}` : 'Équipement'} : ${req.title}`;
-          const reference = selectedSupplier?.name || 'Prestataire non spécifié';
+          const counterparty = selectedSupplier?.name || 'Prestataire non spécifié';
           const expenseDate = new Date().toISOString().split('T')[0];
-          // ✅ Mode de paiement stocké dans la demande (voir Bloc 5)
-          const payMethod = (req as any).payment_method || 'Espèces';
-          const payRef = (req as any).payment_reference || '';
+          const payMethod = req.payment_method || 'Espèces';
+          const payRef = req.payment_reference || '';
 
+          // a. Dépense
           const { data: createdExpense } = await supabase.from('expenses').insert({
             site_id: siteId,
             date: expenseDate,
@@ -408,14 +382,33 @@ export default function MaintenancePage() {
             amount: finalCost,
             payment_method: payMethod,
             reference: payRef || null,
-            notes: `Réparation terminée. Prestataire: ${reference}`,
+            notes: `Réparation terminée. Prestataire: ${counterparty}`,
             created_by: user?.id
           }).select('id').single();
 
+          // b. Transaction Banque
           if (createdExpense?.id) {
-            await createBankTransactionIfNeeded(
-              payMethod, payRef, finalCost, expenseDescription, reference, expenseDate, createdExpense.id
-            );
+            await supabase.from('maintenance_requests').update({ expense_id: createdExpense.id }).eq('id', requestId);
+            
+            const bankMethods: Record<string, string> = { 'Virement': 'TRANSFER', 'Chèque': 'CHECK', 'Mobile Money': 'MOBILE_MONEY' };
+            const tType = bankMethods[payMethod];
+            if (tType && payRef?.trim()) {
+              const bankAccount = bankAccounts[0];
+              await supabase.from('bank_transactions').insert({
+                site_id: siteId,
+                bank_account_id: bankAccount?.id || null,
+                reference: payRef.trim(),
+                transaction_type: tType,
+                direction: 'EXPENSE',
+                amount: finalCost,
+                counterparty: counterparty,
+                description: `Dépense Maintenance: ${expenseDescription}`,
+                transaction_date: expenseDate,
+                status: 'PENDING',
+                source_table: 'expenses',
+                source_id: createdExpense.id,
+              });
+            }
           }
         }
       }
@@ -438,58 +431,6 @@ export default function MaintenancePage() {
     } catch (err: any) {
       alert(`Erreur: ${err.message}`);
     }
-    setLoading(false);
-  };
-
-  const handleSaveEquipment = async () => {
-    if (!equipmentForm.name.trim()) { alert('Le nom est obligatoire.'); return; }
-    setLoading(true);
-    try {
-      const equipmentData = {
-        site_id: siteId, name: equipmentForm.name, category: equipmentForm.category,
-        location: equipmentForm.location, brand: equipmentForm.brand, model: equipmentForm.model,
-        serial_number: equipmentForm.serial_number, installation_date: equipmentForm.installation_date || null,
-        warranty_expiry: equipmentForm.warranty_expiry || null, notes: equipmentForm.notes,
-      };
-      if (editingEquipment) {
-        const { error } = await supabase.from('maintenance_equipment').update(equipmentData).eq('id', editingEquipment.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('maintenance_equipment').insert(equipmentData);
-        if (error) throw error;
-      }
-      setShowEquipmentForm(false); setEditingEquipment(null);
-      setEquipmentForm({ name: '', category: 'HVAC', location: '', brand: '', model: '', serial_number: '', installation_date: '', warranty_expiry: '', notes: '' });
-      await loadEquipment();
-    } catch (err: any) { alert(`Erreur: ${err.message}`); }
-    setLoading(false);
-  };
-
-  const handleDeleteEquipment = async (id: string) => {
-    if (!confirm('Supprimer cet équipement ?')) return;
-    setLoading(true);
-    try {
-      const { error } = await supabase.from('maintenance_equipment').delete().eq('id', id);
-      if (error) throw error;
-      await loadEquipment();
-    } catch (err: any) { alert(`Erreur: ${err.message}`); }
-    setLoading(false);
-  };
-
-  const handleSavePreventive = async () => {
-    if (!preventiveForm.title.trim() || !preventiveForm.next_date) { alert('Le titre et la prochaine date sont obligatoires.'); return; }
-    setLoading(true);
-    try {
-      const { error } = await supabase.from('maintenance_preventive').insert({
-        site_id: siteId, equipment_id: preventiveForm.equipment_id || null, title: preventiveForm.title,
-        description: preventiveForm.description, frequency: preventiveForm.frequency,
-        next_date: preventiveForm.next_date, assigned_to: preventiveForm.assigned_to,
-      });
-      if (error) throw error;
-      setShowPreventiveForm(false);
-      setPreventiveForm({ equipment_id: '', title: '', description: '', frequency: 'MONTHLY', next_date: '', assigned_to: '' });
-      await loadPreventiveTasks();
-    } catch (err: any) { alert(`Erreur: ${err.message}`); }
     setLoading(false);
   };
 
@@ -523,9 +464,6 @@ export default function MaintenancePage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowEquipmentForm(true)} className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-            <Settings className="w-4 h-4" /> Équipement
-          </button>
           <button onClick={() => setShowPreventiveForm(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
             <Shield className="w-4 h-4" /> Préventive
           </button>
@@ -561,10 +499,10 @@ export default function MaintenancePage() {
           <Wrench className="w-4 h-4" /> Demandes ({requests.length})
         </button>
         <button onClick={() => setActiveTab('equipment')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'equipment' ? 'border-b-2 border-slate-600 text-slate-600' : 'text-slate-600 hover:text-slate-900'}`}>
-          <Settings className="w-4 h-4" /> Équipements ({equipment.length})
+          <Settings className="w-4 h-4" /> Équipements
         </button>
         <button onClick={() => setActiveTab('preventive')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'preventive' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-slate-600 hover:text-slate-900'}`}>
-          <Shield className="w-4 h-4" /> Préventive ({preventiveTasks.length})
+          <Shield className="w-4 h-4" /> Préventive
         </button>
         <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'history' ? 'border-b-2 border-slate-600 text-slate-600' : 'text-slate-600 hover:text-slate-900'}`}>
           <History className="w-4 h-4" /> Historique
@@ -584,15 +522,10 @@ export default function MaintenancePage() {
             <option value="IN_PROGRESS">En cours</option>
             <option value="COMPLETED">Terminée</option>
           </select>
-          <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 text-sm">
-            <option value="ALL">Tous types</option>
-            <option value="CURATIVE">Curative</option>
-            <option value="PREVENTIVE">Préventive</option>
-          </select>
         </div>
       )}
 
-      {/* Demandes */}
+      {/* Liste des demandes */}
       {activeTab === 'requests' && (
         <div>
           {filteredRequests.length === 0 ? (
@@ -608,6 +541,7 @@ export default function MaintenancePage() {
                 const type = maintenanceTypes.find(t => t.id === req.type);
                 const category = equipmentCategories.find(c => c.id === req.category);
                 const selectedRoom = rooms.find(r => r.id === req.room_id);
+                const selectedSupplier = suppliers.find(s => s.id === req.supplier_id);
                 
                 return (
                   <div key={req.id} className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
@@ -623,7 +557,7 @@ export default function MaintenancePage() {
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                           <span className="flex items-center gap-1">{category?.icon} {category?.label}</span>
                           {selectedRoom && <span className="flex items-center gap-1 text-indigo-600 font-medium">🚪 Ch. {selectedRoom.number}</span>}
-                          {req.equipment?.name && <span className="flex items-center gap-1">📍 {req.equipment.name} {req.equipment.location && `(${req.equipment.location})`}</span>}
+                          {selectedSupplier && <span className="flex items-center gap-1 text-slate-700 font-medium">🏢 {selectedSupplier.name}</span>}
                           {req.assigned_to && <span>👷 {req.assigned_to}</span>}
                           {req.estimated_cost > 0 && <span>💰 Est: {req.estimated_cost.toLocaleString('fr-FR')} FCFA</span>}
                           <span>📅 {new Date(req.created_at).toLocaleDateString('fr-FR')}</span>
@@ -636,31 +570,41 @@ export default function MaintenancePage() {
                         {req.status === 'IN_PROGRESS' && (
                           <button onClick={() => handleStatusChange(req.id, 'COMPLETED')} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium">✅ Terminer</button>
                         )}
-                        <button
-  onClick={() => {
-    setEditingRequest(req);
-    setRequestForm({
-      room_id: req.room_id || '',
-      supplier_id: req.supplier_id || '',
-      equipment_id: req.equipment_id || '',
-      category: req.category || 'HVAC',
-      type: req.type || 'CURATIVE',
-      title: req.title || '',
-      description: req.description || '',
-      priority: req.priority || 'MEDIUM',
-      estimated_cost: Number(req.estimated_cost) || 0,
-      actual_cost: Number(req.actual_cost) || 0,
-      payment_method: req.payment_method || 'Espèces',        // ✅
-      payment_reference: req.payment_reference || '',         // ✅
-      assigned_to: req.assigned_to || '',
-      notes: req.notes || '',
-    });
-    setShowRequestForm(true);
-  }}
-  className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg font-medium"
->
-  <Edit className="w-3 h-3" />
-</button>
+                        
+                        {/* ✅ VERROUILLAGE : On n'affiche le bouton modifier que si ce n'est pas terminé ou annulé */}
+                        {req.status !== 'COMPLETED' && req.status !== 'CANCELLED' ? (
+                          <button
+                            onClick={() => {
+                              setEditingRequest(req);
+                              setRequestForm({
+                                room_id: req.room_id || '',
+                                supplier_id: req.supplier_id || '',
+                                equipment_id: req.equipment_id || '',
+                                category: req.category || 'HVAC',
+                                type: req.type || 'CURATIVE',
+                                title: req.title || '',
+                                description: req.description || '',
+                                priority: req.priority || 'MEDIUM',
+                                estimated_cost: Number(req.estimated_cost) || 0,
+                                actual_cost: Number(req.actual_cost) || 0,
+                                payment_method: req.payment_method || 'Espèces',
+                                payment_reference: req.payment_reference || '',
+                                assigned_to: req.assigned_to || '',
+                                notes: req.notes || '',
+                              });
+                              setShowRequestForm(true);
+                            }}
+                            className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg font-medium"
+                            title="Modifier"
+                          >
+                            <Edit className="w-3 h-3" />
+                          </button>
+                        ) : (
+                          <span className="text-xs text-emerald-600 px-3 py-1.5 rounded-lg font-medium flex items-center gap-1 bg-emerald-50 border border-emerald-200" title="Cette maintenance est clôturée et ne peut plus être modifiée">
+                            <CheckCircle className="w-3 h-3" /> Verrouillé
+                          </span>
+                        )}
+
                         <button onClick={() => handleDeleteRequest(req.id)} className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg font-medium">
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -674,144 +618,7 @@ export default function MaintenancePage() {
         </div>
       )}
 
-      {/* Équipements */}
-      {activeTab === 'equipment' && (
-        <div>
-          {equipment.length === 0 ? (
-            <div className="text-center py-12 bg-slate-50 rounded-lg">
-              <Settings className="w-12 h-12 mx-auto mb-2 text-slate-300" />
-              <p className="text-sm text-slate-500">Aucun équipement enregistré</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {equipment.map(eq => {
-                const category = equipmentCategories.find(c => c.id === eq.category);
-                return (
-                  <div key={eq.id} className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-2xl">{category?.icon}</span>
-                          <div>
-                            <div className="font-bold text-slate-900">{eq.name}</div>
-                            <div className="text-xs text-slate-500">{category?.label}</div>
-                          </div>
-                        </div>
-                        <div className="space-y-1 text-xs text-slate-600">
-                          {eq.location && <div>📍 {eq.location}</div>}
-                          {eq.brand && <div>🏷️ {eq.brand} {eq.model}</div>}
-                          {eq.serial_number && <div>🔢 {eq.serial_number}</div>}
-                          {eq.installation_date && <div>📅 Installé: {new Date(eq.installation_date).toLocaleDateString('fr-FR')}</div>}
-                          {eq.warranty_expiry && (
-                            <div className={new Date(eq.warranty_expiry) < new Date() ? 'text-red-600 font-semibold' : 'text-emerald-600'}>
-                              ⚠️ Garantie: {new Date(eq.warranty_expiry).toLocaleDateString('fr-FR')}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => {
-                          setEditingEquipment(eq);
-                          setEquipmentForm({
-                            name: eq.name || '', category: eq.category || 'HVAC', location: eq.location || '',
-                            brand: eq.brand || '', model: eq.model || '', serial_number: eq.serial_number || '',
-                            installation_date: eq.installation_date ? eq.installation_date.split('T')[0] : '',
-                            warranty_expiry: eq.warranty_expiry ? eq.warranty_expiry.split('T')[0] : '', notes: eq.notes || '',
-                          });
-                          setShowEquipmentForm(true);
-                        }} className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1 rounded">
-                          <Edit className="w-3 h-3" />
-                        </button>
-                        <button onClick={() => handleDeleteEquipment(eq.id)} className="text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-1 rounded">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Préventive */}
-      {activeTab === 'preventive' && (
-        <div>
-          {preventiveTasks.length === 0 ? (
-            <div className="text-center py-12 bg-slate-50 rounded-lg">
-              <Shield className="w-12 h-12 mx-auto mb-2 text-slate-300" />
-              <p className="text-sm text-slate-500">Aucune tâche préventive planifiée</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {preventiveTasks.map(task => {
-                const category = equipmentCategories.find(c => c.id === task.equipment?.category);
-                const isOverdue = new Date(task.next_date) < new Date();
-                return (
-                  <div key={task.id} className={`bg-white border-2 rounded-lg p-4 ${isOverdue ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}>
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="font-bold text-slate-900">{task.title}</span>
-                          {isOverdue && <span className="text-xs bg-red-200 text-red-900 px-2 py-0.5 rounded font-medium">⚠️ En retard</span>}
-                        </div>
-                        <p className="text-sm text-slate-600 mb-2">{task.description}</p>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                          {task.equipment?.name && <span className="flex items-center gap-1">{category?.icon} {task.equipment.name}</span>}
-                          <span>📅 Prochaine: {new Date(task.next_date).toLocaleDateString('fr-FR')}</span>
-                          <span>🔄 {task.frequency}</span>
-                          {task.assigned_to && <span>👷 {task.assigned_to}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Historique */}
-      {activeTab === 'history' && (
-        <div>
-          {requests.filter(r => r.status === 'COMPLETED').length === 0 ? (
-            <div className="text-center py-12 bg-slate-50 rounded-lg">
-              <History className="w-12 h-12 mx-auto mb-2 text-slate-300" />
-              <p className="text-sm text-slate-500">Aucun historique</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {requests.filter(r => r.status === 'COMPLETED').map(req => {
-                const category = equipmentCategories.find(c => c.id === req.category);
-                return (
-                  <div key={req.id} className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="font-bold text-slate-900">{req.title}</span>
-                          <span className="text-xs bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded font-medium">✅ Terminée</span>
-                        </div>
-                        <p className="text-sm text-slate-600 mb-2">{req.description}</p>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-                          <span>{category?.icon} {category?.label}</span>
-                          {req.completed_at && <span>📅 Terminée le {new Date(req.completed_at).toLocaleDateString('fr-FR')}</span>}
-                          {req.actual_cost > 0 && <span>💰 Coût: {req.actual_cost.toLocaleString('fr-FR')} FCFA</span>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ================= MODALES ================= */}
-      
-      {/* Modal Demande */}
+      {/* ================= MODALE NOUVELLE / MODIFICATION DEMANDE ================= */}
       {showRequestForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -879,7 +686,8 @@ export default function MaintenancePage() {
                 <label className="block text-xs font-medium text-slate-700 mb-1">Coût réel (FCFA) <span className="text-slate-400 font-normal">(sera utilisé pour la dépense)</span></label>
                 <input type="number" value={requestForm.actual_cost} onChange={(e) => setRequestForm({ ...requestForm, actual_cost: Number(e.target.value) })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="Laisser vide si identique à l'estimé" />
               </div>
-                          {/* ✅ NOUVEAU : Mode de paiement + Référence */}
+
+              {/* ✅ NOUVEAU : Mode de paiement + Référence */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Mode de paiement</label>
@@ -894,15 +702,6 @@ export default function MaintenancePage() {
                     <option value="Chèque">📝 Chèque</option>
                     <option value="Mobile Money">📱 Mobile Money</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Date du paiement</label>
-                  <input
-                    type="date"
-                    value={requestForm.notes ? '' : new Date().toISOString().split('T')[0]}
-                    disabled
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-500"
-                  />
                 </div>
               </div>
 
@@ -931,6 +730,7 @@ export default function MaintenancePage() {
                   </p>
                 </div>
               )}
+
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Assigné à</label>
                 <input type="text" value={requestForm.assigned_to} onChange={(e) => setRequestForm({ ...requestForm, assigned_to: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" placeholder="Nom du technicien..." />
