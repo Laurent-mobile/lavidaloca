@@ -401,14 +401,17 @@ const addToCart = (item: MenuItem) => {
     const existing = prev.find(i => i.id === item.id);
     if (existing) {
       return prev.map(i => i.id === item.id
-        ? { ...i, quantity: i.quantity + 1, total_price: (i.quantity + 1) * (i.price || 0) }
+        ? { 
+            ...i, 
+            quantity: i.quantity + 1, 
+            total_price: (i.quantity + 1) * i.price  // ✅ Pas de ?? car price est number
+          }
         : i);
     }
     return [...prev, { 
       ...item, 
       quantity: 1, 
-      total_price: item.price,
-      price: item.price 
+      total_price: item.price  // ✅ Pas de ?? car price est number
     }];
   });
 };
