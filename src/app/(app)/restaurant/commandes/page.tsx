@@ -133,6 +133,7 @@ export default function CommandesPage() {
   const [supplements, setSupplements] = useState<MenuItem[]>([]);
 
   const [occupiedRooms, setOccupiedRooms] = useState<any[]>([]);
+  const [hotelInfo, setHotelInfo] = useState<any>(null);
   const [mainTab, setMainTab] = useState<'active' | 'history'>('active');
 
   useEffect(() => {
@@ -155,6 +156,7 @@ export default function CommandesPage() {
       loadEmployees();
       loadSupplements();
       loadOccupiedRooms();
+      loadHotelInfo();
     }
   }, [siteId, editingOrderId]);
 
@@ -200,7 +202,18 @@ export default function CommandesPage() {
       setOccupiedRooms([]);
     }
   };
-
+const loadHotelInfo = async () => {
+  try {
+    const { data } = await supabase
+      .from('sites')
+      .select('name, phone, email, address')
+      .eq('id', siteId)
+      .maybeSingle();
+    if (data) setHotelInfo(data);
+  } catch (err) {
+    console.error('Erreur chargement hôtel:', err);
+  }
+};
   const loadOrders = async () => {
     setLoading(true);
     try {
@@ -697,12 +710,6 @@ const addToCart = (item: MenuItem) => {
     if (cart.length === 0) { alert('Ajoutez au moins un article.'); return; }
     if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sélectionnez une table.'); return; }
     if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sélectionnez une chambre.'); return; }
-
-    if (orderType === 'ROOM_SERVICE') {
-      alert('⚠️ Les commandes en chambre sont réglées directement à la réception lors du check-out du client.\nElles restent en statut "Brouillon" au restaurant.');
-      return;
-    }
-
     if (!selectedServerId) { alert('Sélectionnez un serveur.'); return; }
     if (!confirm('Valider cette commande et l\'envoyer à la caisse ?')) return;
 
@@ -767,14 +774,63 @@ const addToCart = (item: MenuItem) => {
     return '-';
   };
 
-  const handlePrintTicket = (order: RestaurantOrder) => {
-    const printWindow = window.open('', '_blank', 'width=400,height=600');
-    if (!printWindow) { alert('Autorisez les popups.'); return; }
-    const items = order.restaurant_order_items || [];
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>Ticket ${order.order_number}</title><style>body{font-family:'Courier New',monospace;font-size:12px;padding:10px;max-width:300px;margin:0 auto;}.header{text-align:center;border-bottom:1px dashed #000;padding-bottom:10px;margin-bottom:10px;}.header h1{font-size:16px;margin:0;}.header p{margin:2px 0;font-size:11px;}.info{margin:10px 0;font-size:11px;}.info div{display:flex;justify-content:space-between;}.items{border-top:1px dashed #000;border-bottom:1px dashed #000;padding:10px 0;margin:10px 0;}.item{display:flex;justify-content:space-between;margin:4px 0;}.total{display:flex;justify-content:space-between;font-weight:bold;font-size:14px;margin-top:10px;}.footer{text-align:center;margin-top:20px;font-size:10px;}</style></head><body><div class="header"><h1>HAPPINESS</h1><p>Restaurant & Lounge</p><p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p></div><div class="info"><div><span>N°:</span><span>${order.order_number}</span></div><div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div><div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}${order.order_type === 'ROOM_SERVICE' ? ' (Folio)' : ''}</span></div></div><div class="items">${items.map(i => `<div class="item"><span>${i.item_name} x${i.quantity}</span><span>${Number(i.total_price).toLocaleString('fr-FR')} fcfa</span></div>`).join('')}</div><div class="total"><span>TOTAL</span><span>${Number(order.total_amount).toLocaleString('fr-FR')} fcfa</span></div><div class="footer"><p>Merci de votre visite !</p></div></body></html>`);
-    printWindow.document.close();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
-  };
+const handlePrintTicket = (order: RestaurantOrder) => {
+  const printWindow = window.open('', '_blank', 'width=400,height=600');
+  if (!printWindow) { alert('Autorisez les popups.'); return; }
+  const items = order.restaurant_order_items || [];
+  
+  // ✅ Récupération dynamique du nom de l'hôtel
+  const hotelName = hotelInfo?.name || 'HAPPINESS';
+  const hotelPhone = hotelInfo?.phone || '';
+  const hotelEmail = hotelInfo?.email || '';
+  const hotelAddress = hotelInfo?.address || '';
+  
+  printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Ticket ${order.order_number}</title>
+  <style>
+    body { font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; max-width: 300px; margin: 0 auto; }
+    .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+    .header h1 { font-size: 16px; margin: 0; text-transform: uppercase; }
+    .header p { margin: 2px 0; font-size: 11px; }
+    .info { margin: 10px 0; font-size: 11px; }
+    .info div { display: flex; justify-content: space-between; }
+    .items { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 10px 0; margin: 10px 0; }
+    .item { display: flex; justify-content: space-between; margin: 4px 0; }
+    .total { display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-top: 10px; }
+    .footer { text-align: center; margin-top: 20px; font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${hotelName}</h1>
+    ${hotelAddress ? `<p>${hotelAddress}</p>` : ''}
+    ${hotelPhone ? `<p>Tél: ${hotelPhone}</p>` : ''}
+    ${hotelEmail ? `<p>${hotelEmail}</p>` : ''}
+    <p>${new Date().toLocaleDateString('fr-FR')} ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</p>
+  </div>
+  <div class="info">
+    <div><span>N°:</span><span>${order.order_number}</span></div>
+    <div><span>Lieu:</span><span>${getLocationLabel(order)}</span></div>
+    <div><span>Type:</span><span>${getOrderTypeLabel(order.order_type || 'DINE_IN')}${order.order_type === 'ROOM_SERVICE' ? ' (Folio)' : ''}</span></div>
+    ${order.restaurant_employees ? `<div><span>Serveur:</span><span>${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}</span></div>` : ''}
+  </div>
+  <div class="items">
+    ${items.map(i => `<div class="item"><span>${i.item_name} x${i.quantity}</span><span>${Number(i.total_price).toLocaleString('fr-FR')} fcfa</span></div>`).join('')}
+  </div>
+  <div class="total">
+    <span>TOTAL</span>
+    <span>${Number(order.total_amount).toLocaleString('fr-FR')} fcfa</span>
+  </div>
+  <div class="footer">
+    <p>Merci de votre visite !</p>
+  </div>
+</body>
+</html>`);
+  printWindow.document.close();
+  setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
+};
 
   const handlePrintKitchenBond = (order: RestaurantOrder) => {
     const items = (order.restaurant_order_items || []).filter(i => i.destination === 'KITCHEN');
@@ -1046,22 +1102,26 @@ const addToCart = (item: MenuItem) => {
     {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><Send className="w-5 h-5" />Commander</>}
   </button>
   
-  {/* ✅ BOUTON CAISSE DÉSACTIVÉ POUR ROOM_SERVICE */}
-  {orderType === 'ROOM_SERVICE' ? (
-    <div className="bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 cursor-not-allowed" title="Le paiement se fait à la réception lors du check-out">
-      <CreditCard className="w-5 h-5" />
-      <span>Folio Chambre</span>
-    </div>
-  ) : (
-    <button 
-      onClick={handleValiderPourCaisse} 
-      disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || !selectedServerId} 
-      className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
-      title="Valide et envoie à la caisse pour paiement"
-    >
-      {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
-    </button>
-  )}
+{/* ✅ BOUTON CAISSE : activé si la commande est SERVED (envoyée à la caisse) */}
+{orderType === 'ROOM_SERVICE' ? (
+  <button
+    onClick={handleValiderPourCaisse}
+    disabled={isSubmittingOrder || cart.length === 0 || !selectedRoomId || !selectedServerId}
+    className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
+    title="Valider et envoyer à la caisse pour paiement direct"
+  >
+    {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
+  </button>
+) : (
+  <button
+    onClick={handleValiderPourCaisse}
+    disabled={isSubmittingOrder || cart.length === 0 || (orderType === 'DINE_IN' && !selectedTableId) || !selectedServerId}
+    className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors"
+    title="Valide et envoie à la caisse pour paiement"
+  >
+    {isSubmittingOrder ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <><CreditCard className="w-5 h-5" />Caisse</>}
+  </button>
+)}
 </div>
             </div>
           </div>

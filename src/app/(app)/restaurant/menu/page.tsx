@@ -228,16 +228,56 @@ export default function MenuManagementPage() {
     setIsRecipeModalOpen(true);
   };
 
-  const addIngredientToRecipe = async () => {
-    if (!selectedStockItem || !recipeQuantity) { alert('Sélectionnez un article et une quantité.'); return; }
-    const payload = { site_id: siteId, menu_item_id: selectedMenuItem!.id, stock_item_id: selectedStockItem, quantity: parseFloat(recipeQuantity), unit: recipeUnit };
-    try {
-      const { error } = await supabase.from('item_recipes').insert(payload);
-      if (error) throw error;
-      await openRecipeModal(selectedMenuItem!);
-      setSelectedStockItem(''); setRecipeQuantity('');
-    } catch (error: any) { alert('Erreur : ' + error.message); }
-  };
+const addIngredientToRecipe = async () => {
+  if (!selectedStockItem || !recipeQuantity) {
+    alert('Sélectionnez un article et une quantité.');
+    return;
+  }
+
+  try {
+    // ✅ 1. Vérifier si l'ingrédient existe déjà pour ce plat
+    const { data: existing, error: checkError } = await supabase
+      .from('item_recipes')
+      .select('id, quantity')
+      .eq('menu_item_id', selectedMenuItem!.id)
+      .eq('stock_item_id', selectedStockItem)
+      .eq('site_id', siteId)
+      .maybeSingle();
+
+    if (checkError) throw checkError;
+
+    if (existing) {
+      // ✅ 2. Si l'ingrédient existe déjà → METTRE À JOUR la quantité
+      const newQuantity = Number(existing.quantity) + parseFloat(recipeQuantity);
+      const { error: updateError } = await supabase
+        .from('item_recipes')
+        .update({ quantity: newQuantity })
+        .eq('id', existing.id);
+
+      if (updateError) throw updateError;
+      alert(`✅ Quantité de "${stockItems.find(s => s.id === selectedStockItem)?.name}" mise à jour : ${newQuantity}`);
+    } else {
+      // ✅ 3. Si l'ingrédient n'existe pas → INSÉRER une nouvelle ligne
+      const payload = {
+        site_id: siteId,
+        menu_item_id: selectedMenuItem!.id,
+        stock_item_id: selectedStockItem,
+        quantity: parseFloat(recipeQuantity),
+        unit: recipeUnit
+      };
+      const { error: insertError } = await supabase.from('item_recipes').insert(payload);
+      if (insertError) throw insertError;
+      alert(`✅ Ingrédient ajouté avec succès !`);
+    }
+
+    // ✅ 4. Recharger la fiche technique
+    await openRecipeModal(selectedMenuItem!);
+    setSelectedStockItem('');
+    setRecipeQuantity('');
+  } catch (error: any) {
+    alert(`Erreur : ${error.message}`);
+  }
+};
 
   const removeIngredientFromRecipe = async (recipeId: string) => {
     if (!confirm('Supprimer cet ingrédient ?')) return;

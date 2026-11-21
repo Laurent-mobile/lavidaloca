@@ -13,14 +13,17 @@ interface MenuItem {
   id: string;
   name: string;
   category_id: string;
+  category?: string;       // ✅ AJOUTÉ
   price: number;
   destination?: string;
-  stock?: number;
+  stock?: number;          // ✅ AJOUTÉ
+  stockManaged?: boolean;  // ✅ AJOUTÉ
 }
 
 interface CartItem extends MenuItem {
   quantity: number;
   total_price: number;
+  menuItemId?: string;     // ✅ AJOUTÉ
 }
 
 interface RoomServiceOrder {
@@ -44,6 +47,7 @@ export default function RoomServicePage() {
   const { siteId, loading: profileLoading } = useProfile();
   
   const [loading, setLoading] = useState(false);
+  const [hotelInfo, setHotelInfo] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'new' | 'pending' | 'history'>('new');
   
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -88,6 +92,7 @@ export default function RoomServicePage() {
       loadOccupiedRooms();
       loadPendingOrders();
       loadPaidOrders();
+      loadHotelInfo();
     }
   }, [siteId, startDate, endDate]);
 
@@ -102,13 +107,78 @@ export default function RoomServicePage() {
       if (cat) setCategories(cat);
       if (cat?.length && !activeCategory) setActiveCategory(cat[0].id);
 
-      const { data: menuData } = await supabase
+      const { data: menuData, error: menuError } = await supabase
         .from('restaurant_items')
-        .select('id, name, category_id, price, destination, is_available')
+        .select(`id, name, category_id, restaurant_categories(name), price, destination, is_available`)
         .eq('site_id', siteId)
         .eq('is_available', true)
         .order('name');
-      if (menuData) setMenuItems(menuData);
+
+      if (menuError) throw menuError;
+      if (!menuData || menuData.length === 0) {
+        setMenuItems([]);
+        return;
+      }
+
+      // 1. Charger les fiches techniques
+      const { data: allRecipes } = await supabase
+        .from('item_recipes')
+        .select('menu_item_id, stock_item_id, quantity')
+        .eq('site_id', siteId);
+
+      // 2. Charger les stocks actuels
+      const { data: allStockItems } = await supabase
+        .from('stock_items')
+        .select('id, name, current_stock, unit')
+        .eq('site_id', siteId);
+
+      const stockMap = new Map();
+      allStockItems?.forEach(stock => {
+        stockMap.set(stock.id, { current_stock: Number(stock.current_stock) || 0, unit: stock.unit });
+      });
+
+      // 3. Calculer le stock disponible pour chaque article du menu
+      const menuItemsWithStock = menuData.map(menuItem => {
+        const itemRecipes = allRecipes?.filter(r => r.menu_item_id === menuItem.id) || [];
+        
+        // ✅ RÈGLE STRICTE : Pas de fiche technique = Stock à 0 (Indisponible)
+        if (itemRecipes.length === 0) {
+          return {
+            id: menuItem.id,
+            name: menuItem.name,
+            category_id: menuItem.category_id,
+            category: (menuItem as any).restaurant_categories?.name || 'Autres',
+            price: menuItem.price,
+            destination: menuItem.destination || undefined,
+            stock: 0,
+            stockManaged: true
+          };
+        }
+
+        // ✅ CAS 2 : Fiche technique présente → calcul du stock réel (limitant)
+        let maxPossibleStock = Infinity;
+        let hasValidStock = true;
+        for (const recipe of itemRecipes) {
+          const stockInfo = stockMap.get(recipe.stock_item_id);
+          if (!stockInfo) { hasValidStock = false; break; }
+          const requiredQty = Number(recipe.quantity) || 1;
+          const possibleWithThisIngredient = Math.floor(Number(stockInfo.current_stock) / requiredQty);
+          if (possibleWithThisIngredient < maxPossibleStock) maxPossibleStock = possibleWithThisIngredient;
+        }
+
+        return {
+          id: menuItem.id,
+          name: menuItem.name,
+          category_id: menuItem.category_id,
+          category: (menuItem as any).restaurant_categories?.name || 'Autres',
+          price: menuItem.price,
+          destination: menuItem.destination || undefined,
+          stock: hasValidStock ? Math.max(0, maxPossibleStock) : 0,
+          stockManaged: true
+        };
+      });
+
+      setMenuItems(menuItemsWithStock);
 
       const { data: emp } = await supabase
         .from('restaurant_employees')
@@ -314,30 +384,50 @@ export default function RoomServicePage() {
       console.error('Erreur chargement historique:', err);
     }
   };
+const loadHotelInfo = async () => {
+  try {
+    const { data } = await supabase
+      .from('sites')
+      .select('name, phone, email, address')
+      .eq('id', siteId)
+      .maybeSingle();
+    if (data) setHotelInfo(data);
+  } catch (err) {
+    console.error('Erreur chargement hôtel:', err);
+  }
+};
+const addToCart = (item: MenuItem) => {
+  setCart(prev => {
+    const existing = prev.find(i => i.id === item.id);
+    if (existing) {
+      return prev.map(i => i.id === item.id
+        ? { ...i, quantity: i.quantity + 1, total_price: (i.quantity + 1) * (i.price || 0) }
+        : i);
+    }
+    return [...prev, { 
+      ...item, 
+      quantity: 1, 
+      total_price: item.price || 0,
+      price: item.price || 0 
+    }];
+  });
+};
 
-  const addToCart = (item: MenuItem) => {
-    setCart(prev => {
-      const existing = prev.find(i => i.id === item.id);
-      if (existing) {
-        return prev.map(i => i.id === item.id
-          ? { ...i, quantity: i.quantity + 1, total_price: (i.quantity + 1) * i.price }
-          : i);
-      }
-      return [...prev, { ...item, quantity: 1, total_price: item.price }];
-    });
-  };
+const updateQuantity = (itemId: string, delta: number) => {
+  setCart(prev => prev.map(c => {
+    if (c.id === itemId) {
+      const newQty = Math.max(0, c.quantity + delta);
+      return { 
+        ...c, 
+        quantity: newQty, 
+        total_price: newQty * (c.price || 0) 
+      };
+    }
+    return c;
+  }).filter(c => c.quantity > 0));
+};
 
-  const updateQuantity = (itemId: string, delta: number) => {
-    setCart(prev => prev.map(c => {
-      if (c.id === itemId) {
-        const newQty = Math.max(0, c.quantity + delta);
-        return { ...c, quantity: newQty, total_price: newQty * c.price };
-      }
-      return c;
-    }).filter(c => c.quantity > 0));
-  };
-
-  const cartTotal = cart.reduce((sum, item) => sum + item.total_price, 0);
+  const cartTotal = cart.reduce((sum, item) => sum + Number(item.total_price ?? item.price * item.quantity ?? 0), 0);
 
   const handleSendOrder = async () => {
     if (!selectedStay) { alert('Veuillez sélectionner une chambre.'); return; }
@@ -461,7 +551,28 @@ export default function RoomServicePage() {
     }
     setLoading(false);
   };
-
+const handleSendToCashier = async (order: RoomServiceOrder) => {
+  if (!confirm(`Envoyer la commande ${order.order_number} à la caisse du restaurant pour encaissement ?\n\nLe client paiera directement en caisse.`)) return;
+  setLoading(true);
+  try {
+    // ✅ Changement de statut : la commande devient "SERVED" (prête à encaisser)
+    const { error } = await supabase
+      .from('restaurant_orders')
+      .update({ 
+        status: 'SERVED',
+        order_type: 'ROOM_SERVICE'
+      })
+      .eq('id', order.id);
+    
+    if (error) throw error;
+    
+    alert(`✅ Commande ${order.order_number} envoyée à la caisse du restaurant !\n\nLe client peut maintenant payer directement en caisse.`);
+    loadPendingOrders();
+  } catch (err: any) {
+    alert(`Erreur: ${err.message}`);
+  }
+  setLoading(false);
+};
   const currentCategoryItems = menuItems.filter(i =>
     (activeCategory === 'ALL' || i.category_id === activeCategory) &&
     (!menuSearchTerm || i.name.toLowerCase().includes(menuSearchTerm.toLowerCase()))
@@ -697,21 +808,37 @@ export default function RoomServicePage() {
                 </div>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 max-h-96 overflow-y-auto">
-                {currentCategoryItems.map((item: any) => (
-                  <button
-                    key={item.id}
-                    onClick={() => addToCart(item)}
-                    className="w-full bg-white border-2 border-slate-200 hover:border-indigo-400 rounded-lg p-3 text-left transition"
-                  >
-                    <div className="font-semibold text-sm text-slate-900">{item.name}</div>
-                    <div className="text-indigo-700 font-bold text-sm mt-2">
-                      {Number(item.price).toLocaleString('fr-FR')} fcfa
-                    </div>
-                    <div className="text-[10px] text-slate-400 mt-1">
-                      {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : item.destination === 'BAR' ? '🍹 Bar' : '👨‍🍳 Les deux'}
-                    </div>
-                  </button>
-                ))}
+              {currentCategoryItems.map((item: any) => {
+  const isOutOfStock = item.stock !== undefined && item.stock <= 0;
+  return (
+    <button
+      key={item.id}
+      onClick={() => !isOutOfStock && addToCart(item)}
+      disabled={isOutOfStock}
+      className={`w-full bg-white border-2 rounded-lg p-3 text-left transition relative ${
+        isOutOfStock 
+          ? 'border-red-200 bg-red-50 opacity-70 cursor-not-allowed' 
+          : 'border-slate-200 hover:border-indigo-400'
+      }`}
+    >
+      {isOutOfStock && (
+        <div className="absolute top-2 right-2 bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded-full">
+          RUPTURE
+        </div>
+      )}
+      <div className="font-semibold text-sm text-slate-900">{item.name}</div>
+      <div className="text-indigo-700 font-bold text-sm mt-2">
+        {Number(item.price).toLocaleString('fr-FR')} fcfa
+      </div>
+      <div className="text-[10px] text-slate-400 mt-1">
+        {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : item.destination === 'BAR' ? '🍹 Bar' : '👨‍🍳 Les deux'}
+      </div>
+      <div className={`text-[10px] mt-1 font-medium flex items-center gap-1 ${isOutOfStock ? 'text-red-600' : 'text-emerald-600'}`}>
+        {isOutOfStock ? <>❌ Indisponible</> : <>✅ Stock: {item.stock}</>}
+      </div>
+    </button>
+  );
+})}
                 {currentCategoryItems.length === 0 && (
                   <div className="col-span-full text-center py-8 text-slate-500 text-sm">Aucun article trouvé</div>
                 )}
@@ -746,7 +873,7 @@ export default function RoomServicePage() {
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
-                      <span className="font-bold text-sm">{item.total_price.toLocaleString('fr-FR')} fcfa</span>
+                      <span className="font-bold text-sm">{Number(item.total_price ?? item.price * item.quantity ?? 0).toLocaleString('fr-FR')} fcfa</span>
                     </div>
                   </div>
                 ))
@@ -783,7 +910,7 @@ export default function RoomServicePage() {
                 className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold py-2 rounded-lg flex items-center justify-center gap-2"
               >
                 <Send className="w-4 h-4" />
-                {loading ? 'Envoi...' : 'Envoyer en Cuisine'}
+                {loading ? 'Envoi...' : 'Envoyer au restaurant'}
               </button>
             </div>
           </div>
@@ -842,19 +969,46 @@ export default function RoomServicePage() {
                   <div className="text-xs text-slate-400 mt-2">
                     🕐 {new Date(order.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                   </div>
-                  {order.status !== 'ROOM_CHARGE' && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePayOrder(order);
-                      }}
-                      disabled={loading}
-                      className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      <DollarSign className="w-4 h-4" />
-                      {loading ? 'Traitement...' : 'Encaisser et imputer'}
-                    </button>
-                  )}
+                <div className="flex gap-2 mt-3">
+  {order.status !== 'ROOM_CHARGE' && order.status !== 'SERVED' && (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        handlePayOrder(order);
+      }}
+      disabled={loading}
+      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
+    >
+      <DollarSign className="w-4 h-4" />
+      {loading ? 'Traitement...' : 'Imputer au folio'}
+    </button>
+  )}
+  {order.status !== 'ROOM_CHARGE' && order.status !== 'SERVED' && (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        handleSendToCashier(order);
+      }}
+      disabled={loading}
+      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"
+    >
+      <ShoppingCart className="w-4 h-4" />
+      Envoyer à la caisse
+    </button>
+  )}
+  {order.status === 'SERVED' && (
+    <div className="flex-1 bg-blue-100 border-2 border-blue-300 text-blue-900 text-sm font-semibold py-2 rounded-lg flex items-center justify-center gap-2">
+      <ShoppingCart className="w-4 h-4" />
+      En attente de paiement en caisse
+    </div>
+  )}
+  {order.status === 'ROOM_CHARGE' && (
+    <div className="flex-1 bg-purple-100 border-2 border-purple-300 text-purple-900 text-sm font-semibold py-2 rounded-lg flex items-center justify-center gap-2">
+      <DollarSign className="w-4 h-4" />
+      Imputé au folio
+    </div>
+  )}
+</div>
                 </div>
               ))}
             </div>
