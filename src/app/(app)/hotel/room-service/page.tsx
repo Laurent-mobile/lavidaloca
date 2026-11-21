@@ -384,41 +384,52 @@ const loadHotelInfo = async () => {
     console.error('Erreur chargement hôtel:', err);
   }
 };
-  const addToCart = (item: MenuItem) => {
-    // Vérifier le stock FRAIS depuis menuItems
-    const fresh = menuItems.find(m =>
-      m.id === (item as any).menuItemId ||
-      m.id === item.id ||
-      m.name.toLowerCase() === item.name.toLowerCase()
-    ) || item;
+const addToCart = (item: MenuItem) => {
+  // Vérifier le stock FRAIS depuis menuItems
+  const fresh = menuItems.find(m =>
+    m.id === (item as any).menuItemId ||
+    m.id === item.id ||
+    m.name.toLowerCase() === item.name.toLowerCase()
+  ) || item;
 
-    // ✅ BLOQUER SI STOCK À 0 (Rupture OU Fiche technique manquante)
-    if (fresh.stock !== undefined && fresh.stock <= 0) {
-      alert(`⚠️ Indisponible : ${fresh.name}\n(Veuillez définir sa fiche technique dans la Gestion du Menu)`);
-      return;
+  // ✅ BLOQUER SI STOCK À 0 (Rupture OU Fiche technique manquante)
+  if (fresh.stock !== undefined && fresh.stock <= 0) {
+    alert(`⚠️ Indisponible : ${fresh.name}\n(Veuillez définir sa fiche technique dans la Gestion du Menu)`);
+    return;
+  }
+
+  setCart(prev => {
+    const existingIndex = prev.findIndex(i => {
+      if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
+      if (item.id && i.id === item.id) return true;
+      return i.name.toLowerCase() === item.name.toLowerCase();
+    });
+    const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
+
+    if (fresh.stock !== undefined && currentQty + 1 > fresh.stock) {
+      alert(`⚠️ Stock insuffisant pour : ${fresh.name}\nDisponible : ${fresh.stock}`);
+      return prev;
     }
 
-    setCart(prev => {
-      const existingIndex = prev.findIndex(i => {
-        if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
-        if (item.id && i.id === item.id) return true;
-        return i.name.toLowerCase() === item.name.toLowerCase();
-      });
-      const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
-
-      if (fresh.stock !== undefined && currentQty + 1 > fresh.stock) {
-        alert(`⚠️ Stock insuffisant pour : ${fresh.name}\nDisponible : ${fresh.stock}`);
-        return prev;
-      }
-
-      if (existingIndex >= 0) {
-        const newCart = [...prev];
-        newCart[existingIndex] = { ...newCart[existingIndex], quantity: newCart[existingIndex].quantity + 1 };
-        return newCart;
-      }
-      return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
-    });
-  };
+    if (existingIndex >= 0) {
+      const newCart = [...prev];
+      newCart[existingIndex] = { 
+        ...newCart[existingIndex], 
+        quantity: newCart[existingIndex].quantity + 1,
+        total_price: (newCart[existingIndex].quantity + 1) * newCart[existingIndex].price // ✅ AJOUTÉ
+      };
+      return newCart;
+    }
+    
+    // ✅ AJOUT DE total_price LORS DE LA CRÉATION
+    return [...prev, { 
+      ...item, 
+      quantity: 1, 
+      total_price: item.price, 
+      menuItemId: item.id 
+    }];
+  });
+};
 
   const updateQuantity = (itemId: string, delta: number) => {
     setCart(prev => {
@@ -449,7 +460,7 @@ const loadHotelInfo = async () => {
     });
   };
 
-  const cartTotal = cart.reduce((sum, item) => sum + Number(item.total_price ?? item.price * item.quantity ?? 0), 0);
+  const cartTotal = cart.reduce((sum, item) => sum + item.total_price, 0);
 
   const handleSendOrder = async () => {
     if (!selectedStay) { alert('Veuillez sélectionner une chambre.'); return; }
