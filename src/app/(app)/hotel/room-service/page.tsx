@@ -407,8 +407,8 @@ const addToCart = (item: MenuItem) => {
     return [...prev, { 
       ...item, 
       quantity: 1, 
-      total_price: item.price || 0,
-      price: item.price || 0 
+      total_price: item.price,
+      price: item.price 
     }];
   });
 };
@@ -873,7 +873,7 @@ const handleSendToCashier = async (order: RoomServiceOrder) => {
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
-                      <span className="font-bold text-sm">{Number(item.total_price ?? item.price * item.quantity ?? 0).toLocaleString('fr-FR')} fcfa</span>
+                      <span className="font-bold text-sm">{Number(item.total_price || item.price * item.quantity || 0).toLocaleString('fr-FR')} fcfa</span>
                     </div>
                   </div>
                 ))
