@@ -194,53 +194,41 @@ export default function RoomServicePage() {
 
   const loadOccupiedRooms = async () => {
     try {
-      const { data: occupiedRooms, error: roomsError } = await supabase
+      const { data, error } = await supabase
         .from('rooms')
         .select(`
-          id, number, floor, status, category_id,
-          room_categories (code, name, base_price)
+          id, number, 
+          stays!inner(id, folio_balance, customers(first_name, last_name))
         `)
         .eq('site_id', siteId)
         .eq('status', 'OCCUPIED')
+        .eq('stays.status', 'IN_HOUSE')
         .order('number', { ascending: true });
 
-      if (roomsError) throw roomsError;
-      if (!occupiedRooms || occupiedRooms.length === 0) {
+      if (error) {
+        console.error('❌ Erreur chargement chambres:', error);
         setOccupiedRooms([]);
         return;
       }
 
-      const formatted = [];
-      for (const room of occupiedRooms) {
-        const { data: stays } = await supabase
-          .from('stays')
-          .select('id, customer_id, folio_balance, reservation_id')
-          .eq('room_id', room.id)
-          .eq('status', 'IN_HOUSE')
-          .limit(1);
-
-        const stay = stays?.[0] || null;
-
-        let customerInfo = { first_name: 'Client', last_name: 'Inconnu', phone: '' };
-        if (stay?.customer_id) {
-          const { data: customer } = await supabase
-            .from('customers')
-            .select('first_name, last_name, phone')
-            .eq('id', stay.customer_id)
-            .maybeSingle();
-          if (customer) customerInfo = customer;
-        }
-
-        formatted.push({
+      // ✅ CORRECTION : stays est un OBJET, pas un tableau, grâce à !inner
+      const formatted = (data || []).map((room: any) => {
+        const stay = room.stays; // C'est un objet direct
+        const customer = stay?.customers;
+        
+        return {
           id: stay?.id || room.id,
           room_id: room.id,
           room_number: room.number,
           folio_balance: stay?.folio_balance || 0,
           has_stay: !!stay,
           rooms: { id: room.id, number: room.number },
-          customers: customerInfo,
-        });
-      }
+          customers: customer 
+            ? { first_name: customer.first_name || '', last_name: customer.last_name || '' }
+            : { first_name: 'Client', last_name: 'Inconnu' }
+        };
+      });
+
       setOccupiedRooms(formatted);
     } catch (error: any) {
       console.error('❌ Erreur chargement chambres:', error?.message || error);
@@ -396,39 +384,70 @@ const loadHotelInfo = async () => {
     console.error('Erreur chargement hôtel:', err);
   }
 };
-const addToCart = (item: MenuItem) => {
-  setCart(prev => {
-    const existing = prev.find(i => i.id === item.id);
-    if (existing) {
-      return prev.map(i => i.id === item.id
-        ? { 
-            ...i, 
-            quantity: i.quantity + 1, 
-            total_price: (i.quantity + 1) * i.price  // ✅ Pas de ?? car price est number
-          }
-        : i);
-    }
-    return [...prev, { 
-      ...item, 
-      quantity: 1, 
-      total_price: item.price  // ✅ Pas de ?? car price est number
-    }];
-  });
-};
+  const addToCart = (item: MenuItem) => {
+    // Vérifier le stock FRAIS depuis menuItems
+    const fresh = menuItems.find(m =>
+      m.id === (item as any).menuItemId ||
+      m.id === item.id ||
+      m.name.toLowerCase() === item.name.toLowerCase()
+    ) || item;
 
-const updateQuantity = (itemId: string, delta: number) => {
-  setCart(prev => prev.map(c => {
-    if (c.id === itemId) {
-      const newQty = Math.max(0, c.quantity + delta);
-      return { 
-        ...c, 
-        quantity: newQty, 
-        total_price: newQty * (c.price || 0) 
-      };
+    // ✅ BLOQUER SI STOCK À 0 (Rupture OU Fiche technique manquante)
+    if (fresh.stock !== undefined && fresh.stock <= 0) {
+      alert(`⚠️ Indisponible : ${fresh.name}\n(Veuillez définir sa fiche technique dans la Gestion du Menu)`);
+      return;
     }
-    return c;
-  }).filter(c => c.quantity > 0));
-};
+
+    setCart(prev => {
+      const existingIndex = prev.findIndex(i => {
+        if (item.id && i.menuItemId && i.menuItemId === item.id) return true;
+        if (item.id && i.id === item.id) return true;
+        return i.name.toLowerCase() === item.name.toLowerCase();
+      });
+      const currentQty = existingIndex >= 0 ? prev[existingIndex].quantity : 0;
+
+      if (fresh.stock !== undefined && currentQty + 1 > fresh.stock) {
+        alert(`⚠️ Stock insuffisant pour : ${fresh.name}\nDisponible : ${fresh.stock}`);
+        return prev;
+      }
+
+      if (existingIndex >= 0) {
+        const newCart = [...prev];
+        newCart[existingIndex] = { ...newCart[existingIndex], quantity: newCart[existingIndex].quantity + 1 };
+        return newCart;
+      }
+      return [...prev, { ...item, quantity: 1, menuItemId: item.id }];
+    });
+  };
+
+  const updateQuantity = (itemId: string, delta: number) => {
+    setCart(prev => {
+      const itemInCart = prev.find(c => c.id === itemId);
+      if (!itemInCart) return prev;
+
+      const fresh = menuItems.find(m => m.id === itemInCart.id);
+      const currentQty = itemInCart.quantity;
+      const newQty = currentQty + delta;
+
+      // ✅ Vérifier le stock si on augmente la quantité
+      if (delta > 0 && fresh?.stock !== undefined && newQty > fresh.stock) {
+        alert(`⚠️ Stock insuffisant pour : ${fresh.name}\nDisponible : ${fresh.stock}`);
+        return prev;
+      }
+
+      // ✅ Supprimer l'article si la quantité tombe à 0 ou moins
+      if (newQty <= 0) {
+        return prev.filter(c => c.id !== itemId);
+      }
+
+      // ✅ Mettre à jour la quantité et le prix total
+      return prev.map(c => 
+        c.id === itemId 
+          ? { ...c, quantity: newQty, total_price: newQty * c.price } 
+          : c
+      );
+    });
+  };
 
   const cartTotal = cart.reduce((sum, item) => sum + Number(item.total_price ?? item.price * item.quantity ?? 0), 0);
 
