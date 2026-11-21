@@ -73,9 +73,14 @@ export default function MaintenancePage() {
     notes: '',
   });
 
-  // Données annexes
+    // Données annexes
   const [equipment, setEquipment] = useState<any[]>([]);
   const [showEquipmentForm, setShowEquipmentForm] = useState(false);
+  const [editingEquipment, setEditingEquipment] = useState<any>(null); // ✅ AJOUTÉ
+  const [equipmentForm, setEquipmentForm] = useState({ // ✅ AJOUTÉ
+    name: '', category: 'HVAC', location: '', brand: '', model: '',
+    serial_number: '', installation_date: '', warranty_expiry: '', notes: ''
+  });
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
@@ -433,6 +438,46 @@ export default function MaintenancePage() {
     }
     setLoading(false);
   };
+    const handleSaveEquipment = async () => {
+    if (!equipmentForm.name.trim()) { alert('Le nom est obligatoire.'); return; }
+    setLoading(true);
+    try {
+      const equipmentData = {
+        site_id: siteId, name: equipmentForm.name, category: equipmentForm.category,
+        location: equipmentForm.location, brand: equipmentForm.brand, model: equipmentForm.model,
+        serial_number: equipmentForm.serial_number, installation_date: equipmentForm.installation_date || null,
+        warranty_expiry: equipmentForm.warranty_expiry || null, notes: equipmentForm.notes,
+      };
+      if (editingEquipment) {
+        const { error } = await supabase.from('maintenance_equipment').update(equipmentData).eq('id', editingEquipment.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('maintenance_equipment').insert(equipmentData);
+        if (error) throw error;
+      }
+      setShowEquipmentForm(false); setEditingEquipment(null);
+      setEquipmentForm({ name: '', category: 'HVAC', location: '', brand: '', model: '', serial_number: '', installation_date: '', warranty_expiry: '', notes: '' });
+      await loadEquipment();
+    } catch (err: any) { alert(`Erreur: ${err.message}`); }
+    setLoading(false);
+  };
+
+  const handleSavePreventive = async () => {
+    if (!preventiveForm.title.trim() || !preventiveForm.next_date) { alert('Le titre et la prochaine date sont obligatoires.'); return; }
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('maintenance_preventive').insert({
+        site_id: siteId, equipment_id: preventiveForm.equipment_id || null, title: preventiveForm.title,
+        description: preventiveForm.description, frequency: preventiveForm.frequency,
+        next_date: preventiveForm.next_date, assigned_to: preventiveForm.assigned_to,
+      });
+      if (error) throw error;
+      setShowPreventiveForm(false);
+      setPreventiveForm({ equipment_id: '', title: '', description: '', frequency: 'MONTHLY', next_date: '', assigned_to: '' });
+      await loadPreventiveTasks();
+    } catch (err: any) { alert(`Erreur: ${err.message}`); }
+    setLoading(false);
+  };
 
   if (profileLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-8 h-8 text-indigo-600 animate-spin" /></div>;
   if (!siteId) return null;
@@ -463,7 +508,10 @@ export default function MaintenancePage() {
             {stats.pending} en attente • {stats.inProgress} en cours • {stats.urgent} urgentes
           </p>
         </div>
-        <div className="flex gap-2">
+              <div className="flex gap-2">
+          <button onClick={() => { setEditingEquipment(null); setEquipmentForm({ name: '', category: 'HVAC', location: '', brand: '', model: '', serial_number: '', installation_date: '', warranty_expiry: '', notes: '' }); setShowEquipmentForm(true); }} className="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+            <Settings className="w-4 h-4" /> Équipement
+          </button>
           <button onClick={() => setShowPreventiveForm(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
             <Shield className="w-4 h-4" /> Préventive
           </button>
