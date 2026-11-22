@@ -116,48 +116,61 @@ if (stay) {
     }
   };
 
-  const handleCheckIn = async () => {
-    if (!pendingReservation) {
-      setError('Aucune réservation confirmée trouvée.');
-      return;
+const handleCheckIn = async () => {
+  if (!room) return;
+  setLoading(true);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // 1. Retrouver la réservation du jour (prop, sinon lookup)
+    let reservation = props.reservation;
+    if (!reservation) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const { data } = await supabase.from('reservations')
+        .select('id, customer_id, room_id, check_in_date, check_out_date, nightly_rate, number')
+        .eq('room_id', room.id)
+        .in('status', ['CONFIRMED', 'CHECKED_IN'])
+        .lte('check_in_date', todayStr)
+        .gte('check_out_date', todayStr)
+        .order('check_in_date', { ascending: false })
+        .limit(1).maybeSingle();
+      reservation = data;
     }
 
-    if (!pendingReservation.customer_id) {
-      setError(' Cette réservation n\'a pas de client associé. Impossible de faire le check-in.');
-      return;
+    // 2. Créer le séjour s'il n'existe pas encore
+    const { data: existingStay } = await supabase.from('stays')
+      .select('id').eq('room_id', room.id).eq('status', 'IN_HOUSE').maybeSingle();
+
+    if (!existingStay) {
+      const { error: stayErr } = await supabase.from('stays').insert({
+        reservation_id: reservation?.id || null,
+        room_id: room.id,
+        customer_id: reservation?.customer_id || null,
+        check_in_at: new Date().toISOString(),
+        status: 'IN_HOUSE',
+        folio_balance: 0,
+        nightly_rate: reservation?.nightly_rate || 0,
+      });
+      if (stayErr) throw stayErr;
     }
 
-    setLoading(true);
-    setError('');
+    // 3. Chambre → OCCUPIED (même si elle était VACANT)
+    await supabase.from('rooms').update({ status: 'OCCUPIED' }).eq('id', room.id);
 
-    try {
-      if (!isOnline) {
-        await addToOutbox({ type: 'INSERT', table: 'stays', data: { reservation_id: pendingReservation.id, room_id: room.id, customer_id: pendingReservation.customer_id, check_in_at: new Date().toISOString(), nightly_rate: pendingReservation.nightly_rate, status: 'IN_HOUSE', folio_balance: pendingReservation.nightly_rate } });
-        await addToOutbox({ type: 'UPDATE', table: 'rooms', data: { id: room.id, status: 'OCCUPIED' } });
-        setLoading(false);
-        onSuccess();
-        onClose();
-        return;
-      }
-
-      const { data: stay, error: stayError } = await supabase.from('stays').insert({ reservation_id: pendingReservation.id, room_id: room.id, customer_id: pendingReservation.customer_id, check_in_at: new Date().toISOString(), nightly_rate: pendingReservation.nightly_rate, status: 'IN_HOUSE', folio_balance: pendingReservation.nightly_rate }).select().single();
-
-      if (stayError) throw new Error(`Séjour: ${stayError.message}`);
-      if (!stay) throw new Error('Échec création séjour');
-
-      const { error: roomError } = await supabase.from('rooms').update({ status: 'OCCUPIED' }).eq('id', room.id);
-      if (roomError) { await supabase.from('stays').delete().eq('id', stay.id); throw new Error(`Chambre: ${roomError.message}`); }
-
-      await supabase.from('reservations').update({ status: 'CHECKED_IN' }).eq('id', pendingReservation.id);
-
-      setLoading(false);
-      onSuccess();
-      onClose();
-    } catch (err: any) {
-      setError(`Erreur: ${err.message}`);
-      setLoading(false);
+    // 4. Réservation → CHECKED_IN
+    if (reservation?.id) {
+      await supabase.from('reservations').update({ status: 'CHECKED_IN' }).eq('id', reservation.id);
     }
-  };
+
+    alert(`✅ Check‑in effectué pour la chambre ${room.number}.`);
+    onSuccess?.();
+    onClose?.();
+  } catch (err: any) {
+    alert(`Erreur: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // 🔓 FORCER LA LIBÉRATION (pour chambres OUT_OF_ORDER sans maintenance)
   const handleForceVacant = async () => {

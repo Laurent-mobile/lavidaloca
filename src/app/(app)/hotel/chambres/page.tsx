@@ -45,9 +45,13 @@ export default function ChambresPage() {
   const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [maintenanceRoomId, setMaintenanceRoomId] = useState<string | undefined>();
+  const [reservationRoomId, setReservationRoomId] = useState<string | undefined>(); // ✅ État pour la pré-sélection
   
   const [isCashOpen, setIsCashOpen] = useState(false);
   const [isRoomServiceOpen, setIsRoomServiceOpen] = useState(false);
+  const [todayResMap, setTodayResMap] = useState<Map<string, any>>(new Map());
+const [futureResMap, setFutureResMap] = useState<Map<string, any>>(new Map());
+const [selectedReservation, setSelectedReservation] = useState<any>(null);
 
   useEffect(() => {
     if (profileSiteId) loadData();
@@ -90,16 +94,28 @@ export default function ChambresPage() {
       }));
       setActiveStays(normalizedStays);
 
-      // 3. Réservations À VENIR
-      const today = new Date().toISOString().split('T')[0];
+          // 3. Réservations À VENIR (exclure celles avec un séjour actif)
+      const todayStr = new Date().toISOString().split('T')[0];
       const { data: resData } = await supabase
         .from('reservations')
-        .select('id, number, check_in_date, check_out_date, status, nightly_rate, customers (first_name, last_name, phone), rooms (number), room_categories (code, name)')
+        .select('id, number, room_id, check_in_date, check_out_date, status, nightly_rate, customers (first_name, last_name, phone), rooms (number), room_categories (code, name)')
         .eq('site_id', profileSiteId)
-        .eq('status', 'CONFIRMED')
-        .gte('check_in_date', today)
+        .in('status', ['CONFIRMED', 'CHECKED_IN'])
+        .gte('check_in_date', todayStr)
         .order('check_in_date', { ascending: true });
-      if (resData) setUpcomingReservations(resData);
+
+      // ✅ Filtrer côté client : exclure les réservations qui ont déjà un séjour IN_HOUSE
+      if (resData) {
+        const { data: activeStays } = await supabase
+          .from('stays')
+          .select('reservation_id')
+          .eq('status', 'IN_HOUSE');
+        
+        const activeReservationIds = new Set((activeStays || []).map((s: any) => s.reservation_id));
+        const filteredReservations = resData.filter((r: any) => !activeReservationIds.has(r.id));
+        
+        setUpcomingReservations(filteredReservations);
+      }
 
       // 4. Liste d'attente
       const { count } = await supabase
@@ -153,7 +169,7 @@ export default function ChambresPage() {
   const occRate = total ? Math.round((occupied / total) * 100) : 0;
   const desync = activeStays.length !== occupied;
 
-    // ✅ Regroupement des chambres par catégorie
+  // ✅ Regroupement des chambres par catégorie
   const byCategory = rooms.reduce((acc: any, room: any) => {
     const catName = room.room_categories?.name || 'Non catégorisé';
     if (!acc[catName]) {
@@ -168,8 +184,10 @@ export default function ChambresPage() {
     return acc;
   }, {});
 
-  // Trier les catégories par prix décroissant (ex: Suites en premier, puis Standard)
+  // Trier les catégories par prix décroissant
   const sortedCategories = Object.values(byCategory).sort((a: any, b: any) => b.price - a.price);
+  const getDisplayStatus = (room: any) =>
+  room.status !== 'VACANT' ? room.status : (todayResMap.has(room.id) ? 'RESERVED' : 'VACANT');
 
   return (
     <div className="p-6 space-y-4">
@@ -241,7 +259,7 @@ export default function ChambresPage() {
       {/* Plan + colonne droite */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">
-                    {sortedCategories.map((cat: any) => (
+          {sortedCategories.map((cat: any) => (
             <div key={cat.name} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
               {/* En-tête de la catégorie */}
               <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 border-b border-indigo-200 flex items-center justify-between">
@@ -251,7 +269,7 @@ export default function ChambresPage() {
                   </div>
                   <div>
                     <h3 className="font-bold text-white text-base">{cat.name}</h3>
-                                        <p className="text-xs text-indigo-100">
+                    <p className="text-xs text-indigo-100">
                       Code: {cat.code} • {Number(cat.price).toLocaleString('fr-FR')} fcfa / nuit
                     </p>
                     <p className="text-[10px] text-indigo-200 mt-0.5">
@@ -267,54 +285,54 @@ export default function ChambresPage() {
               {/* Grille des chambres */}
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 p-3">
                 {cat.rooms.map((room: any) => {
-                  const cfg = statusConfig[room.status] || statusConfig.VACANT;
-                  return (
-                    <button
-                      key={room.id}
-                      onClick={() => {
-                        setSelectedRoom(room);
-                        if (room.status === 'VACANT') {
-                          setIsModalOpen(true); // Ouvre directement la réservation
-                        } else {
-                          setIsRoomModalOpen(true); // Ouvre les actions (check-out, etc.)
-                        }
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setMaintenanceRoomId(room.id);
-                        setIsMaintenanceOpen(true);
-                      }}
-                      className={`rounded-lg border-2 p-2 text-left hover:shadow-md transition-all cursor-pointer relative ${cfg.color}`}
-                    >
-                      {room.status === 'OUT_OF_ORDER' && (
-                        <div className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs z-10">🔧</div>
-                      )}
-                      
-                      {/* ✅ Indice visuel au survol pour les chambres libres */}
-                      {room.status === 'VACANT' && (
-                        <div className="absolute inset-0 bg-emerald-600/90 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity rounded-lg z-20">
-                          <span className="font-bold text-sm flex items-center gap-1">
-                            <Plus className="w-4 h-4" /> Réserver
-                          </span>
-                        </div>
-                      )}
+  const ds = getDisplayStatus(room);
+  const cfg = statusConfig[ds] || statusConfig.VACANT;
+  const futureRes = ds === 'VACANT' ? futureResMap.get(room.id) : null;
+  return (
+    <button
+      key={room.id}
+      onClick={() => {
+        if (ds === 'VACANT') {
+          setReservationRoomId(room.id);
+          setIsModalOpen(true);
+        } else {
+          setSelectedRoom({ ...room, status: ds });            // statut virtuel forcé
+          setSelectedReservation(todayResMap.get(room.id) || null);
+          setIsRoomModalOpen(true);
+        }
+      }}
+      onContextMenu={(e) => { e.preventDefault(); setMaintenanceRoomId(room.id); setIsMaintenanceOpen(true); }}
+      className={`rounded-lg border-2 p-2 text-left hover:shadow-md transition-all cursor-pointer relative ${cfg.color}`}
+    >
+      {ds === 'OUT_OF_ORDER' && (
+        <div className="absolute -top-1 -right-1 bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs z-10">🔧</div>
+      )}
 
-                                            <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-base font-bold">{room.number}</span>
-                          <span className="text-[9px] font-semibold text-slate-500 bg-white/60 px-1 py-0.5 rounded">
-                            📍 É{room.floor ?? '—'}
-                          </span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 font-semibold">{cat.code}</span>
-                      </div>
-                      <div className="text-[10px] opacity-80">{cfg.label}</div>
-                      <div className="text-[10px] mt-1 font-semibold">{Number(cat.price).toLocaleString('fr-FR')} fcfa</div>
-                      <div className="text-[10px] opacity-80">{cfg.label}</div>
-                      <div className="text-[10px] mt-1 font-semibold">{Number(cat.price).toLocaleString('fr-FR')} fcfa</div>
-                    </button>
-                  );
-                })}
+      {ds === 'VACANT' && (
+        <div className="absolute inset-0 bg-emerald-600/90 text-white flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity rounded-lg z-20">
+          <span className="font-bold text-sm flex items-center gap-1"><Plus className="w-4 h-4" /> Réserver</span>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5">
+          <span className="text-base font-bold">{room.number}</span>
+          <span className="text-[9px] font-semibold text-slate-500 bg-white/60 px-1 py-0.5 rounded">📍 É{room.floor ?? '—'}</span>
+        </div>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/60 font-semibold">{cat.code}</span>
+      </div>
+      <div className="text-[10px] opacity-80">{cfg.label}</div>
+      <div className="text-[10px] mt-1 font-semibold">{Number(cat.price).toLocaleString('fr-FR')} fcfa</div>
+
+      {/* ✅ Badge discrète pour une réservation FUTURE (la chambre reste libre aujourd'hui) */}
+      {futureRes && (
+        <div className="text-[9px] mt-0.5 text-indigo-600 font-medium flex items-center gap-0.5">
+          📅 Réservée pour le {new Date(futureRes.check_in_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+        </div>
+      )}
+    </button>
+  );
+})}
               </div>
             </div>
           ))}
@@ -378,18 +396,25 @@ export default function ChambresPage() {
       <ReservationModal 
         siteId={profileSiteId} 
         isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onSuccess={() => { setRefreshKey(k => k + 1); setIsModalOpen(false); }} 
-        
-        
+        preselectRoomId={reservationRoomId} // ✅ Passe l'ID de la chambre cliquée
+        onClose={() => { 
+          setIsModalOpen(false); 
+          setReservationRoomId(undefined); // ✅ Nettoie l'état à la fermeture
+        }} 
+        onSuccess={() => { 
+          setReservationRoomId(undefined); // ✅ Nettoie l'état au succès
+          setRefreshKey(k => k + 1); 
+          setIsModalOpen(false); 
+        }} 
       />
-      <RoomActionModal 
-        siteId={profileSiteId} 
-        room={selectedRoom} 
-        isOpen={isRoomModalOpen} 
-        onClose={() => setIsRoomModalOpen(false)} 
-        onSuccess={() => setRefreshKey(k => k + 1)} 
-      />
+    <RoomActionModal
+  siteId={profileSiteId}
+  room={selectedRoom}
+  reservation={selectedReservation}   
+  isOpen={isRoomModalOpen}
+  onClose={() => { setIsRoomModalOpen(false); setSelectedReservation(null); }}
+  onSuccess={() => setRefreshKey(k => k + 1)}
+/>
       <WaitlistModal 
         siteId={profileSiteId} 
         isOpen={isWaitlistOpen} 

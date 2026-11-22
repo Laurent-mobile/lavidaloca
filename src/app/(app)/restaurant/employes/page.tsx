@@ -1,28 +1,29 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   Users, Clock, DollarSign, Calendar, Plus, Download,
   Search, Filter, Eye, Edit2, Trash2, CheckCircle, X,
-  UserCheck, UserX, FileText, Printer, Calculator, Save
+  UserCheck, UserX, FileText, Printer, Calculator, Save,
+  Phone, Mail, Briefcase, AlertCircle
 } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import PayrollDetailModal from './components/PayrollDetailModal';
 import PayslipPreviewModal from './components/PayslipPreviewModal';
 
+// ✅ Interface corrigée selon la vraie structure de la table
 interface Employee {
   id: string;
   first_name: string;
   last_name: string;
-  matricule?: string;  // ✅ AJOUTÉ
-  role?: string;
-  position?: string;
-  department?: string;
+  phone?: string;
+  email?: string;
+  role: string;
+  hire_date?: string;
   salary?: number;
   is_active?: boolean;
-  status?: 'ACTIVE' | 'INACTIVE';
+  notes?: string;
+  created_at?: string;
 }
 
 interface Attendance {
@@ -50,20 +51,19 @@ export default function GestionEmployesPage() {
   const [siteId, setSiteId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'list' | 'attendance' | 'payroll' | 'leave'>('list');
-  
+
   // Données
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [showPayPeriodModal, setShowPayPeriodModal] = useState(false);
-const [payingPayroll, setPayingPayroll] = useState<Payroll | null>(null);
-const [payMethod, setPayMethod] = useState('BANK_TRANSFER');
-  
+  const [payingPayroll, setPayingPayroll] = useState<Payroll | null>(null);
+  const [payMethod, setPayMethod] = useState('BANK_TRANSFER');
+
   // Filtres
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [departmentFilter, setDepartmentFilter] = useState('ALL');
-  
+
   // Stats
   const [stats, setStats] = useState({
     activeEmployees: 0,
@@ -86,17 +86,20 @@ const [payMethod, setPayMethod] = useState('BANK_TRANSFER');
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [showEmployeeDetailModal, setShowEmployeeDetailModal] = useState(false);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
-const [selectedEmployeeForPayslip, setSelectedEmployeeForPayslip] = useState<any>(null);
-const [selectedPeriodMonth, setSelectedPeriodMonth] = useState(new Date().getMonth() + 1);
-const [selectedPeriodYear, setSelectedPeriodYear] = useState(new Date().getFullYear());
+  const [selectedEmployeeForPayslip, setSelectedEmployeeForPayslip] = useState<any>(null);
+  const [selectedPeriodMonth, setSelectedPeriodMonth] = useState(new Date().getMonth() + 1);
+  const [selectedPeriodYear, setSelectedPeriodYear] = useState(new Date().getFullYear());
 
-  // ✅ Formulaires corrigés (valeurs par défaut '' au lieu de null/undefined)
+  // ✅ Formulaire corrigé (sans department/position qui n'existent pas)
   const [newEmployeeForm, setNewEmployeeForm] = useState({
     first_name: '',
     last_name: '',
     role: '',
-    department: '',
+    phone: '',
+    email: '',
+    hire_date: '',
     salary: 0,
+    notes: '',
     is_active: true
   });
 
@@ -121,7 +124,7 @@ const [selectedPeriodYear, setSelectedPeriodYear] = useState(new Date().getFullY
     end_date: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0]
   });
   const [showPayrollDetail, setShowPayrollDetail] = useState(false);
-const [selectedPayrollDetail, setSelectedPayrollDetail] = useState<any>(null);
+  const [selectedPayrollDetail, setSelectedPayrollDetail] = useState<any>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -143,97 +146,82 @@ const [selectedPayrollDetail, setSelectedPayrollDetail] = useState<any>(null);
   }, [siteId, activeTab]);
 
   const handleViewPayrollDetails = async (payroll: any) => {
-  try {
-    const startDate = new Date(payroll.period_start);
-    const periodMonth = startDate.getMonth() + 1;
-    const periodYear = startDate.getFullYear();
+    try {
+      const startDate = new Date(payroll.period_start);
+      const periodMonth = startDate.getMonth() + 1;
+      const periodYear = startDate.getFullYear();
 
-    // 1. Charger les bulletins de paie existants (seulement ceux qui ont été créés)
-    const { data: payslips, error } = await supabase
-      .from('employee_payslips')
-      .select('*')
-      .eq('site_id', siteId)
-      .eq('period_month', periodMonth)
-      .eq('period_year', periodYear);
+      const { data: payslips, error } = await supabase
+        .from('employee_payslips')
+        .select('*')
+        .eq('site_id', siteId)
+        .eq('period_month', periodMonth)
+        .eq('period_year', periodYear);
 
-    if (error) {
-      console.error('Erreur chargement bulletins:', error);
-      throw error;
+      if (error) throw error;
+
+      const payslipMap = new Map<string, any>();
+      payslips?.forEach(p => payslipMap.set(p.employee_id, p));
+
+      let totalBrut = 0;
+      let totalDeductions = 0;
+      let totalNet = 0;
+
+      const employeesData = employees
+        .filter(emp => emp.is_active !== false)
+        .map(emp => {
+          const payslip = payslipMap.get(emp.id);
+          const baseSalary = payslip ? payslip.base_salary : (emp.salary || 0);
+          const bonuses = payslip?.bonuses || 0;
+          const deductions = payslip?.deductions || 0;
+          const advances = payslip?.advances || 0;
+          const netSalary = payslip ? payslip.net_salary : (emp.salary || 0);
+
+          totalBrut += baseSalary + bonuses;
+          totalDeductions += deductions + advances;
+          totalNet += netSalary;
+
+          return {
+            employee_id: emp.id,
+            employee_name: `${emp.first_name} ${emp.last_name}`,
+            employee_matricule: `EMP${emp.id.slice(0, 8)}`,
+            base_salary: baseSalary,
+            overtime_hours: 0,
+            overtime_amount: 0,
+            bonuses,
+            advances,
+            deductions,
+            gross_salary: baseSalary + bonuses,
+            net_salary: netSalary,
+            has_payslip: !!payslip
+          };
+        });
+
+      const realData = {
+        id: payroll.id,
+        period_start: payroll.period_start,
+        period_end: payroll.period_end,
+        status: payroll.status || 'PENDING',
+        total_brut: totalBrut,
+        total_deductions: totalDeductions,
+        total_net: totalNet,
+        employee_count: employeesData.length,
+        employees: employeesData
+      };
+
+      setSelectedPayrollDetail(realData);
+      setShowPayrollDetail(true);
+    } catch (error: any) {
+      alert(`Erreur: ${error.message || 'Impossible de charger les détails'}`);
     }
-
-    // 2. Créer un map pour accès rapide : employee_id -> payslip
-    const payslipMap = new Map<string, any>();
-    payslips?.forEach(p => payslipMap.set(p.employee_id, p));
-
-    // 3. ✅ UTILISER TOUS LES EMPLOYÉS ACTIFS (pas seulement ceux avec bulletin)
-    let totalBrut = 0;
-    let totalDeductions = 0;
-    let totalNet = 0;
-
-    const employeesData = employees
-      .filter(emp => emp.is_active !== false) // Seulement les actifs
-      .map(emp => {
-        const payslip = payslipMap.get(emp.id);
-        
-        // Si un bulletin existe, utiliser ses données (avec primes/avances)
-        // Sinon, utiliser le salaire de base
-        const baseSalary = payslip ? payslip.base_salary : (emp.salary || 0);
-        const bonuses = payslip?.bonuses || 0;
-        const deductions = payslip?.deductions || 0;
-        const advances = payslip?.advances || 0;
-        const netSalary = payslip ? payslip.net_salary : (emp.salary || 0);
-
-        totalBrut += baseSalary + bonuses;
-        totalDeductions += deductions + advances;
-        totalNet += netSalary;
-
-        return {
-          employee_id: emp.id,
-          employee_name: `${emp.first_name} ${emp.last_name}`,
-          employee_matricule: emp.matricule || `EMP${emp.id.slice(0, 8)}`,
-          base_salary: baseSalary,
-          overtime_hours: 0,
-          overtime_amount: 0,
-          bonuses: bonuses,
-          advances: advances,
-          deductions: deductions,
-          gross_salary: baseSalary + bonuses,
-          net_salary: netSalary,
-          has_payslip: !!payslip // Pour savoir si un bulletin existe
-        };
-      });
-
-    // 4. Construire les données pour le modal
-    const realData = {
-      id: payroll.id,
-      period_start: payroll.period_start,
-      period_end: payroll.period_end,
-      status: payroll.status || 'PENDING',
-      total_brut: totalBrut,
-      total_deductions: totalDeductions,
-      total_net: totalNet,
-      employee_count: employeesData.length,
-      employees: employeesData
-    };
-
-    setSelectedPayrollDetail(realData);
-    setShowPayrollDetail(true);
-
-  } catch (error: any) {
-    console.error('Erreur chargement détails paie:', error);
-    alert(`Erreur: ${error.message || 'Impossible de charger les détails de la paie'}`);
-  }
-};
-
-const handleOpenPayslip = (employee: any) => {
-  // On mappe 'salary' vers 'base_salary' pour que le modal comprenne la donnée
-  const payslipEmployee = {
-    ...employee,
-    base_salary: employee.salary || 0
   };
-  setSelectedEmployeeForPayslip(payslipEmployee);
-  setShowPayslipModal(true);
-};
+
+  const handleOpenPayslip = (employee: any) => {
+    const payslipEmployee = { ...employee, base_salary: employee.salary || 0 };
+    setSelectedEmployeeForPayslip(payslipEmployee);
+    setShowPayslipModal(true);
+  };
+
   const loadEmployees = async () => {
     try {
       const { data } = await supabase
@@ -241,17 +229,13 @@ const handleOpenPayslip = (employee: any) => {
         .select('*')
         .eq('site_id', siteId)
         .order('last_name', { ascending: true });
-      
+
       setEmployees(data || []);
-      
+
       const active = data?.filter((e: any) => e.is_active !== false) || [];
       const monthlySalary = active.reduce((sum: number, e: any) => sum + (e.salary || 0), 0);
-      
-      setStats(prev => ({
-        ...prev,
-        activeEmployees: active.length,
-        monthlySalary
-      }));
+
+      setStats(prev => ({ ...prev, activeEmployees: active.length, monthlySalary }));
     } catch (error) {
       console.error('Erreur chargement employés:', error);
     } finally {
@@ -268,24 +252,18 @@ const handleOpenPayslip = (employee: any) => {
         .eq('site_id', siteId)
         .order('date', { ascending: false })
         .limit(50);
-      
+
       setAttendance(data || []);
-      
+
       const todayAttendance = data?.filter((a: any) => a.date === today) || [];
       const presentToday = todayAttendance.filter((a: any) => a.status === 'PRESENT').length;
       const absentToday = todayAttendance.filter((a: any) => a.status === 'ABSENT').length;
-      
+
       const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
       const lateThisMonth = data?.filter((a: any) => a.date >= startOfMonth && a.status === 'LATE').length || 0;
-      
-      setStats(prev => ({
-        ...prev,
-        presentToday,
-        absentToday,
-        lateThisMonth
-      }));
+
+      setStats(prev => ({ ...prev, presentToday, absentToday, lateThisMonth }));
     } catch (error) {
-      // Silencieux si la table n'existe pas encore
       console.log('Table attendance non disponible ou vide');
     }
   };
@@ -298,16 +276,15 @@ const handleOpenPayslip = (employee: any) => {
         .eq('site_id', siteId)
         .order('created_at', { ascending: false })
         .limit(20);
-      
+
       setPayrolls(data || []);
     } catch (error) {
-      // Silencieux si la table n'existe pas encore
       console.log('Table payroll_periods non disponible ou vide');
     }
   };
 
-  // ✅ FONCTION : Créer un nouvel employé (adaptée au schéma réel)
-  const handleCreateEmployee = async (e: React.FormEvent) => {
+  // ✅ FONCTION UNIFIÉE : Création + Modification
+  const handleSubmitEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmployeeForm.first_name || !newEmployeeForm.last_name || !newEmployeeForm.role) {
       alert('Veuillez remplir le prénom, le nom et le poste');
@@ -315,39 +292,92 @@ const handleOpenPayslip = (employee: any) => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      // On insère uniquement les colonnes qui existent dans restaurant_employees
-      const insertData: any = {
+      // ✅ Données alignées avec la vraie structure de la table
+      const employeeData: any = {
         site_id: siteId,
         first_name: newEmployeeForm.first_name,
         last_name: newEmployeeForm.last_name,
         role: newEmployeeForm.role,
+        phone: newEmployeeForm.phone || null,
+        email: newEmployeeForm.email || null,
+        hire_date: newEmployeeForm.hire_date || null,
+        salary: newEmployeeForm.salary || 0,
+        notes: newEmployeeForm.notes || null,
         is_active: newEmployeeForm.is_active
       };
 
-      const { error } = await supabase.from('restaurant_employees').insert(insertData);
-
-      if (error) {
-        console.error('Détail de l\'erreur Supabase:', error);
-        throw error;
+      let error;
+      if (selectedEmployee) {
+        // ✅ MODE MODIFICATION
+        const res = await supabase
+          .from('restaurant_employees')
+          .update(employeeData)
+          .eq('id', selectedEmployee.id);
+        error = res.error;
+      } else {
+        // ✅ MODE CRÉATION
+        const res = await supabase
+          .from('restaurant_employees')
+          .insert(employeeData);
+        error = res.error;
       }
 
-      setNewEmployeeForm({
-        first_name: '',
-        last_name: '',
-        role: '',
-        department: '',
-        salary: 0,
-        is_active: true
-      });
+      if (error) throw error;
 
+      setNewEmployeeForm({
+        first_name: '', last_name: '', role: '', phone: '', email: '',
+        hire_date: '', salary: 0, notes: '', is_active: true
+      });
+      setSelectedEmployee(null);
       setShowNewEmployeeModal(false);
       loadEmployees();
-      alert('✅ Employé créé avec succès !');
+
+      alert(selectedEmployee ? '✅ Employé modifié avec succès !' : '✅ Employé créé avec succès !');
     } catch (error: any) {
-      console.error('Erreur création employé:', error);
-      alert(`Erreur: ${error.message}`);
+      console.error('Erreur employé:', error);
+      const errorMsg = error?.message || error?.details || error?.hint || JSON.stringify(error);
+      alert(`❌ Erreur :\n\n${errorMsg}`);
+    }
+  };
+
+  // ✅ SOFT DELETE : Désactive au lieu de supprimer
+  const handleDeleteEmployee = async (employee: Employee) => {
+    const isCurrentlyActive = employee.is_active !== false;
+    const actionText = isCurrentlyActive ? 'désactiver' : 'supprimer définitivement';
+
+    if (!confirm(`Voulez-vous vraiment ${actionText} ${employee.first_name} ${employee.last_name} ?\n\n💡 La désactivation conserve l'historique (présences, paie).`)) {
+      return;
+    }
+
+    try {
+      let error;
+      if (isCurrentlyActive) {
+        // ✅ Soft delete : on passe le statut à inactif
+        const res = await supabase
+          .from('restaurant_employees')
+          .update({ is_active: false })
+          .eq('id', employee.id);
+        error = res.error;
+      } else {
+        // ✅ Hard delete : suppression réelle (si déjà inactif)
+        const res = await supabase
+          .from('restaurant_employees')
+          .delete()
+          .eq('id', employee.id);
+        error = res.error;
+      }
+
+      if (error) throw error;
+
+      loadEmployees();
+      alert(`✅ Employé ${isCurrentlyActive ? 'désactivé' : 'supprimé'} avec succès !`);
+    } catch (error: any) {
+      console.error('Erreur:', error);
+      if (error.code === '23503') {
+        alert('⚠️ Impossible de supprimer : cet employé est lié à des enregistrements (paie, présences).\n\n👉 Désactivez-le à la place.');
+      } else {
+        alert(`Erreur: ${error.message}`);
+      }
     }
   };
 
@@ -382,7 +412,6 @@ const handleOpenPayslip = (employee: any) => {
       loadAttendance();
       alert('✅ Pointage enregistré avec succès !');
     } catch (error: any) {
-      console.error('Erreur pointage:', error);
       alert(`Erreur: ${error.message}`);
     }
   };
@@ -418,174 +447,139 @@ const handleOpenPayslip = (employee: any) => {
       setShowLeaveModal(false);
       alert('✅ Demande de congé créée avec succès !');
     } catch (error: any) {
-      console.error('Erreur congé:', error);
       alert(`Erreur: ${error.message}`);
     }
   };
 
-   const handleCalculatePayroll = async () => {
-  if (!payrollPeriod.start_date || !payrollPeriod.end_date) {
-    alert('Veuillez sélectionner une période');
-    return;
-  }
-
-  try {
-    // 1. Vérification d'unicité et blocage si PAYÉ/VALIDÉ
-    const { data: existingPayroll, error: fetchError } = await supabase
-      .from('payroll_periods')
-      .select('id, status, total_amount')
-      .eq('site_id', siteId)
-      .eq('period_start', payrollPeriod.start_date)
-      .eq('period_end', payrollPeriod.end_date)
-      .maybeSingle();
-
-    if (fetchError) throw fetchError;
-
-    if (existingPayroll && (existingPayroll.status === 'PAID' || existingPayroll.status === 'VALIDATED')) {
-      alert(`⛔ IMPOSSIBLE DE RECALCULER !\n\nLa paie pour cette période est déjà ${existingPayroll.status}.\n\nPour modifier une paie clôturée, contactez l'administrateur.`);
+  const handleCalculatePayroll = async () => {
+    if (!payrollPeriod.start_date || !payrollPeriod.end_date) {
+      alert('Veuillez sélectionner une période');
       return;
     }
 
-    if (!confirm(`Calculer/Recalculer la paie pour la période du ${new Date(payrollPeriod.start_date).toLocaleDateString('fr-FR')} au ${new Date(payrollPeriod.end_date).toLocaleDateString('fr-FR')} ?`)) {
-      return;
-    }
+    try {
+      const { data: existingPayroll } = await supabase
+        .from('payroll_periods')
+        .select('id, status, total_amount')
+        .eq('site_id', siteId)
+        .eq('period_start', payrollPeriod.start_date)
+        .eq('period_end', payrollPeriod.end_date)
+        .maybeSingle();
 
-    // 2. Extraire le mois et l'année de la période
-    const startDate = new Date(payrollPeriod.start_date);
-    const periodMonth = startDate.getMonth() + 1; // 1-12
-    const periodYear = startDate.getFullYear();
-
-    // 3. Récupérer les employés actifs
-    const activeEmployees = employees.filter(e => e.is_active !== false);
-
-    // 4. ✅ NOUVEAU : Récupérer TOUS les bulletins de paie pour cette période
-    const { data: payslips, error: payslipError } = await supabase
-      .from('employee_payslips')
-      .select('employee_id, net_salary, status')
-      .eq('site_id', siteId)
-      .eq('period_month', periodMonth)
-      .eq('period_year', periodYear);
-
-    if (payslipError) {
-      console.error('Erreur chargement bulletins:', payslipError);
-      throw payslipError;
-    }
-
-    // Créer un map pour accès rapide : employee_id -> net_salary
-    const payslipMap = new Map<string, number>();
-    payslips?.forEach(p => payslipMap.set(p.employee_id, p.net_salary || 0));
-
-    // 5. ✅ Calculer le total en utilisant les bulletins s'ils existent
-    let totalAmount = 0;
-    let employeesWithPayslip = 0;
-    let employeesWithBaseSalary = 0;
-
-    activeEmployees.forEach(emp => {
-      if (payslipMap.has(emp.id)) {
-        // Un bulletin existe (avec primes/déductions/avances déjà saisies)
-        totalAmount += payslipMap.get(emp.id) || 0;
-        employeesWithPayslip++;
-      } else {
-        // Pas de bulletin : utiliser le salaire de base
-        totalAmount += emp.salary || 0;
-        employeesWithBaseSalary++;
+      if (existingPayroll && (existingPayroll.status === 'PAID' || existingPayroll.status === 'VALIDATED')) {
+        alert(`⛔ IMPOSSIBLE DE RECALCULER !\n\nLa paie pour cette période est déjà ${existingPayroll.status}.`);
+        return;
       }
-    });
 
-    const { data: { user } } = await supabase.auth.getUser();
+      if (!confirm(`Calculer/Recalculer la paie pour la période du ${new Date(payrollPeriod.start_date).toLocaleDateString('fr-FR')} au ${new Date(payrollPeriod.end_date).toLocaleDateString('fr-FR')} ?`)) {
+        return;
+      }
 
-    const payrollData = {
-      site_id: siteId,
-      period_start: payrollPeriod.start_date,
-      period_end: payrollPeriod.end_date,
-      total_amount: totalAmount,
-      employee_count: activeEmployees.length,
-      status: 'PENDING',
-      created_by: user?.id
-    };
+      const startDate = new Date(payrollPeriod.start_date);
+      const periodMonth = startDate.getMonth() + 1;
+      const periodYear = startDate.getFullYear();
 
-    // 6. Insertion ou mise à jour (upsert)
-    const { data, error } = await supabase
-      .from('payroll_periods')
-      .upsert(payrollData, {
-        onConflict: 'site_id,period_start,period_end',
-        ignoreDuplicates: false
-      })
-      .select();
+      const activeEmployees = employees.filter(e => e.is_active !== false);
 
-    if (error) throw error;
+      const { data: payslips } = await supabase
+        .from('employee_payslips')
+        .select('employee_id, net_salary, status')
+        .eq('site_id', siteId)
+        .eq('period_month', periodMonth)
+        .eq('period_year', periodYear);
 
-    loadPayrolls();
-    
-    // Message détaillé pour comprendre ce qui a été pris en compte
-    alert(
-      `✅ Paie ${existingPayroll ? 'recalculée' : 'calculée'} avec succès !\n\n` +
-      `💰 Total: ${totalAmount.toLocaleString('fr-FR')} f CFA\n` +
-      `👥 Employés: ${activeEmployees.length}\n` +
-      `   • ${employeesWithPayslip} avec bulletin individuel (primes/avances incluses)\n` +
-      `   • ${employeesWithBaseSalary} avec salaire de base uniquement\n\n` +
-      `💡 Les avances de 5 000 f CFA ont bien été déduites !`
-    );
+      const payslipMap = new Map<string, number>();
+      payslips?.forEach(p => payslipMap.set(p.employee_id, p.net_salary || 0));
 
-  } catch (error: any) {
-    console.error('Erreur calcul paie:', error);
-    const errorMsg = error?.message || error?.details || error?.hint || "Erreur inconnue";
-    alert(`❌ Erreur :\n\n${errorMsg}`);
-  }
-};
+      let totalAmount = 0;
+      let employeesWithPayslip = 0;
+      let employeesWithBaseSalary = 0;
 
-const handleConfirmPayPeriod = async () => {
-  if (!payingPayroll) return;
-  try {
-    const { error } = await supabase
-      .from('payroll_periods')
-      .update({ status: 'PAID' })
-      .eq('id', payingPayroll.id);
+      activeEmployees.forEach(emp => {
+        if (payslipMap.has(emp.id)) {
+          totalAmount += payslipMap.get(emp.id) || 0;
+          employeesWithPayslip++;
+        } else {
+          totalAmount += emp.salary || 0;
+          employeesWithBaseSalary++;
+        }
+      });
 
-    if (error) throw error;
+      const { data: { user } } = await supabase.auth.getUser();
 
-    alert('✅ Période de paie marquée comme PAYÉE avec succès !');
-    setShowPayPeriodModal(false);
-    setPayingPayroll(null);
-    loadPayrolls(); // Rafraîchit la liste
-  } catch (error: any) {
-    console.error('Erreur paiement période:', error);
-    alert(`Erreur: ${error.message}`);
-  }
-};
+      const payrollData = {
+        site_id: siteId,
+        period_start: payrollPeriod.start_date,
+        period_end: payrollPeriod.end_date,
+        total_amount: totalAmount,
+        employee_count: activeEmployees.length,
+        status: 'PENDING',
+        created_by: user?.id
+      };
+
+      const { error } = await supabase
+        .from('payroll_periods')
+        .upsert(payrollData, {
+          onConflict: 'site_id,period_start,period_end',
+          ignoreDuplicates: false
+        });
+
+      if (error) throw error;
+
+      loadPayrolls();
+
+      alert(
+        `✅ Paie ${existingPayroll ? 'recalculée' : 'calculée'} avec succès !\n\n` +
+        `💰 Total: ${totalAmount.toLocaleString('fr-FR')} f CFA\n` +
+        `👥 Employés: ${activeEmployees.length}\n` +
+        `   • ${employeesWithPayslip} avec bulletin individuel\n` +
+        `   • ${employeesWithBaseSalary} avec salaire de base`
+      );
+    } catch (error: any) {
+      const errorMsg = error?.message || error?.details || "Erreur inconnue";
+      alert(`❌ Erreur :\n\n${errorMsg}`);
+    }
+  };
+
+  const handleConfirmPayPeriod = async () => {
+    if (!payingPayroll) return;
+    try {
+      const { error } = await supabase
+        .from('payroll_periods')
+        .update({ status: 'PAID' })
+        .eq('id', payingPayroll.id);
+
+      if (error) throw error;
+
+      alert('✅ Période de paie marquée comme PAYÉE avec succès !');
+      setShowPayPeriodModal(false);
+      setPayingPayroll(null);
+      loadPayrolls();
+    } catch (error: any) {
+      alert(`Erreur: ${error.message}`);
+    }
+  };
+
   const handleViewEmployee = (employee: Employee) => {
     setSelectedEmployee(employee);
     setShowEmployeeDetailModal(true);
   };
 
   const handleEditEmployee = (employee: Employee) => {
+    // ✅ Pré-remplir le formulaire avec les données existantes
     setNewEmployeeForm({
       first_name: employee.first_name,
       last_name: employee.last_name,
-      role: employee.role || employee.position || '',
-      department: employee.department || '',
+      role: employee.role || '',
+      phone: employee.phone || '',
+      email: employee.email || '',
+      hire_date: employee.hire_date || '',
       salary: employee.salary || 0,
+      notes: employee.notes || '',
       is_active: employee.is_active !== false
     });
     setSelectedEmployee(employee);
     setShowNewEmployeeModal(true);
-  };
-
-  const handleDeleteEmployee = async (employee: Employee) => {
-    if (!confirm(`Êtes-vous sûr de vouloir supprimer ${employee.first_name} ${employee.last_name} ?`)) {
-      return;
-    }
-
-    try {
-      const { error } = await supabase.from('restaurant_employees').delete().eq('id', employee.id);
-      if (error) throw error;
-
-      loadEmployees();
-      alert('✅ Employé supprimé avec succès !');
-    } catch (error: any) {
-      console.error('Erreur suppression:', error);
-      alert(`Erreur: ${error.message}`);
-    }
   };
 
   const handleViewPayroll = (payroll: Payroll) => {
@@ -595,10 +589,7 @@ const handleConfirmPayPeriod = async () => {
 
   const handlePrintPayroll = (payroll: Payroll) => {
     const printWindow = window.open('', '_blank', 'width=800,height=600');
-    if (!printWindow) {
-      alert('Veuillez autoriser les popups pour imprimer.');
-      return;
-    }
+    if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -614,7 +605,7 @@ const handleConfirmPayPeriod = async () => {
       </head>
       <body>
         <div class="header">
-          <h1>LA TERRA COTTA OUAGA</h1>
+          <h1>LA VIDA-LOCA</h1>
           <h2>Bulletin de Paie</h2>
         </div>
         <div class="info-row"><span>Période:</span><strong>${new Date(payroll.period_start).toLocaleDateString('fr-FR')} - ${new Date(payroll.period_end).toLocaleDateString('fr-FR')}</strong></div>
@@ -632,17 +623,17 @@ const handleConfirmPayPeriod = async () => {
     const fullName = `${emp.first_name} ${emp.last_name}`.toLowerCase();
     const matchesSearch = fullName.includes(search.toLowerCase()) || (emp.role || '').toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'ACTIVE' ? emp.is_active !== false : emp.is_active === false);
-    
     return matchesSearch && matchesStatus;
   });
 
   const handleExportCSV = () => {
-    const headers = ['Prénom', 'Nom', 'Poste', 'Département', 'Salaire', 'Statut'];
+    const headers = ['Prénom', 'Nom', 'Poste', 'Téléphone', 'Email', 'Salaire', 'Statut'];
     const rows = filteredEmployees.map(e => [
       e.first_name,
       e.last_name,
-      e.role || e.position || '-',
-      e.department || '-',
+      e.role || '-',
+      e.phone || '-',
+      e.email || '-',
       (e.salary || 0).toString(),
       e.is_active !== false ? 'Actif' : 'Inactif'
     ]);
@@ -663,6 +654,14 @@ const handleConfirmPayPeriod = async () => {
     return <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">Inactif</span>;
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 lg:p-6 space-y-6">
       {/* Header */}
@@ -675,15 +674,22 @@ const handleConfirmPayPeriod = async () => {
           <p className="text-sm text-slate-500 mt-1">Gestion complète du personnel du restaurant</p>
         </div>
         <div className="flex gap-2">
-          <button 
+          <button
             onClick={handleExportCSV}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
           >
             <Download className="w-4 h-4" />
             Export CSV
           </button>
-          <button 
-            onClick={() => setShowNewEmployeeModal(true)}
+          <button
+            onClick={() => {
+              setSelectedEmployee(null);
+              setNewEmployeeForm({
+                first_name: '', last_name: '', role: '', phone: '', email: '',
+                hire_date: '', salary: 0, notes: '', is_active: true
+              });
+              setShowNewEmployeeModal(true);
+            }}
             className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium"
           >
             <Plus className="w-4 h-4" />
@@ -765,23 +771,14 @@ const handleConfirmPayPeriod = async () => {
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700">EMPLOYÉ</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-700">POSTE</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-700">DÉPARTEMENT</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-700">CONTACT</th>
                     <th className="px-4 py-3 text-right font-semibold text-slate-700">SALAIRE</th>
                     <th className="px-4 py-3 text-center font-semibold text-slate-700">STATUT</th>
                     <th className="px-4 py-3 text-center font-semibold text-slate-700">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {loading ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center">
-                        <div className="flex items-center justify-center gap-2 text-slate-500">
-                          <div className="w-5 h-5 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin"></div>
-                          Chargement...
-                        </div>
-                      </td>
-                    </tr>
-                  ) : filteredEmployees.length === 0 ? (
+                  {filteredEmployees.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-slate-500">Aucun employé trouvé</td>
                     </tr>
@@ -797,38 +794,48 @@ const handleConfirmPayPeriod = async () => {
                             </div>
                             <div>
                               <div className="font-medium text-slate-900">{employee.first_name} {employee.last_name}</div>
+                              {employee.email && <div className="text-xs text-slate-500">{employee.email}</div>}
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{employee.role || employee.position || '-'}</td>
-                        <td className="px-4 py-3 text-slate-700">{employee.department || '-'}</td>
+                        <td className="px-4 py-3 text-slate-700">
+                          <div className="flex items-center gap-1">
+                            <Briefcase className="w-3 h-3 text-slate-400" />
+                            {employee.role || '-'}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {employee.phone && (
+                            <div className="flex items-center gap-1 text-xs">
+                              <Phone className="w-3 h-3 text-slate-400" />
+                              {employee.phone}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right font-medium text-slate-900">
                           {(employee.salary || 0).toLocaleString('fr-FR')} f CFA
                         </td>
                         <td className="px-4 py-3 text-center">{getStatusBadge(employee.is_active)}</td>
                         <td className="px-4 py-3">
-  <div className="flex items-center justify-center gap-1">
-    <button onClick={() => handleViewEmployee(employee)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Voir">
-      <Eye className="w-4 h-4" />
-    </button>
-    <button onClick={() => handleEditEmployee(employee)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" title="Modifier">
-      <Edit2 className="w-4 h-4" />
-    </button>
-    
-    {/* ✅ NOUVEAU BOUTON : Gérer la paie */}
-    <button 
-      onClick={() => handleOpenPayslip(employee)} 
-      className="p-1.5 text-purple-600 hover:bg-purple-50 rounded" 
-      title="Gérer la paie"
-    >
-      <Calculator className="w-4 h-4" />
-    </button>
-    
-    <button onClick={() => handleDeleteEmployee(employee)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Supprimer">
-      <Trash2 className="w-4 h-4" />
-    </button>
-  </div>
-</td>
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => handleViewEmployee(employee)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Voir">
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleEditEmployee(employee)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" title="Modifier">
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenPayslip(employee)}
+                              className="p-1.5 text-purple-600 hover:bg-purple-50 rounded"
+                              title="Gérer la paie"
+                            >
+                              <Calculator className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleDeleteEmployee(employee)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title={employee.is_active !== false ? 'Désactiver' : 'Supprimer'}>
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -964,43 +971,36 @@ const handleConfirmPayPeriod = async () => {
                         <td className="px-4 py-3 text-right font-medium text-slate-900">{payroll.total_amount.toLocaleString('fr-FR')} f CFA</td>
                         <td className="px-4 py-3 text-center text-slate-600">{payroll.employee_count}</td>
                         <td className="px-4 py-3 text-center">
-  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-    payroll.status === 'PAID' 
-      ? 'bg-emerald-100 text-emerald-800' 
-      : payroll.status === 'PENDING' 
-      ? 'bg-amber-100 text-amber-800' 
-      : 'bg-slate-100 text-slate-800'
-  }`}>
-    {payroll.status === 'PAID' ? 'Payé' : payroll.status === 'PENDING' ? 'En attente' : payroll.status}
-  </span>
-</td>
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            payroll.status === 'PAID' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {payroll.status === 'PAID' ? 'Payé' : 'En attente'}
+                          </span>
+                        </td>
                         <td className="px-4 py-3">
-  <div className="flex items-center justify-center gap-1">
-    <button 
-      onClick={() => handleViewPayrollDetails(payroll)}
-      className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded flex items-center gap-1"
-    >
-      <Eye className="w-3 h-3" /> Détails
-    </button>
-    
-    {/* ✅ NOUVEAU : Bouton Payer (visible uniquement si En attente) */}
-    {payroll.status === 'PENDING' && (
-      <button 
-        onClick={() => { setPayingPayroll(payroll); setShowPayPeriodModal(true); }}
-        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded flex items-center gap-1"
-      >
-        <DollarSign className="w-3 h-3" /> Payer
-      </button>
-    )}
-    
-    <button 
-      onClick={() => handlePrintPayroll(payroll)} 
-      className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded flex items-center gap-1"
-    >
-      <Printer className="w-3 h-3" /> Imprimer
-    </button>
-  </div>
-</td>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => handleViewPayrollDetails(payroll)}
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded flex items-center gap-1"
+                            >
+                              <Eye className="w-3 h-3" /> Détails
+                            </button>
+                            {payroll.status === 'PENDING' && (
+                              <button
+                                onClick={() => { setPayingPayroll(payroll); setShowPayPeriodModal(true); }}
+                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded flex items-center gap-1"
+                              >
+                                <DollarSign className="w-3 h-3" /> Payer
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handlePrintPayroll(payroll)}
+                              className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded flex items-center gap-1"
+                            >
+                              <Printer className="w-3 h-3" /> Imprimer
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -1028,7 +1028,7 @@ const handleConfirmPayPeriod = async () => {
         </div>
       )}
 
-      {/* ================= MODAL NOUVEL EMPLOYÉ ================= */}
+      {/* ================= MODAL NOUVEL/MODIFIER EMPLOYÉ ================= */}
       {showNewEmployeeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1038,7 +1038,7 @@ const handleConfirmPayPeriod = async () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleCreateEmployee} className="p-6 space-y-4">
+            <form onSubmit={handleSubmitEmployee} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Prénom *</label>
@@ -1055,14 +1055,24 @@ const handleConfirmPayPeriod = async () => {
                   <input type="text" value={newEmployeeForm.role} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, role: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="Ex: Serveur, Cuisinier..." required />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Département</label>
-                  <input type="text" value={newEmployeeForm.department} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, department: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="Ex: Cuisine, Salle..." />
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Salaire (f CFA)</label>
+                  <input type="number" min="0" value={newEmployeeForm.salary} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, salary: Number(e.target.value)})} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="0" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Salaire (f CFA)</label>
-                  <input type="number" min="0" value={newEmployeeForm.salary} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, salary: Number(e.target.value)})} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="0" />
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Téléphone</label>
+                  <input type="text" value={newEmployeeForm.phone} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, phone: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="Ex: +226 70 00 00 00" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Email</label>
+                  <input type="email" value={newEmployeeForm.email} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, email: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="email@exemple.com" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Date d'embauche</label>
+                  <input type="date" value={newEmployeeForm.hire_date} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, hire_date: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" />
                 </div>
                 <div className="flex items-end">
                   <label className="flex items-center gap-2 cursor-pointer p-3 border border-slate-300 rounded-lg w-full hover:bg-slate-50">
@@ -1070,6 +1080,10 @@ const handleConfirmPayPeriod = async () => {
                     <span className="text-sm font-medium text-slate-700">Employé actif</span>
                   </label>
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Notes</label>
+                <textarea value={newEmployeeForm.notes} onChange={(e) => setNewEmployeeForm({...newEmployeeForm, notes: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" rows={2} placeholder="Informations supplémentaires..." />
               </div>
               <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button type="button" onClick={() => { setShowNewEmployeeModal(false); setSelectedEmployee(null); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg">Annuler</button>
@@ -1218,16 +1232,32 @@ const handleConfirmPayPeriod = async () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-3 rounded-lg">
                   <div className="text-xs text-slate-500 mb-1">Poste</div>
-                  <div className="font-medium text-slate-900">{selectedEmployee.role || selectedEmployee.position || '-'}</div>
+                  <div className="font-medium text-slate-900">{selectedEmployee.role || '-'}</div>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-lg">
-                  <div className="text-xs text-slate-500 mb-1">Département</div>
-                  <div className="font-medium text-slate-900">{selectedEmployee.department || '-'}</div>
+                  <div className="text-xs text-slate-500 mb-1">Téléphone</div>
+                  <div className="font-medium text-slate-900">{selectedEmployee.phone || '-'}</div>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-lg">
+                  <div className="text-xs text-slate-500 mb-1">Email</div>
+                  <div className="font-medium text-slate-900">{selectedEmployee.email || '-'}</div>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-lg">
                   <div className="text-xs text-slate-500 mb-1">Salaire</div>
                   <div className="font-medium text-slate-900">{(selectedEmployee.salary || 0).toLocaleString('fr-FR')} f CFA</div>
                 </div>
+                {selectedEmployee.hire_date && (
+                  <div className="bg-slate-50 p-3 rounded-lg col-span-2">
+                    <div className="text-xs text-slate-500 mb-1">Date d'embauche</div>
+                    <div className="font-medium text-slate-900">{new Date(selectedEmployee.hire_date).toLocaleDateString('fr-FR')}</div>
+                  </div>
+                )}
+                {selectedEmployee.notes && (
+                  <div className="bg-slate-50 p-3 rounded-lg col-span-2">
+                    <div className="text-xs text-slate-500 mb-1">Notes</div>
+                    <div className="font-medium text-slate-900">{selectedEmployee.notes}</div>
+                  </div>
+                )}
               </div>
               <div className="flex gap-3 pt-4 border-t border-slate-200">
                 <button onClick={() => setShowEmployeeDetailModal(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg">Fermer</button>
@@ -1275,22 +1305,15 @@ const handleConfirmPayPeriod = async () => {
       )}
 
       <PayrollDetailModal
-  isOpen={showPayrollDetail}
-  onClose={() => setShowPayrollDetail(false)}
-  payrollData={selectedPayrollDetail || {
-    id: '',
-    period_start: '',
-    period_end: '',
-    status: 'PENDING',
-    total_brut: 0,
-    total_deductions: 0,
-    total_net: 0,
-    employee_count: 0,
-    employees: []
-  }}
-/>
+        isOpen={showPayrollDetail}
+        onClose={() => setShowPayrollDetail(false)}
+        payrollData={selectedPayrollDetail || {
+          id: '', period_start: '', period_end: '', status: 'PENDING',
+          total_brut: 0, total_deductions: 0, total_net: 0,
+          employee_count: 0, employees: []
+        }}
+      />
 
-{/* ✅ NOUVEAU : Modal de prévisualisation et paiement de la paie */}
       <PayslipPreviewModal
         siteId={siteId}
         employee={selectedEmployeeForPayslip}
@@ -1298,12 +1321,10 @@ const handleConfirmPayPeriod = async () => {
         periodYear={selectedPeriodYear}
         isOpen={showPayslipModal}
         onClose={() => setShowPayslipModal(false)}
-        onSuccess={() => {
-          loadEmployees(); // Rafraîchit les stats si nécessaire
-          setShowPayslipModal(false);
-        }}
+        onSuccess={() => { loadEmployees(); setShowPayslipModal(false); }}
       />
-            {/* ================= MODAL PAIEMENT DE LA PÉRIODE ================= */}
+
+      {/* ================= MODAL PAIEMENT DE LA PÉRIODE ================= */}
       {showPayPeriodModal && payingPayroll && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
@@ -1320,7 +1341,6 @@ const handleConfirmPayPeriod = async () => {
                   {new Date(payingPayroll.period_start).toLocaleDateString('fr-FR')} au {new Date(payingPayroll.period_end).toLocaleDateString('fr-FR')}
                 </span>
               </p>
-              
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                 <div className="flex justify-between mb-2">
                   <span className="text-slate-600">Montant total :</span>
@@ -1331,12 +1351,11 @@ const handleConfirmPayPeriod = async () => {
                   <span className="font-bold text-slate-900">{payingPayroll.employee_count}</span>
                 </div>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Mode de règlement global</label>
-                <select 
-                  value={payMethod} 
-                  onChange={(e) => setPayMethod(e.target.value)} 
+                <select
+                  value={payMethod}
+                  onChange={(e) => setPayMethod(e.target.value)}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"
                 >
                   <option value="BANK_TRANSFER">🏦 Virement bancaire global</option>
@@ -1344,16 +1363,15 @@ const handleConfirmPayPeriod = async () => {
                   <option value="INDIVIDUAL">🔄 Paiements individuels déjà effectués</option>
                 </select>
               </div>
-
               <div className="flex gap-3 pt-4 border-t border-slate-200">
-                <button 
-                  onClick={() => setShowPayPeriodModal(false)} 
+                <button
+                  onClick={() => setShowPayPeriodModal(false)}
                   className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-lg"
                 >
                   Annuler
                 </button>
-                <button 
-                  onClick={handleConfirmPayPeriod} 
+                <button
+                  onClick={handleConfirmPayPeriod}
                   className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2"
                 >
                   <CheckCircle className="w-5 h-5" /> Confirmer le paiement
@@ -1366,4 +1384,3 @@ const handleConfirmPayPeriod = async () => {
     </div>
   );
 }
-   
