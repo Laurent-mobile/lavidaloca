@@ -10,11 +10,12 @@ interface Props {
   siteId: string;
   room: any;
   isOpen: boolean;
+  reservation?: any;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export default function RoomActionModal({ siteId, room, isOpen, onClose, onSuccess }: Props) {
+export default function RoomActionModal({ siteId, room, reservation, isOpen, onClose, onSuccess }: Props) {
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -123,8 +124,8 @@ const handleCheckIn = async () => {
     const { data: { user } } = await supabase.auth.getUser();
 
     // 1. Retrouver la réservation du jour (prop, sinon lookup)
-    let reservation = props.reservation;
-    if (!reservation) {
+    let currentRes = reservation; // ✅ Utilise la prop déstructurée
+    if (!currentRes) {
       const todayStr = new Date().toISOString().split('T')[0];
       const { data } = await supabase.from('reservations')
         .select('id, customer_id, room_id, check_in_date, check_out_date, nightly_rate, number')
@@ -134,7 +135,7 @@ const handleCheckIn = async () => {
         .gte('check_out_date', todayStr)
         .order('check_in_date', { ascending: false })
         .limit(1).maybeSingle();
-      reservation = data;
+      currentRes = data;
     }
 
     // 2. Créer le séjour s'il n'existe pas encore
@@ -143,13 +144,13 @@ const handleCheckIn = async () => {
 
     if (!existingStay) {
       const { error: stayErr } = await supabase.from('stays').insert({
-        reservation_id: reservation?.id || null,
+        reservation_id: currentRes?.id || null,
         room_id: room.id,
-        customer_id: reservation?.customer_id || null,
+        customer_id: currentRes?.customer_id || null,
         check_in_at: new Date().toISOString(),
         status: 'IN_HOUSE',
         folio_balance: 0,
-        nightly_rate: reservation?.nightly_rate || 0,
+        nightly_rate: currentRes?.nightly_rate || 0,
       });
       if (stayErr) throw stayErr;
     }
@@ -158,8 +159,8 @@ const handleCheckIn = async () => {
     await supabase.from('rooms').update({ status: 'OCCUPIED' }).eq('id', room.id);
 
     // 4. Réservation → CHECKED_IN
-    if (reservation?.id) {
-      await supabase.from('reservations').update({ status: 'CHECKED_IN' }).eq('id', reservation.id);
+    if (currentRes?.id) {
+      await supabase.from('reservations').update({ status: 'CHECKED_IN' }).eq('id', currentRes.id);
     }
 
     alert(`✅ Check‑in effectué pour la chambre ${room.number}.`);
