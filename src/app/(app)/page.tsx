@@ -354,22 +354,22 @@ export default function UnifiedDashboard() {
           <KPICard 
             icon={DollarSign} 
             label="Chiffre d'affaires total" 
-            value={`${stats.totalRevenue.toLocaleString('fr-FR')} F`} 
-            subValue={`Hôtel: ${stats.hotelRevenue.toLocaleString('fr-FR')} F • Resto: ${stats.restoRevenue.toLocaleString('fr-FR')} F`}
+            value={`${stats.totalRevenue.toLocaleString('fr-FR')} fcfa`} 
+            subValue={`Hôtel: ${stats.hotelRevenue.toLocaleString('fr-FR')} fcfa • Resto: ${stats.restoRevenue.toLocaleString('fr-FR')} fcfa`}
             color="emerald" 
             trend="up"
           />
           <KPICard 
             icon={TrendingDown} 
             label="Dépenses totales" 
-            value={`${stats.totalExpenses.toLocaleString('fr-FR')} F`} 
+            value={`${stats.totalExpenses.toLocaleString('fr-FR')} fcfa`} 
             subValue="Toutes catégories et entités confondues"
             color="red" 
           />
           <KPICard 
             icon={Wallet} 
             label="Flux net de trésorerie" 
-            value={`${stats.netCashFlow.toLocaleString('fr-FR')} F`} 
+            value={`${stats.netCashFlow.toLocaleString('fr-FR')} fcfa`} 
             subValue={stats.netCashFlow >= 0 ? '✅ Excédentaire' : '⚠️ Déficitaire'}
             color={stats.netCashFlow >= 0 ? "blue" : "red"} 
           />
@@ -405,7 +405,7 @@ export default function UnifiedDashboard() {
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium text-slate-600">Flux net (CA - Dépenses)</span>
                 <span className={`text-sm font-bold ${stats.hotelRevenue - stats.hotelExpenses >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {(stats.hotelRevenue - stats.hotelExpenses).toLocaleString('fr-FR')} F
+                  {(stats.hotelRevenue - stats.hotelExpenses).toLocaleString('fr-FR')} fcfa
                 </span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
@@ -435,7 +435,7 @@ export default function UnifiedDashboard() {
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium text-slate-600">Flux net (CA - Dépenses)</span>
                 <span className={`text-sm font-bold ${stats.restoRevenue - stats.restoExpenses >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {(stats.restoRevenue - stats.restoExpenses).toLocaleString('fr-FR')} F
+                  {(stats.restoRevenue - stats.restoExpenses).toLocaleString('fr-FR')} fcfa
                 </span>
               </div>
               <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
@@ -506,7 +506,7 @@ export default function UnifiedDashboard() {
                   <p className="text-xs text-slate-500 mt-0.5">{activity.time}</p>
                 </div>
                 <div className={`font-bold text-sm ${activity.type === 'income' ? 'text-emerald-700' : 'text-red-700'}`}>
-                  {activity.type === 'income' ? '+' : '-'}{Number(activity.amount).toLocaleString('fr-FR')} F
+                  {activity.type === 'income' ? '+' : '-'}{Number(activity.amount).toLocaleString('fr-FR')} fcfa
                 </div>
               </div>
             )) : (
@@ -560,7 +560,7 @@ function FinanceRow({ icon: Icon, label, value, color, isCount }: any) {
         <span className="text-sm font-medium text-slate-700">{label}</span>
       </div>
       <span className={`font-bold ${isCount ? 'text-slate-900' : (color === 'red' ? 'text-red-700' : 'text-emerald-900')}`}>
-        {isCount ? value : `${Number(value).toLocaleString('fr-FR')} F`}
+        {isCount ? value : `${Number(value).toLocaleString('fr-FR')} fcfa`}
       </span>
     </div>
   );
