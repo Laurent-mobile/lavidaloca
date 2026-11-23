@@ -206,7 +206,7 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between">
             <div>
               <div className="text-sm opacity-90">Total des ventes</div>
-              <div className="text-3xl font-bold mt-2">{money(kpi.totalSales)} F</div>
+              <div className="text-3xl font-bold mt-2">{money(kpi.totalSales)} fcfa</div>
               <div className="text-xs opacity-90 mt-1">{kpi.transactions} transactions</div>
             </div>
             <DollarSign className="w-10 h-10 opacity-80" />
@@ -216,7 +216,7 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between">
             <div>
               <div className="text-sm opacity-90">Total des dépenses</div>
-              <div className="text-3xl font-bold mt-2">{money(kpi.totalExpenses)} F</div>
+              <div className="text-3xl font-bold mt-2">{money(kpi.totalExpenses)} fcfa</div>
               <div className="text-xs opacity-90 mt-1">Coûts opérationnels</div>
             </div>
             <TrendingDown className="w-10 h-10 opacity-80" />
@@ -226,7 +226,7 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between">
             <div>
               <div className="text-sm opacity-90">Chiffre d'affaires</div>
-              <div className="text-3xl font-bold mt-2">{money(kpi.revenue)} F</div>
+              <div className="text-3xl font-bold mt-2">{money(kpi.revenue)} fcfa</div>
               <div className="text-xs opacity-90 mt-1">Ventes totales</div>
             </div>
             <BarChart3 className="w-10 h-10 opacity-80" />
@@ -236,7 +236,7 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between">
             <div>
               <div className="text-sm opacity-90">Bénéfice net</div>
-              <div className="text-3xl font-bold mt-2">{money(kpi.netProfit)} F</div>
+              <div className="text-3xl font-bold mt-2">{money(kpi.netProfit)} fcfa</div>
               <div className="text-xs opacity-90 mt-1">Marge: {kpi.margin.toFixed(1)}%</div>
             </div>
             <TrendingUp className="w-10 h-10 opacity-80" />
@@ -274,7 +274,7 @@ export default function DashboardPage() {
             <div className="text-sm font-semibold text-slate-900">Panier moyen</div>
             <ShoppingCart className="w-5 h-5 text-cyan-500" />
           </div>
-          <div className="text-2xl font-bold text-cyan-600">{money(kpi.avgBasket)} F</div>
+          <div className="text-2xl font-bold text-cyan-600">{money(kpi.avgBasket)} fcfa</div>
           <div className="text-xs text-slate-500 mt-1">Par transaction</div>
         </div>
       </div>
@@ -296,7 +296,7 @@ export default function DashboardPage() {
                   <div key={i} className="relative">
                     <div className="flex justify-between text-sm mb-1 z-10 relative">
                       <span className="font-medium text-slate-900">{item.name}</span>
-                      <span className="text-slate-600">{item.qty} × ({money(item.total)} F)</span>
+                      <span className="text-slate-600">{item.qty} × ({money(item.total)} fcfa)</span>
                     </div>
                     <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                       <div className="h-full bg-indigo-500 rounded-full transition-all duration-500" style={{ width: `${widthPct}%` }}></div>
@@ -325,7 +325,7 @@ export default function DashboardPage() {
                   <div key={i} className="relative">
                     <div className="flex justify-between text-sm mb-1 z-10 relative">
                       <span className="font-medium">{m.name}</span>
-                      <span className="text-slate-600">{pct.toFixed(1)}% ({money(m.value)} F)</span>
+                      <span className="text-slate-600">{pct.toFixed(1)}% ({money(m.value)} fcfa)</span>
                     </div>
                     <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
                       <div className={`h-full ${colors[i % colors.length]} rounded-full transition-all duration-500`} style={{ width: `${pct}%` }}></div>
@@ -354,16 +354,16 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <h4 className="font-bold text-slate-900 mb-3">Performance quotidienne</h4>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-600">Ventes totales:</span><b>{money(kpi.totalSales)} F</b></div>
+            <div className="flex justify-between"><span className="text-slate-600">Ventes totales:</span><b>{money(kpi.totalSales)} fcfa</b></div>
             <div className="flex justify-between"><span className="text-slate-600">Commandes:</span><b>{kpi.transactions}</b></div>
-            <div className="flex justify-between"><span className="text-slate-600">Panier moyen:</span><b>{money(kpi.avgBasket)} F</b></div>
+            <div className="flex justify-between"><span className="text-slate-600">Panier moyen:</span><b>{money(kpi.avgBasket)} fcfa</b></div>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <h4 className="font-bold text-slate-900 mb-3">Efficacité des coûts</h4>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-600">Dépenses totales:</span><b>{money(kpi.totalExpenses)} F</b></div>
-            <div className="flex justify-between"><span className="text-slate-600">Bénéfice net:</span><b className="text-emerald-600">{money(kpi.netProfit)} F</b></div>
+            <div className="flex justify-between"><span className="text-slate-600">Dépenses totales:</span><b>{money(kpi.totalExpenses)} fcfa</b></div>
+            <div className="flex justify-between"><span className="text-slate-600">Bénéfice net:</span><b className="text-emerald-600">{money(kpi.netProfit)} fcfa</b></div>
             <div className="flex justify-between"><span className="text-slate-600">Marge nette:</span><b>{kpi.margin.toFixed(1)}%</b></div>
           </div>
         </div>
