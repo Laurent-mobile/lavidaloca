@@ -13,9 +13,10 @@ interface Props {
   reservation?: any;
   onClose: () => void;
   onSuccess: () => void;
+  onEditReservation?: (reservation: any) => void;
 }
 
-export default function RoomActionModal({ siteId, room, reservation, isOpen, onClose, onSuccess }: Props) {
+export default function RoomActionModal({ siteId, room, reservation, isOpen, onClose, onSuccess, onEditReservation }: Props) {
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -460,9 +461,22 @@ const handleCheckIn = async () => {
             </div>
           )}
 
-          {pendingReservation && (
+                    {pendingReservation && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2"><Calendar className="w-4 h-4 text-amber-700" /><span className="font-semibold text-amber-900">Réservation confirmée</span></div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-amber-700" />
+                  <span className="font-semibold text-amber-900">Réservation confirmée</span>
+                </div>
+                {onEditReservation && (
+                  <button
+                    onClick={() => onEditReservation(pendingReservation)}
+                    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-2 py-1 rounded font-medium"
+                  >
+                    <Edit className="w-3 h-3" /> Modifier
+                  </button>
+                )}
+              </div>
               <div className="text-sm space-y-1">
                 <p><strong>N° :</strong> {pendingReservation.number}</p>
                 <p><strong>Client :</strong> {pendingReservation.customers?.last_name || 'Inconnu'} {pendingReservation.customers?.first_name || ''}</p>
