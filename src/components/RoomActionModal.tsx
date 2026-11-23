@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { X, LogIn, LogOut, Sparkles, User, Calendar, AlertTriangle, Bed, AlertCircle, Clock, FileText, Unlock } from 'lucide-react';
+import { X, LogIn, LogOut, Sparkles, User, Calendar, AlertTriangle, Bed, AlertCircle, Clock, FileText, Unlock, Edit } from 'lucide-react';
 import CheckoutModal from './CheckoutModal';
 import { addToOutbox } from '@/lib/outbox';
 import FolioModal from './FolioModal'; // ✅ AJOUTÉ
