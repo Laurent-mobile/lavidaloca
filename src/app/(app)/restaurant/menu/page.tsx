@@ -10,7 +10,7 @@ import {
   Leaf, Flower, Sun, Cloud, Wind, Flame,
   Zap, Star, Heart, Award, Trophy, Medal, Crown, Gem,
   Sparkles, Rainbow, Moon, CloudSun, CloudRain, CloudLightning,
-  Trees, FlameKindling, ZapOff, SunDim
+  Trees, FlameKindling, ZapOff, SunDim, RefreshCw, AlertTriangle
 } from 'lucide-react';
 
 interface Category {
@@ -28,6 +28,9 @@ interface MenuItem {
   description: string;
   destination: string;
   is_available: boolean;
+  sale_type?: 'bottle' | 'consumption';
+  servings_per_bottle?: number;
+  current_servings?: number;
 }
 
 interface RecipeIngredient {
@@ -105,7 +108,10 @@ export default function MenuManagementPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [formData, setFormData] = useState({
-    name: '', category_id: '', price: '', description: '', destination: 'KITCHEN', is_available: true
+    name: '', category_id: '', price: '', description: '', destination: 'KITCHEN', is_available: true,
+    sale_type: 'bottle' as 'bottle' | 'consumption', // ✅
+    servings_per_bottle: 1,                          // ✅
+    current_servings: 0                              // ✅
   });
 
   // États pour le modal Fiche Technique (Recettes)
@@ -115,6 +121,7 @@ export default function MenuManagementPage() {
   const [selectedStockItem, setSelectedStockItem] = useState('');
   const [recipeQuantity, setRecipeQuantity] = useState('');
   const [recipeUnit, setRecipeUnit] = useState('unité');
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -139,13 +146,25 @@ export default function MenuManagementPage() {
       const { data: catData } = await supabase.from('restaurant_categories').select('id, name, icon').eq('site_id', siteId).eq('is_active', true).order('display_order', { ascending: true });
       setCategories(catData || []);
 
-      const { data: itemData } = await supabase.from('restaurant_items').select(`id, name, category_id, price, description, destination, is_available, restaurant_categories(name)`).eq('site_id', siteId).order('name', { ascending: true });
+            const { data: itemData } = await supabase
+        .from('restaurant_items')
+        .select(`
+          id, name, category_id, price, description, destination, is_available,
+          sale_type, servings_per_bottle, current_servings,
+          restaurant_categories(name)
+        `)
+        .eq('site_id', siteId)
+        .order('name', { ascending: true });
       
       const formattedItems = itemData?.map(item => ({
         id: item.id, name: item.name, category_id: item.category_id,
         category_name: (item as any).restaurant_categories?.name || 'Non catégorisé',
         price: item.price, description: item.description || '',
-        destination: item.destination || 'KITCHEN', is_available: item.is_available
+        destination: item.destination || 'KITCHEN', is_available: item.is_available,
+        // ✅ Champs consommation (sinon le badge ne s'affiche jamais)
+        sale_type: (item as any).sale_type || 'bottle',
+        servings_per_bottle: (item as any).servings_per_bottle || 1,
+        current_servings: (item as any).current_servings ?? 0,
       })) || [];
       setItems(formattedItems);
     } catch (error) {
@@ -165,13 +184,33 @@ export default function MenuManagementPage() {
   };
 
   // --- Gestion des Articles du Menu ---
-  const openModal = (item: MenuItem | null = null) => {
+    const openModal = (item: MenuItem | null = null) => {
     if (item) {
       setEditingItem(item);
-      setFormData({ name: item.name, category_id: item.category_id, price: item.price.toString(), description: item.description, destination: item.destination, is_available: item.is_available });
+      setFormData({ 
+        name: item.name, 
+        category_id: item.category_id, 
+        price: item.price.toString(), 
+        description: item.description, 
+        destination: item.destination, 
+        is_available: item.is_available,
+        sale_type: item.sale_type || 'bottle',
+        servings_per_bottle: item.servings_per_bottle || 1,
+        current_servings: item.current_servings !== undefined ? item.current_servings : 0
+      });
     } else {
       setEditingItem(null);
-      setFormData({ name: '', category_id: categories[0]?.id || '', price: '', description: '', destination: 'KITCHEN', is_available: true });
+      setFormData({ 
+        name: '', 
+        category_id: categories[0]?.id || '', 
+        price: '', 
+        description: '', 
+        destination: 'KITCHEN', 
+        is_available: true,
+        sale_type: 'bottle',
+        servings_per_bottle: 1,
+        current_servings: 0
+      });
     }
     setIsModalOpen(true);
   };
@@ -180,24 +219,176 @@ export default function MenuManagementPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.category_id || !formData.price) { alert('Veuillez remplir tous les champs obligatoires.'); return; }
-    const payload = { site_id: siteId, name: formData.name, category_id: formData.category_id, price: parseFloat(formData.price), description: formData.description, destination: formData.destination, is_available: formData.is_available };
-    try {
-      if (editingItem) { await supabase.from('restaurant_items').update(payload).eq('id', editingItem.id); } 
-      else { await supabase.from('restaurant_items').insert(payload); }
-      closeModal(); loadData();
-    } catch (error: any) { alert('Erreur : ' + error.message); }
-  };
+    if (!formData.name || !formData.category_id || !formData.price) { 
+      alert('Veuillez remplir tous les champs obligatoires.'); 
+      return; 
+    }
+    
+    // ✅ VÉRIFICATION ANTI-DOUBLON
+    const nomNormalise = formData.name.trim().toLowerCase();
+    const doublon = items.find(item => 
+      item.name.trim().toLowerCase() === nomNormalise && 
+      item.category_id === formData.category_id &&
+      (!editingItem || item.id !== editingItem.id)
+    );
 
+    if (doublon) {
+      alert(`⛔ DOUBLON DÉTECTÉ !\n\nUn article "${formData.name}" existe déjà dans cette catégorie.\n\nUtilisez la recherche pour le retrouver et le modifier.`);
+      return; // Bloque la création
+    }
+
+    const payload = { 
+      site_id: siteId, 
+      name: formData.name.trim(), 
+      category_id: formData.category_id, 
+      price: parseFloat(formData.price), 
+      description: formData.description.trim(), 
+      destination: formData.destination, 
+      is_available: formData.is_available,
+      sale_type: formData.sale_type,
+      servings_per_bottle: formData.servings_per_bottle,
+      current_servings: formData.current_servings
+    };
+    // Si c'est une nouvelle bouteille à la consommation, on initialise le stock de verres
+    if (!editingItem && formData.sale_type === 'consumption') {
+      payload.current_servings = formData.servings_per_bottle;
+    } else if (editingItem && formData.sale_type === 'consumption') {
+      payload.current_servings = formData.current_servings; // Conserve le stock actuel en modif
+    }
+    try {
+      if (editingItem) { 
+        await supabase.from('restaurant_items').update(payload).eq('id', editingItem.id); 
+      } else { 
+        await supabase.from('restaurant_items').insert(payload); 
+      }
+      closeModal(); 
+      loadData();
+    } catch (error: any) { 
+      alert('Erreur : ' + error.message); 
+    }
+  };
+    // ✅ Réinitialiser une bouteille ET déduire du stock physique
+  const resetBottle = async (item: MenuItem) => {
+    if (!confirm(`Ouvrir une nouvelle bouteille de "${item.name}" ?\nCela déduira 1 bouteille du stock physique et remettra le compteur à ${item.servings_per_bottle} verres.`)) return;
+    
+    try {
+      // ✅ Récupérer l'utilisateur connecté
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert("⚠️ Vous devez être connecté pour effectuer cette action.");
+        return;
+      }
+
+      // 1. Trouver l'ingrédient lié (la bouteille de stock) via la fiche technique
+      const { data: recipes } = await supabase
+        .from('item_recipes')
+        .select('stock_item_id, quantity')
+        .eq('menu_item_id', item.id)
+        .eq('site_id', siteId)
+        .limit(1);
+
+      if (!recipes || recipes.length === 0) {
+        alert("⚠️ Impossible : cet article n'a pas de fiche technique liée au stock.");
+        return;
+      }
+
+      const stockItemId = recipes[0].stock_item_id;
+      const qtyPerBottle = Number(recipes[0].quantity) || 1;
+
+      // 2. Vérifier qu'il y a assez de stock
+      const { data: stockItem } = await supabase
+        .from('stock_items')
+        .select('current_stock, name')
+        .eq('id', stockItemId)
+        .single();
+
+      if (!stockItem || stockItem.current_stock < qtyPerBottle) {
+        alert(`⛔ Stock insuffisant ! Il reste ${stockItem?.current_stock || 0} ${stockItem?.name || 'unités'} en stock.`);
+        return;
+      }
+
+      // 3. Déduire la bouteille du stock physique
+      await supabase
+        .from('stock_items')
+        .update({ current_stock: stockItem.current_stock - qtyPerBottle })
+        .eq('id', stockItemId);
+
+      // 4. Enregistrer le mouvement de stock avec l'ID utilisateur correct
+      await supabase.from('stock_movements').insert({
+        site_id: siteId,
+        stock_item_id: stockItemId,
+        movement_type: 'OUT',
+        quantity: qtyPerBottle,
+        reason: `Ouverture bouteille: ${item.name}`,
+        performed_by: user.id // ✅ Utilise l'ID de l'utilisateur connecté
+      });
+
+      // 5. Réinitialiser le compteur de verres de l'article menu
+      await supabase
+        .from('restaurant_items')
+        .update({ current_servings: item.servings_per_bottle })
+        .eq('id', item.id);
+      
+      alert(`✅ Nouvelle bouteille ouverte !\nStock ${stockItem.name} : ${stockItem.current_stock} → ${stockItem.current_stock - qtyPerBottle}`);
+      loadData(); // Recharger l'affichage
+    } catch (error: any) {
+      console.error(error);
+      alert('Erreur : ' + error.message);
+    }
+  };
   const toggleAvailability = async (item: MenuItem) => {
     try { await supabase.from('restaurant_items').update({ is_available: !item.is_available }).eq('id', item.id); loadData(); } 
     catch (error: any) { alert('Erreur : ' + error.message); }
   };
 
-  const deleteItem = async (id: string) => {
-    if (!confirm('Supprimer cet article ?')) return;
-    try { await supabase.from('restaurant_items').delete().eq('id', id); loadData(); } 
-    catch (error: any) { alert('Erreur : ' + error.message); }
+  const deleteItem = async (id: string, itemName: string) => {
+    if (!confirm(`Supprimer "${itemName}" ?`)) return;
+    
+    try {
+      // 1. Diagnostic : compter les références dans les commandes
+      const { count: orderRefs } = await supabase
+        .from('restaurant_order_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('menu_item_id', id);
+
+      // 2. Nettoyer les fiches techniques
+      await supabase.from('item_recipes').delete().eq('menu_item_id', id);
+      
+      // 3. Décider de la stratégie
+      if (orderRefs && orderRefs > 0) {
+        // ✅ SOFT DELETE : lié à des commandes → on archive
+        const { error } = await supabase
+          .from('restaurant_items')
+          .update({ 
+            is_available: false,
+            name: `[ARCHIVÉ] ${itemName}`
+          })
+          .eq('id', id);
+        
+        if (error) throw error;
+        
+        alert(
+          `ℹ️ "${itemName}" a été ARCHIVÉ (et non supprimé).\n\n` +
+          `Raison : cet article est référencé dans ${orderRefs} commande(s) passée(s).\n` +
+          `L'historique des ventes est ainsi préservé.\n\n` +
+          `💡 Le nom "${itemName}" est maintenant libre pour un nouvel article.`
+        );
+      } else {
+        // ✅ HARD DELETE : aucune référence → suppression directe
+        const { error } = await supabase
+          .from('restaurant_items')
+          .delete()
+          .eq('id', id);
+        
+        if (error) throw error;
+        alert(`✅ "${itemName}" supprimé définitivement.`);
+      }
+      
+      loadData();
+    } catch (error: any) {
+      console.error('Erreur suppression:', error);
+      alert(`⛔ Échec : ${error.message}`);
+    }
   };
 
   // --- Gestion des Fiches Techniques (Recettes) ---
@@ -376,12 +567,35 @@ const addIngredientToRecipe = async () => {
                           </button>
                         </div>
 
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="text-2xl font-bold text-indigo-600">{Number(item.price).toLocaleString('fr-FR')} F</div>
-                          <span className={`text-xs px-2 py-1 rounded-full font-medium ${item.destination === 'KITCHEN' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                            {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : '🍹 Bar'}
-                          </span>
+                                                <div className="flex items-center justify-between mb-3">
+                          <div className="text-2xl font-bold text-indigo-600">{Number(item.price).toLocaleString('fr-FR')} fcfa</div>
+                          <div className="flex flex-col items-end gap-1">
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${item.destination === 'KITCHEN' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {item.destination === 'KITCHEN' ? '👨‍🍳 Cuisine' : '🍹 Bar'}
+                            </span>
+                            {/* ✅ Badge "À la consommation" */}
+                            {item.sale_type === 'consumption' && (
+                              <span className="text-xs px-2 py-1 rounded-full font-medium bg-purple-100 text-purple-700 flex items-center gap-1">
+                                🥃 {item.current_servings}/{item.servings_per_bottle} verres
+                              </span>
+                            )}
+                          </div>
                         </div>
+
+                        {/* ✅ Alerte et bouton de réinitialisation si la bouteille est vide */}
+                        {item.sale_type === 'consumption' && item.current_servings === 0 && (
+                          <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded-lg">
+                            <div className="text-xs text-red-700 font-semibold mb-1 flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> Bouteille vide !
+                            </div>
+                            <button
+                              onClick={() => resetBottle(item)}
+                              className="w-full text-xs bg-red-600 hover:bg-red-700 text-white font-medium py-1.5 rounded flex items-center justify-center gap-1 transition-colors"
+                            >
+                              <RefreshCw className="w-3 h-3" /> Ouvrir une nouvelle bouteille
+                            </button>
+                          </div>
+                        )}
 
                         {/* Actions */}
                         <div className="flex gap-1 pt-2 border-t border-slate-100">
@@ -402,12 +616,12 @@ const addIngredientToRecipe = async () => {
                             Modifier
                           </button>
                           <button
-                            onClick={() => deleteItem(item.id)}
-                            className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors"
-                            title="Supprimer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+  onClick={() => deleteItem(item.id, item.name)}
+  className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors"
+  title="Supprimer ou Archiver"
+>
+  <Trash2 className="w-3.5 h-3.5" />
+</button>
                         </div>
                       </div>
                     ))}
@@ -429,10 +643,72 @@ const addIngredientToRecipe = async () => {
             </div>
             <form onSubmit={handleSave} className="p-6 space-y-4">
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Nom *</label><input type="text" required value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Catégorie *</label><select required value={formData.category_id} onChange={(e) => setFormData({...formData, category_id: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white"><option value="">-- Choisir --</option>{categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}</select></div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Prix (fcfa) *</label><input type="number" required min="0" value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
+                            <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Catégorie *</label>
+                  <select required value={formData.category_id} onChange={(e) => {
+                    const cat = categories.find(c => c.id === e.target.value);
+                    setFormData({...formData, category_id: e.target.value});
+                    // Si on sélectionne une catégorie de spiritueux, on propose "consommation"
+                    if (cat?.name.toUpperCase().includes('LIQUEUR') || cat?.name.toUpperCase().includes('SPIRITUEUX')) {
+                      setFormData(prev => ({ ...prev, sale_type: 'consumption', servings_per_bottle: 1, current_servings: 1 }));
+                    }
+                  }} className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white">
+                    <option value="">-- Choisir --</option>
+                    {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                  </select>
+                </div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Prix (fcfa) *</label>
+                  <input type="number" required min="0" value={formData.price} onChange={(e) => setFormData({...formData, price: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2" />
+                </div>
               </div>
+
+              {/* ✅ CHAMPS SPÉCIFIQUES POUR LES BOISSONS À LA CONSOMMATION */}
+              {categories.find(c => c.id === formData.category_id)?.name.toUpperCase().includes('LIQUEUR') || 
+               categories.find(c => c.id === formData.category_id)?.name.toUpperCase().includes('SPIRITUEUX') ? (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-3">
+                  <h4 className="text-sm font-semibold text-purple-900 flex items-center gap-2">
+                    <Wine className="w-4 h-4" /> Gestion de la bouteille
+                  </h4>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Type de vente</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setFormData({...formData, sale_type: 'bottle'})} 
+                        className={`p-2 rounded-lg border text-sm font-medium ${formData.sale_type === 'bottle' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white border-slate-300 text-slate-700'}`}>
+                        🍾 À la bouteille
+                      </button>
+                      <button type="button" onClick={() => setFormData({...formData, sale_type: 'consumption'})} 
+                        className={`p-2 rounded-lg border text-sm font-medium ${formData.sale_type === 'consumption' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white border-slate-300 text-slate-700'}`}>
+                        🥃 À la consommation
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {formData.sale_type === 'consumption' && (
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">Nombre de verres par bouteille *</label>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        value={formData.servings_per_bottle} 
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 1;
+                          // Si c'est un nouvel article, on initialise le stock au nombre de verres
+                          if (!editingItem) {
+                            setFormData({...formData, servings_per_bottle: val, current_servings: val});
+                          } else {
+                            setFormData({...formData, servings_per_bottle: val});
+                          }
+                        }} 
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2" 
+                      />
+                      <p className="text-[10px] text-purple-700 mt-1">
+                        💡 Le prix défini ci-dessus s'appliquera <strong>par verre</strong>. 
+                        {!editingItem && ` Une nouvelle bouteille commencera avec ${formData.servings_per_bottle} verres disponibles.`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : null}
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Destination *</label><div className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setFormData({...formData, destination: 'KITCHEN'})} className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 ${formData.destination === 'KITCHEN' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`}><Utensils className="w-5 h-5" /> Cuisine</button><button type="button" onClick={() => setFormData({...formData, destination: 'BAR'})} className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 ${formData.destination === 'BAR' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-slate-200'}`}><Wine className="w-5 h-5" /> Bar</button></div></div>
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Description</label><textarea value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
               <div className="flex gap-3 pt-4 border-t border-slate-200"><button type="button" onClick={closeModal} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg">Annuler</button><button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg flex items-center justify-center gap-2"><Save className="w-4 h-4" />{editingItem ? 'Mettre à jour' : 'Ajouter'}</button></div>

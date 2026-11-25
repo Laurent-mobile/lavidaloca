@@ -265,9 +265,10 @@ const loadHotelInfo = async () => {
 
 const loadMenu = async () => {
   try {
+    // 1. Charger les articles du menu AVEC les champs de consommation
     const { data: menuData, error: menuError } = await supabase
       .from('restaurant_items')
-      .select(`id, name, restaurant_categories(name), price, destination, is_available`)
+      .select(`id, name, restaurant_categories(name), price, destination, is_available, sale_type, servings_per_bottle, current_servings`)
       .eq('site_id', siteId)
       .eq('is_available', true)
       .order('name');
@@ -275,6 +276,7 @@ const loadMenu = async () => {
     if (menuError) throw menuError;
     if (!menuData || menuData.length === 0) { setMenuItems([]); return; }
 
+    // 2. Charger les fiches techniques et le stock physique
     const { data: allRecipes } = await supabase
       .from('item_recipes')
       .select('menu_item_id, stock_item_id, quantity')
@@ -290,10 +292,11 @@ const loadMenu = async () => {
       stockMap.set(stock.id, { current_stock: Number(stock.current_stock) || 0, unit: stock.unit });
     });
 
+    // 3. Calculer le stock réel disponible (Verres ouverts + Bouteilles physiques)
     const menuItemsWithStock = menuData.map(menuItem => {
       const itemRecipes = allRecipes?.filter(r => r.menu_item_id === menuItem.id) || [];
 
-      // ✅ RÈGLE STRICTE : Pas de fiche technique = Stock à 0 (Indisponible)
+      // Cas 1 : Pas de fiche technique = Indisponible
       if (itemRecipes.length === 0) {
         return {
           id: menuItem.id,
@@ -301,12 +304,40 @@ const loadMenu = async () => {
           category: (menuItem as any).restaurant_categories?.name || 'Autres',
           price: menuItem.price,
           destination: menuItem.destination || undefined,
-          stock: 0, // ✅ Force le blocage de la vente
+          stock: 0,
           stockManaged: true
         };
       }
 
-      // ✅ CAS 2 : Fiche technique présente → calcul du stock réel
+      // Cas 2 : Article "À LA CONSOMMATION" (Logique hybride)
+      if (menuItem.sale_type === 'consumption') {
+        const servingsLeft = Number(menuItem.current_servings) || 0;
+        
+        // Calculer combien de bouteilles PHYSIQUES sont encore disponibles
+        let physicalBottlesAvailable = Infinity;
+        for (const recipe of itemRecipes) {
+          const stockInfo = stockMap.get(recipe.stock_item_id);
+          if (!stockInfo) { physicalBottlesAvailable = 0; break; }
+          const requiredPerBottle = Number(recipe.quantity) || 1;
+          const bottlesFromThisStock = Math.floor(Number(stockInfo.current_stock) / requiredPerBottle);
+          if (bottlesFromThisStock < physicalBottlesAvailable) physicalBottlesAvailable = bottlesFromThisStock;
+        }
+
+        // Stock total = Verres déjà ouverts + (Bouteilles physiques × Nb verres par bouteille)
+        const totalAvailableServings = servingsLeft + (physicalBottlesAvailable * (Number(menuItem.servings_per_bottle) || 1));
+        
+        return {
+          id: menuItem.id,
+          name: menuItem.name,
+          category: (menuItem as any).restaurant_categories?.name || 'Autres',
+          price: menuItem.price,
+          destination: menuItem.destination || undefined,
+          stock: Math.max(0, totalAvailableServings), // ✅ C'est ici que la magie opère
+          stockManaged: true
+        };
+      }
+
+      // Cas 3 : Article NORMAL (Bouteille entière / Cuisine) -> Logique existante
       let maxPossibleStock = Infinity;
       let hasValidStock = true;
       for (const recipe of itemRecipes) {
@@ -711,26 +742,44 @@ const addToCart = (item: MenuItem) => {
     if (orderType === 'DINE_IN' && !selectedTableId) { alert('Sélectionnez une table.'); return; }
     if (orderType === 'ROOM_SERVICE' && !selectedRoomId) { alert('Sélectionnez une chambre.'); return; }
     if (!selectedServerId) { alert('Sélectionnez un serveur.'); return; }
-    if (!confirm('Valider cette commande et l\'envoyer à la caisse ?')) return;
+    
+    // ✅ NOUVEAU : Confirmation explicite pour l'impression des bons
+    if (!confirm('Valider cette commande, IMPRIMER les bons cuisine/bar et envoyer à la caisse ?')) return;
 
     setIsSubmittingOrder(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      let finalOrder: RestaurantOrder | null = null;
+
       if (editingOrderId) {
-        const newItems = cart.filter(item => !originalItems.find(orig => orig.id === item.id));
+        // --- LOGIQUE DE MISE À JOUR ---
+        const newItems = cart.filter(item => !originalItems.find(orig => orig.id === item.orderItemId || ((orig as any).menu_item_id === item.menuItemId && item.menuItemId)));
+        
         if (newItems.length > 0) {
           await supabase.from('restaurant_order_items').insert(newItems.map(item => ({
-            order_id: editingOrderId, menu_item_id: item.id, item_name: item.name,
+            order_id: editingOrderId, menu_item_id: item.menuItemId || item.id, item_name: item.name,
             quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price,
             status: 'PENDING', destination: getDestination(item)
           })));
         }
+
         const currentOrder = orders.find(o => o.id === editingOrderId);
         const currentTotal = currentOrder?.total_amount || 0;
         const addedTotal = newItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        await supabase.from('restaurant_orders').update({ total_amount: currentTotal + addedTotal, status: 'SERVED' }).eq('id', editingOrderId);
-        alert('✅ Commande validée et envoyée à la caisse !');
+        
+        await supabase.from('restaurant_orders').update({ 
+          total_amount: currentTotal + addedTotal, 
+          status: 'SERVED' 
+        }).eq('id', editingOrderId);
+
+        // Reconstruction de l'objet ordre complet pour l'impression
+        finalOrder = {
+          ...currentOrder!,
+          restaurant_order_items: [...(currentOrder?.restaurant_order_items || []), ...newItems] as any
+        };
+
       } else {
+        // --- LOGIQUE DE CRÉATION ---
         const orderNumber = `CMD-${Date.now().toString().slice(-6)}`;
         const orderData: any = {
           site_id: siteId, order_type: orderType, order_number: orderNumber, status: 'SERVED',
@@ -738,28 +787,56 @@ const addToCart = (item: MenuItem) => {
           created_by: user?.id, server_id: selectedServerId, sent_at: new Date().toISOString(),
         };
         if (orderType === 'DINE_IN') orderData.table_id = selectedTableId;
-        // @ts-ignore
         if (orderType === 'ROOM_SERVICE') {
           orderData.room_id = selectedRoomId;
           const room = rooms.find(r => r.id === selectedRoomId);
           if (room) orderData.room_number = room.number;
         }
-        const { data: order, error: orderError } = await supabase.from('restaurant_orders').insert(orderData).select('id').single();
+
+        const { data: order, error: orderError } = await supabase.from('restaurant_orders').insert(orderData).select(`
+          *, restaurant_tables(number), rooms(number), 
+          restaurant_order_items(id, item_name, quantity, unit_price, total_price, status, destination)
+        `).single();
+        
         if (orderError) throw orderError;
+
         await supabase.from('restaurant_order_items').insert(cart.map(item => ({
-          order_id: order.id, menu_item_id: item.id, item_name: item.name,
+          order_id: order.id, menu_item_id: item.menuItemId || item.id, item_name: item.name,
           quantity: item.quantity, unit_price: item.price, total_price: item.quantity * item.price,
           status: 'PENDING', destination: getDestination(item)
         })));
+
         if (orderType === 'DINE_IN' && selectedTableId) {
           await supabase.from('restaurant_tables').update({ status: 'OCCUPIED' }).eq('id', selectedTableId);
         }
-        alert(`✅ Commande ${orderNumber} validée et envoyée à la caisse !`);
+        
+        // On récupère l'ordre complet fraîchement créé
+        finalOrder = order;
       }
+
+      // ✅ IMPRESSION DES BONS AVANT DE QUITTER LA FONCTION
+      if (finalOrder) {
+        const kitchenItems = finalOrder.restaurant_order_items?.filter(i => i.destination === 'KITCHEN') || [];
+        const barItems = finalOrder.restaurant_order_items?.filter(i => i.destination === 'BAR') || [];
+
+        if (kitchenItems.length > 0) {
+          setTimeout(() => handlePrintKitchenBond(finalOrder!), 100);
+        }
+        if (barItems.length > 0) {
+          setTimeout(() => handlePrintBarBond(finalOrder!), 400);
+        }
+        
+        alert('✅ Commande validée, bons imprimés et envoyée à la caisse !');
+      } else {
+        alert('✅ Commande validée et envoyée à la caisse !');
+      }
+
+      // Reset du formulaire
       setCart([]); setSelectedTableId(''); setSelectedRoomId(''); setSelectedServerId('');
       setEditingOrderId(null); setOriginalItems([]); setActiveTab('list'); setItemSearch('');
       loadOrders(); loadTables();
     } catch (error: any) {
+      console.error(error);
       alert('Erreur : ' + error.message);
     } finally {
       setIsSubmittingOrder(false);

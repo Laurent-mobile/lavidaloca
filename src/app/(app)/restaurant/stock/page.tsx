@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   Package, Search, Plus, AlertTriangle, CheckCircle, XCircle, 
   Edit2, Trash2, X, TrendingUp, TrendingDown, History, List,
-  User, Clock, DollarSign, AlertCircle, Save, Box
+  User, Clock, DollarSign, AlertCircle, Save, Box, ClipboardCheck, RotateCcw
 } from 'lucide-react';
 
 interface StockItem {
@@ -39,7 +39,9 @@ export default function StockPage() {
   const [items, setItems] = useState<StockItem[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'items' | 'history'>('items');
+  
+  // ✅ NOUVEAU : Onglet inventaire ajouté
+  const [activeTab, setActiveTab] = useState<'items' | 'history' | 'inventory'>('items');
   
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -72,6 +74,10 @@ export default function StockPage() {
   const [deleteError, setDeleteError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // ✅ NOUVEAU : États pour l'inventaire
+  const [inventoryCounts, setInventoryCounts] = useState<Record<string, number>>({});
+  const [isSavingInventory, setIsSavingInventory] = useState(false);
+
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -87,33 +93,32 @@ export default function StockPage() {
   }, []);
 
   const loadStockItems = async () => {
-  setLoading(true);
-  try {
-    const { data, error } = await supabase
-      .from('stock_items')
-      .select('*')
-      .order('name', { ascending: true });
-    
-    if (error) throw error;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('stock_items')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      if (error) throw error;
 
-    // ✅ Mapper current_stock vers quantity pour l'interface
-    const formattedItems = (data || []).map(item => ({
-      ...item,
-      quantity: item.current_stock || 0, // Mapper current_stock vers quantity
-      unit: item.unit || 'unité',
-      purchase_unit: item.purchase_unit || 'unité',
-      conversion_factor: item.conversion_factor || 1,
-      min_threshold: item.min_threshold || 0,
-      unit_cost: item.last_purchase_price || item.unit_cost || 0
-    }));
-    
-    setItems(formattedItems);
-  } catch (error) {
-    console.error('Erreur chargement stock:', error);
-  } finally {
-    setLoading(false);
-  }
-};
+      const formattedItems = (data || []).map(item => ({
+        ...item,
+        quantity: item.current_stock || 0,
+        unit: item.unit || 'unité',
+        purchase_unit: item.purchase_unit || 'unité',
+        conversion_factor: item.conversion_factor || 1,
+        min_threshold: item.min_threshold || 0,
+        unit_cost: item.last_purchase_price || item.unit_cost || 0
+      }));
+      
+      setItems(formattedItems);
+    } catch (error) {
+      console.error('Erreur chargement stock:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadMovements = async () => {
     try {
@@ -129,91 +134,128 @@ export default function StockPage() {
     }
   };
 
+  // ✅ NOUVEAU : Sauvegarde de l'inventaire physique
+  const saveInventory = async () => {
+    if (!confirm("Valider cet inventaire ? Les écarts seront enregistrés comme des ajustements de stock.")) return;
+    
+    setIsSavingInventory(true);
+    try {
+      let adjustmentsCount = 0;
+      
+      for (const [itemId, countedQty] of Object.entries(inventoryCounts)) {
+        const item = items.find(i => i.id === itemId);
+        if (!item || countedQty === item.quantity) continue; // Pas de changement
+
+        const diff = countedQty - item.quantity;
+        
+        // 1. Mettre à jour le stock
+        await supabase.from('stock_items').update({ 
+          current_stock: countedQty 
+        }).eq('id', itemId);
+
+        // 2. Enregistrer le mouvement d'ajustement
+        await supabase.from('stock_movements').insert({
+          site_id: siteId,
+          stock_item_id: itemId,
+          movement_type: diff > 0 ? 'IN' : 'OUT',
+          quantity: Math.abs(diff),
+          reason: `Inventaire physique (Écart: ${diff > 0 ? '+' : ''}${diff})`,
+          performed_by: userId
+        });
+        
+        adjustmentsCount++;
+      }
+      
+      alert(`✅ Inventaire validé ! ${adjustmentsCount} ajustement(s) enregistré(s).`);
+      setInventoryCounts({}); // Reset des champs
+      loadStockItems(); // Recharger les données fraîches
+      loadMovements(); // Mettre à jour l'historique
+      setActiveTab('history'); // Basculer sur l'historique pour voir les ajustements
+    } catch (error: any) {
+      alert("Erreur lors de la validation: " + error.message);
+    } finally {
+      setIsSavingInventory(false);
+    }
+  };
+
   const handleAddItem = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!newItem.name || !newItem.category) return;
-  setIsSubmitting(true);
-  try {
-    const { error } = await supabase.from('stock_items').insert({
-      site_id: siteId,
-      name: newItem.name,
-      category: newItem.category,
-      current_stock: newItem.quantity, // ✅ Mapper quantity vers current_stock
-      unit: newItem.unit,
-      purchase_unit: newItem.purchase_unit,
-      conversion_factor: newItem.conversion_factor,
-      min_stock: newItem.min_threshold, // ✅ Mapper min_threshold vers min_stock
-      last_purchase_price: newItem.unit_cost, // ✅ Mapper unit_cost vers last_purchase_price
-      is_active: true
-    });
-    
-    if (error) throw error;
-    
-    setNewItem({ 
-      name: '', 
-      category: '', 
-      quantity: 0, 
-      unit: 'unités', 
-      purchase_unit: 'unité', 
-      conversion_factor: 1, 
-      min_threshold: 0, 
-      unit_cost: 0 
-    });
-    setIsAddModalOpen(false);
-    loadStockItems();
-  } catch (error) {
-    console.error('Erreur ajout:', error);
-    alert('Erreur lors de l\'ajout.');
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+    e.preventDefault();
+    if (!newItem.name || !newItem.category) return;
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.from('stock_items').insert({
+        site_id: siteId,
+        name: newItem.name,
+        category: newItem.category,
+        current_stock: newItem.quantity,
+        unit: newItem.unit,
+        purchase_unit: newItem.purchase_unit,
+        conversion_factor: newItem.conversion_factor,
+        min_stock: newItem.min_threshold,
+        last_purchase_price: newItem.unit_cost,
+        is_active: true
+      });
+      
+      if (error) throw error;
+      
+      setNewItem({ 
+        name: '', category: '', quantity: 0, unit: 'unités', 
+        purchase_unit: 'unité', conversion_factor: 1, min_threshold: 0, unit_cost: 0 
+      });
+      setIsAddModalOpen(false);
+      loadStockItems();
+    } catch (error) {
+      console.error('Erreur ajout:', error);
+      alert('Erreur lors de l\'ajout.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleAdjustStock = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!selectedItem || adjustQuantity <= 0 || !adjustReason.trim()) return;
-  setIsAdjusting(true);
-  try {
-    const newQuantity = adjustType === 'IN' 
-      ? selectedItem.quantity + adjustQuantity 
-      : selectedItem.quantity - adjustQuantity;
-    
-    if (newQuantity < 0) { 
-      alert('⚠️ Stock insuffisant !'); 
-      setIsAdjusting(false); 
-      return; 
-    }
-
-    // ✅ Mettre à jour current_stock au lieu de quantity
-    await supabase
-      .from('stock_items')
-      .update({ current_stock: newQuantity })
-      .eq('id', selectedItem.id);
+    e.preventDefault();
+    if (!selectedItem || adjustQuantity <= 0 || !adjustReason.trim()) return;
+    setIsAdjusting(true);
+    try {
+      const newQuantity = adjustType === 'IN' 
+        ? selectedItem.quantity + adjustQuantity 
+        : selectedItem.quantity - adjustQuantity;
       
-    await supabase
-      .from('stock_movements')
-      .insert({
-        site_id: siteId,
-        stock_item_id: selectedItem.id,
-        movement_type: adjustType,
-        quantity: adjustQuantity,
-        reason: adjustReason,
-        performed_by: userId
-      });
+      if (newQuantity < 0) { 
+        alert('⚠️ Stock insuffisant !'); 
+        setIsAdjusting(false); 
+        return; 
+      }
 
-    setAdjustQuantity(0); 
-    setAdjustReason(''); 
-    setIsAdjustModalOpen(false); 
-    setSelectedItem(null);
-    loadStockItems(); 
-    loadMovements();
-  } catch (error) {
-    console.error('Erreur ajustement:', error);
-    alert('Erreur lors de l\'ajustement.');
-  } finally {
-    setIsAdjusting(false);
-  }
-};
+      await supabase
+        .from('stock_items')
+        .update({ current_stock: newQuantity })
+        .eq('id', selectedItem.id);
+        
+      await supabase
+        .from('stock_movements')
+        .insert({
+          site_id: siteId,
+          stock_item_id: selectedItem.id,
+          movement_type: adjustType,
+          quantity: adjustQuantity,
+          reason: adjustReason,
+          performed_by: userId
+        });
+
+      setAdjustQuantity(0); 
+      setAdjustReason(''); 
+      setIsAdjustModalOpen(false); 
+      setSelectedItem(null);
+      loadStockItems(); 
+      loadMovements();
+    } catch (error) {
+      console.error('Erreur ajustement:', error);
+      alert('Erreur lors de l\'ajustement.');
+    } finally {
+      setIsAdjusting(false);
+    }
+  };
 
   const openAdjustModal = (item: StockItem, type: 'IN' | 'OUT') => {
     setSelectedItem(item); setAdjustType(type); setAdjustQuantity(0); setAdjustReason(''); setIsAdjustModalOpen(true);
@@ -230,31 +272,31 @@ export default function StockPage() {
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!editingItem) return;
-  setIsEditing(true);
-  try {
-    const { error } = await supabase.from('stock_items').update({
-      name: editForm.name,
-      category: editForm.category,
-      unit: editForm.unit,
-      purchase_unit: editForm.purchase_unit,
-      conversion_factor: editForm.conversion_factor,
-      min_stock: editForm.min_threshold, // ✅ Mapper vers min_stock
-      last_purchase_price: editForm.unit_cost // ✅ Mapper vers last_purchase_price
-    }).eq('id', editingItem.id);
+    e.preventDefault();
+    if (!editingItem) return;
+    setIsEditing(true);
+    try {
+      const { error } = await supabase.from('stock_items').update({
+        name: editForm.name,
+        category: editForm.category,
+        unit: editForm.unit,
+        purchase_unit: editForm.purchase_unit,
+        conversion_factor: editForm.conversion_factor,
+        min_stock: editForm.min_threshold,
+        last_purchase_price: editForm.unit_cost
+      }).eq('id', editingItem.id);
 
-    if (error) throw error;
-    setIsEditModalOpen(false); 
-    setEditingItem(null); 
-    loadStockItems();
-  } catch (error) {
-    console.error('Erreur modification:', error);
-    alert('Erreur lors de la modification.');
-  } finally {
-    setIsEditing(false);
-  }
-};
+      if (error) throw error;
+      setIsEditModalOpen(false); 
+      setEditingItem(null); 
+      loadStockItems();
+    } catch (error) {
+      console.error('Erreur modification:', error);
+      alert('Erreur lors de la modification.');
+    } finally {
+      setIsEditing(false);
+    }
+  };
 
   const openDeleteModal = (item: StockItem) => {
     setItemToDelete(item); setDeleteError('');
@@ -320,7 +362,7 @@ export default function StockPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2"><Package className="w-7 h-7 text-indigo-600" /> Gestion des Stocks</h1>
-          <p className="text-sm text-slate-500 mt-1">Gérez vos articles, quantités et alertes de rupture.</p>
+          <p className="text-sm text-slate-500 mt-1">Gérez vos articles, quantités, historique et inventaires.</p>
         </div>
         <button onClick={() => setIsAddModalOpen(true)} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-medium transition-colors shadow-sm">
           <Plus className="w-5 h-5" /> Nouvel Article
@@ -346,16 +388,20 @@ export default function StockPage() {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-slate-200">
-        <button onClick={() => setActiveTab('items')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'items' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
+      {/* ✅ NOUVEAU : Onglets avec Inventaire */}
+      <div className="flex gap-2 border-b border-slate-200 overflow-x-auto">
+        <button onClick={() => setActiveTab('items')} className={`flex items-center gap-2 px-4 py-3 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'items' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
           <List className="w-4 h-4" /> Articles ({items.length})
         </button>
-        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-2 font-medium text-sm transition-colors ${activeTab === 'history' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
+        <button onClick={() => setActiveTab('history')} className={`flex items-center gap-2 px-4 py-3 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'history' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
           <History className="w-4 h-4" /> Historique ({movements.length})
+        </button>
+        <button onClick={() => setActiveTab('inventory')} className={`flex items-center gap-2 px-4 py-3 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'inventory' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}>
+          <ClipboardCheck className="w-4 h-4" /> Inventaire Physique
         </button>
       </div>
 
-      {activeTab === 'items' ? (
+      {activeTab === 'items' && (
         <>
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
@@ -426,7 +472,10 @@ export default function StockPage() {
             )}
           </div>
         </>
-      ) : (
+      )}
+
+      {/* ✅ MODIFICATION DE L'HISTORIQUE POUR DISTINGUER LES TYPES DE SORTIES */}
+      {activeTab === 'history' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           {movements.length === 0 ? (
             <div className="text-center py-16"><History className="w-12 h-12 text-slate-300 mx-auto mb-3" /><h3 className="text-lg font-medium text-slate-900">Aucun mouvement</h3></div>
@@ -435,19 +484,66 @@ export default function StockPage() {
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
-                    <th className="px-6 py-4">Date</th><th className="px-6 py-4">Article</th><th className="px-6 py-4 text-center">Type</th><th className="px-6 py-4 text-center">Quantité</th><th className="px-6 py-4">Motif</th>
+                    <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">Article</th>
+                    <th className="px-6 py-4 text-center">Type</th>
+                    <th className="px-6 py-4 text-center">Quantité</th>
+                    <th className="px-6 py-4">Motif / Détails</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {movements.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 text-sm text-slate-600"><div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" />{new Date(m.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div></td>
-                      <td className="px-6 py-4 font-medium text-slate-900">{m.stock_items?.name || 'Inconnu'}</td>
-                      <td className="px-6 py-4 text-center">{m.movement_type === 'IN' ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200"><TrendingUp className="w-3.5 h-3.5" />Entrée</span> : <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-200"><TrendingDown className="w-3.5 h-3.5" />Sortie</span>}</td>
-                      <td className="px-6 py-4 text-center"><span className={`font-bold ${m.movement_type === 'IN' ? 'text-emerald-600' : 'text-red-600'}`}>{m.movement_type === 'IN' ? '+' : '-'}{m.quantity}</span> <span className="text-xs text-slate-500">{m.stock_items?.unit}</span></td>
-                      <td className="px-6 py-4 text-sm text-slate-700 flex items-start gap-2"><span className="flex-1">{m.reason}</span>{m.performed_by && <User className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 mt-0.5" />}</td>
-                    </tr>
-                  ))}
+                  {movements.map((m) => {
+                    // Logique pour déterminer le badge visuel
+                    const isBottleOpening = m.reason?.toLowerCase().includes('ouverture');
+                    const isInventoryAdj = m.reason?.toLowerCase().includes('inventaire');
+                    
+                    let badgeClass = "";
+                    let badgeText = "";
+                    
+                    if (m.movement_type === 'IN') {
+                      badgeClass = "bg-emerald-100 text-emerald-800 border-emerald-200";
+                      badgeText = isInventoryAdj ? "📋 INVENTAIRE (+)" : "📥 ENTRÉE";
+                    } else {
+                      if (isBottleOpening) {
+                        badgeClass = "bg-purple-100 text-purple-800 border-purple-200";
+                        badgeText = "🍾 OUVERTURE";
+                      } else if (isInventoryAdj) {
+                        badgeClass = "bg-orange-100 text-orange-800 border-orange-200";
+                        badgeText = "📋 INVENTAIRE (-)";
+                      } else {
+                        badgeClass = "bg-blue-100 text-blue-800 border-blue-200";
+                        badgeText = "🥃 VENTE CONSOMMATION";
+                      }
+                    }
+
+                    return (
+                      <tr key={m.id} className="hover:bg-slate-50">
+                        <td className="px-6 py-4 text-sm text-slate-600"><div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" />{new Date(m.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div></td>
+                        <td className="px-6 py-4 font-medium text-slate-900">{m.stock_items?.name || 'Inconnu'}</td>
+                        
+                        {/* ✅ Badge amélioré */}
+                        <td className="px-6 py-4 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${badgeClass}`}>
+                            {badgeText}
+                          </span>
+                        </td>
+                        
+                        <td className="px-6 py-4 text-center"><span className={`font-bold ${m.movement_type === 'IN' ? 'text-emerald-600' : 'text-red-600'}`}>{m.movement_type === 'IN' ? '+' : '-'}{m.quantity}</span> <span className="text-xs text-slate-500">{m.stock_items?.unit}</span></td>
+                        
+                        {/* ✅ Motif détaillé avec utilisateur */}
+                        <td className="px-6 py-4 text-sm text-slate-700">
+                          <div className="flex flex-col">
+                            <span className="font-medium">{m.reason}</span>
+                            {m.performed_by && (
+                              <span className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                                <User className="w-3 h-3" /> Par: {m.performed_by}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -455,7 +551,89 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* Modale Ajout */}
+      {/* ✅ NOUVEAU : ONGLET INVENTAIRE PHYSIQUE */}
+      {activeTab === 'inventory' && (
+        <div className="space-y-4">
+          <div className="bg-blue-50 p-4 rounded-xl border border-blue-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="font-bold text-blue-900 flex items-center gap-2"><ClipboardCheck className="w-5 h-5"/> Inventaire Physique</h3>
+              <p className="text-sm text-blue-700 mt-1">Comptez vos bouteilles réelles. Le système ajustera automatiquement le stock théorique et tracera les écarts.</p>
+            </div>
+            <button 
+              onClick={saveInventory}
+              disabled={isSavingInventory || Object.keys(inventoryCounts).length === 0}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-all shadow-sm"
+            >
+              {isSavingInventory ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/> : <Save className="w-4 h-4"/>}
+              Valider l'inventaire
+            </button>
+          </div>
+
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
+                    <th className="px-6 py-4 w-1/3">Article</th>
+                    <th className="px-6 py-4 text-center w-1/6">Stock Théorique</th>
+                    <th className="px-6 py-4 text-center w-1/4">Stock Compté (Réel)</th>
+                    <th className="px-6 py-4 text-center w-1/6">Écart</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {items.map((item) => {
+                    const counted = inventoryCounts[item.id] ?? item.quantity;
+                    const diff = counted - item.quantity;
+                    const hasChanged = inventoryCounts[item.id] !== undefined;
+                    
+                    return (
+                      <tr key={item.id} className={`hover:bg-slate-50 transition-colors ${hasChanged ? 'bg-blue-50/50' : ''}`}>
+                        <td className="px-6 py-4">
+                          <div className="font-medium text-slate-900">{item.name}</div>
+                          <div className="text-xs text-slate-500">{item.category}</div>
+                        </td>
+                        <td className="px-6 py-4 text-center text-slate-500 font-mono">{item.quantity} {item.unit}</td>
+                        <td className="px-6 py-4 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <input 
+                              type="number" 
+                              min="0"
+                              step="0.01"
+                              value={inventoryCounts[item.id] ?? ''}
+                              onChange={(e) => setInventoryCounts(prev => ({...prev, [item.id]: parseFloat(e.target.value) >= 0 ? parseFloat(e.target.value) : 0}))}
+                              placeholder={item.quantity.toString()}
+                              className={`w-28 text-center border rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-blue-500 outline-none font-mono ${hasChanged ? 'border-blue-300 bg-white' : 'border-slate-200 bg-slate-50'}`}
+                            />
+                            {hasChanged && (
+                              <button 
+                                onClick={() => setInventoryCounts(prev => { const n = {...prev}; delete n[item.id]; return n; })}
+                                className="text-slate-400 hover:text-red-500 p-1"
+                                title="Réinitialiser"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5"/>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className={`px-6 py-4 text-center font-bold font-mono ${
+                          diff === 0 ? 'text-slate-300' : diff > 0 ? 'text-emerald-600' : 'text-red-600'
+                        }`}>
+                          {hasChanged && (diff !== 0 ? `${diff > 0 ? '+' : ''}${diff}` : '-')}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {items.length === 0 && (
+              <div className="text-center py-16"><Package className="w-12 h-12 text-slate-300 mx-auto mb-3" /><h3 className="text-lg font-medium text-slate-900">Aucun article à inventorier</h3></div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modale Ajout (inchangée) */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -501,7 +679,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* Modale Ajustement */}
+      {/* Modale Ajustement (inchangée) */}
       {isAdjustModalOpen && selectedItem && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
@@ -528,7 +706,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* Modale Modification */}
+      {/* Modale Modification (inchangée) */}
       {isEditModalOpen && editingItem && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -563,7 +741,7 @@ export default function StockPage() {
         </div>
       )}
 
-      {/* Modale Suppression */}
+      {/* Modale Suppression (inchangée) */}
       {itemToDelete && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
