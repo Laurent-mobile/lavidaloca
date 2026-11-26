@@ -91,116 +91,117 @@ export default function HistoriqueCaissesPage() {
     };
   };
 
-  const loadSessions = useCallback(async () => {
-    if (!siteId) {
+const loadSessions = useCallback(async () => {
+  if (!siteId) {
+    setLoading(false);
+    return;
+  }
+
+  setLoading(true);
+  try {
+    let query = supabase
+      .from('cash_sessions')
+      .select(`
+        *,
+        opened_user:profiles!cash_sessions_opened_by_fkey(first_name, last_name),
+        closed_user:profiles!cash_sessions_closed_by_fkey(first_name, last_name)
+      `)
+      .eq('site_id', siteId)
+      .order('opened_at', { ascending: false });
+
+    if (startDate) query = query.gte('opened_at', `${startDate}T00:00:00`);
+    if (endDate) query = query.lte('opened_at', `${endDate}T23:59:59`);
+
+    const { data: sessionsData, error: sessionsError } = await query;
+    if (sessionsError) throw sessionsError;
+
+    if (!sessionsData || sessionsData.length === 0) {
+      setSessions([]);
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    // ✅ CHARGEMENT PARALLÈLE DES PAIEMENTS ET DÉPENSES
+    const sessionIds = sessionsData.map(s => s.id);
     
-    try {
-      let query = supabase
-        .from('cash_sessions')
-        .select(`
-          *,
-          opened_user:profiles!cash_sessions_opened_by_fkey(first_name, last_name),
-          closed_user:profiles!cash_sessions_closed_by_fkey(first_name, last_name)
-        `)
+    const [paymentsRes, expensesRes] = await Promise.all([
+      supabase.from('restaurant_payments')
+        .select('session_id, method, amount')
+        .in('session_id', sessionIds),
+      supabase.from('expenses')
+        .select('site_id, subtype, created_at, amount')
         .eq('site_id', siteId)
-        .order('opened_at', { ascending: false });
+        .eq('subtype', 'CAISSE')
+    ]);
 
-      if (startDate) query = query.gte('opened_at', `${startDate}T00:00:00`);
-      if (endDate) query = query.lte('opened_at', `${endDate}T23:59:59`);
+    // ✅ Construction des maps côté client
+    const paymentsBySession: Record<string, any[]> = {};
+    (paymentsRes.data || []).forEach(p => {
+      if (!paymentsBySession[p.session_id]) paymentsBySession[p.session_id] = [];
+      paymentsBySession[p.session_id].push(p);
+    });
 
-      const { data: sessionsData, error: sessionsError } = await query;
-      if (sessionsError) throw sessionsError;
+    const enrichedSessions = sessionsData.map(session => {
+      const payments = paymentsBySession[session.id] || [];
+      
+      let cash_sales = 0, mobile_sales = 0, card_sales = 0, total_sales = 0;
+      payments.forEach((p: any) => {
+        const amount = Number(p.amount) || 0;
+        total_sales += amount;
+        const method = (p.method || '').toUpperCase();
+        if (method === 'CASH') cash_sales += amount;
+        else if (method === 'MOBILE_MONEY') mobile_sales += amount;
+        else if (method === 'CARD') card_sales += amount;
+      });
 
-      if (!sessionsData || sessionsData.length === 0) {
-        setSessions([]);
-        setLoading(false);
-        return;
+      // ✅ Filtrage des dépenses par session côté client
+      const sessionExpenses = (expensesRes.data || []).filter(e => 
+        new Date(e.created_at) >= new Date(session.opened_at) &&
+        new Date(e.created_at) <= new Date(session.closed_at || new Date())
+      );
+      const total_expenses = sessionExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      const opening_balance = Number(session.opening_balance ?? session.opening_float ?? 0);
+      let closing_balance = Number(session.closing_balance ?? session.counted_amount ?? 0);
+      
+      if (closing_balance === 0 && total_sales > 0) {
+        closing_balance = opening_balance + cash_sales - total_expenses;
       }
 
-      const enrichedSessions = await Promise.all(
-        sessionsData.map(async (session) => {
-          const { data: payments } = await supabase
-            .from('restaurant_payments')
-            .select('method, amount')
-            .eq('session_id', session.id);
+      const variance = session.status === 'CLOSED'
+        ? closing_balance - Number(session.expected_closing ?? session.expected_amount ?? closing_balance)
+        : undefined;
 
-          let cash_sales = 0, mobile_sales = 0, card_sales = 0, total_sales = 0;
+      const formatName = (user: any) => {
+        if (!user) return '-';
+        return `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Utilisateur inconnu';
+      };
 
-          if (payments) {
-            payments.forEach((p: any) => {
-              const amount = Number(p.amount) || 0;
-              total_sales += amount;
-              const method = (p.method || '').toUpperCase();
-              if (method === 'CASH') cash_sales += amount;
-              else if (method === 'MOBILE_MONEY') mobile_sales += amount;
-              else if (method === 'CARD') card_sales += amount;
-            });
-          }
+      const dateInfo = formatSessionDate(session.opened_at, session.closed_at);
 
-          const { data: expenses } = await supabase
-            .from('expenses')
-            .select('amount')
-            .eq('site_id', siteId)
-            .eq('subtype', 'CAISSE')
-            .gte('created_at', session.opened_at)
-            .lte('created_at', session.closed_at || new Date().toISOString());
+      return {
+        ...session,
+        opening_balance,
+        closing_balance,
+        total_sales,
+        cash_sales,
+        mobile_sales,
+        card_sales,
+        total_expenses,
+        variance,
+        opened_by_name: formatName(session.opened_user),
+        closed_by_name: formatName(session.closed_user),
+        isOvernight: dateInfo.isOvernight,
+      };
+    });
 
-          const total_expenses = expenses?.reduce((sum, e) => sum + (Number(e.amount) || 0), 0) || 0;
-
-          const opening_balance = Number(
-            session.opening_balance ?? session.opening_float ?? 0
-          );
-          
-          let closing_balance = Number(
-            session.closing_balance ?? session.counted_amount ?? 0
-          );
-          
-          if (closing_balance === 0 && total_sales > 0) {
-            closing_balance = opening_balance + cash_sales - total_expenses;
-          }
-
-          const variance = session.status === 'CLOSED'
-            ? closing_balance - Number(session.expected_closing ?? session.expected_amount ?? closing_balance)
-            : undefined;
-
-          const formatName = (user: any) => {
-            if (!user) return '-';
-            return `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Utilisateur inconnu';
-          };
-
-          // ✅ Calculer isOvernight et le stocker
-          const dateInfo = formatSessionDate(session.opened_at, session.closed_at);
-
-          return {
-            ...session,
-            opening_balance,
-            closing_balance,
-            total_sales,
-            cash_sales,
-            mobile_sales,
-            card_sales,
-            total_expenses,
-            variance,
-            opened_by_name: formatName(session.opened_user),
-            closed_by_name: formatName(session.closed_user),
-            isOvernight: dateInfo.isOvernight, // ✅ Stocké ici
-          };
-        })
-      );
-
-      setSessions(enrichedSessions);
-      
-    } catch (error) {
-      console.error('❌ Erreur chargement sessions:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [siteId, startDate, endDate]);
+    setSessions(enrichedSessions);
+  } catch (error) {
+    console.error('❌ Erreur chargement sessions:', error);
+  } finally {
+    setLoading(false);
+  }
+}, [siteId, startDate, endDate]);
 
   useEffect(() => {
     const init = async () => {

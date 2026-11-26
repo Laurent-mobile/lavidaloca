@@ -8,7 +8,6 @@ import WaitlistAlert from '@/components/WaitlistAlert';
 import { Plus, Clock, Zap, Loader2, Calendar, Search, Filter } from 'lucide-react';
 import ReservationDetailModal from '@/components/ReservationDetailModal';
 
-// ✅ Traduction et styling des statuts
 const statusConfig: Record<string, { label: string; color: string; icon: string }> = {
   CONFIRMED: { label: 'Confirmée', color: 'bg-amber-100 text-amber-900 border-amber-200', icon: '📅' },
   CHECKED_IN: { label: 'En séjour', color: 'bg-blue-100 text-blue-900 border-blue-200', icon: '🔑' },
@@ -29,56 +28,66 @@ export default function ReservationsPage() {
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-    const load = async () => {
+  const load = async () => {
     if (!siteId) return;
     setLoading(true);
     
-    const today = new Date().toISOString().split('T')[0];
-    
-    // 1. Charger toutes les réservations
-    const { data } = await supabase
-      .from('reservations')
-      .select('id, number, check_in_date, check_out_date, status, total_amount, nightly_rate, adults, children, room_id, customer_id, customers(first_name, last_name, phone), rooms(number), room_categories(code, name)')
-      .eq('site_id', siteId)
-      .order('check_in_date', { ascending: false })
-      .limit(300);
+    try {
+      const today = new Date().toISOString().split('T')[0];
 
-    // 2. ✅ Auto-correction basée sur les séjours réels
-    for (const res of (data || [])) {
-      let newStatus = res.status;
-      
-      // Chercher un séjour lié à cette réservation
-      const { data: stay } = await supabase
-        .from('stays')
-        .select('status')
-        .eq('reservation_id', res.id)
-        .limit(1)
-        .maybeSingle();
-      
-      if (stay) {
-        // Séjour trouvé → le statut de la réservation suit le séjour
-        if (stay.status === 'IN_HOUSE') newStatus = 'CHECKED_IN';
-        else if (stay.status === 'CHECKED_OUT') newStatus = 'CHECKED_OUT';
-      } else if (res.status === 'CONFIRMED' && res.check_in_date < today) {
-        // Pas de séjour + date passée → NO_SHOW
-        newStatus = 'NO_SHOW';
+      // ✅ REQUÊTE UNIQUE AVEC JOIN (remplace 300+ requêtes)
+      const { data, error } = await supabase
+        .from('reservations')
+        .select(`
+          id, number, check_in_date, check_out_date, status, 
+          total_amount, nightly_rate, adults, children, 
+          room_id, customer_id, 
+          customers(first_name, last_name, phone), 
+          rooms(number), 
+          room_categories(code, name),
+          stays!reservation_id(status)
+        `)
+        .eq('site_id', siteId)
+        .order('check_in_date', { ascending: false })
+        .limit(300);
+
+      if (error) throw error;
+
+      // ✅ Auto-correction SANS requêtes supplémentaires
+      const updates: { id: string; status: string }[] = [];
+      const correctedData = (data || []).map(res => {
+        let newStatus = res.status;
+        const stay = Array.isArray(res.stays) ? res.stays[0] : res.stays;
+        
+        if (stay) {
+          if (stay.status === 'IN_HOUSE') newStatus = 'CHECKED_IN';
+          else if (stay.status === 'CHECKED_OUT') newStatus = 'CHECKED_OUT';
+        } else if (res.status === 'CONFIRMED' && res.check_in_date < today) {
+          newStatus = 'NO_SHOW';
+        }
+        
+        if (newStatus !== res.status) {
+          updates.push({ id: res.id, status: newStatus });
+        }
+        
+        return { ...res, status: newStatus };
+      });
+
+      // ✅ Batch update en UNE seule requête (au lieu de N)
+      if (updates.length > 0) {
+        await Promise.all(
+          updates.map(u => 
+            supabase.from('reservations').update({ status: u.status }).eq('id', u.id)
+          )
+        );
       }
       
-      if (newStatus !== res.status) {
-        await supabase.from('reservations').update({ status: newStatus }).eq('id', res.id);
-      }
+      setRows(correctedData);
+    } catch (err) {
+      console.error('Erreur chargement:', err);
+    } finally {
+      setLoading(false);
     }
-
-    // 3. Recharger les données corrigées
-    const { data: correctedData } = await supabase
-      .from('reservations')
-      .select('id, number, check_in_date, check_out_date, status, total_amount, nightly_rate, adults, children, customers(first_name, last_name, phone), rooms(number), room_categories(code, name)')
-      .eq('site_id', siteId)
-      .order('check_in_date', { ascending: false })
-      .limit(300);
-    
-    setRows(correctedData || []);
-    setLoading(false);
   };
 
   useEffect(() => { if (siteId) load(); }, [siteId]);
@@ -95,7 +104,6 @@ export default function ReservationsPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* En-tête */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">📅 Réservations</h1>
@@ -114,7 +122,6 @@ export default function ReservationsPage() {
         </div>
       </div>
 
-      {/* Filtres et Recherche */}
       <div className="flex flex-col md:flex-row gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -127,20 +134,19 @@ export default function ReservationsPage() {
         </div>
         <div className="flex gap-1 overflow-x-auto pb-1 md:pb-0">
           {['ALL', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'NO_SHOW'].map(s => (
-  <button 
-    key={s} 
-    onClick={() => setFilter(s)} 
-    className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-      filter === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-    }`}
-  >
-    {s === 'ALL' ? 'Toutes' : statusConfig[s]?.label}
-  </button>
-))}
+            <button 
+              key={s} 
+              onClick={() => setFilter(s)} 
+              className={`px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                filter === s ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {s === 'ALL' ? 'Toutes' : statusConfig[s]?.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Tableau des réservations */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -200,18 +206,10 @@ export default function ReservationsPage() {
         </div>
       </div>
 
-      {/* Modals */}
       <ReservationModal siteId={siteId} isOpen={isResaOpen} onClose={() => setIsResaOpen(false)} onSuccess={load} />
       <WaitlistModal siteId={siteId} isOpen={isWaitOpen} onClose={() => setIsWaitOpen(false)} onSuccess={load} />
       <WaitlistAlert siteId={siteId} isOpen={isAlertOpen} onClose={() => setIsAlertOpen(false)} onSuccess={load} />
-
-        <ReservationDetailModal
-  siteId={siteId}
-  reservationId={detailId}
-  isOpen={!!detailId}
-  onClose={() => setDetailId(null)}
-  onSuccess={load}
-/>
+      <ReservationDetailModal siteId={siteId} reservationId={detailId} isOpen={!!detailId} onClose={() => setDetailId(null)} onSuccess={load} />
     </div>
   );
 }

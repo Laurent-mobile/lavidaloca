@@ -143,7 +143,7 @@ const loadStockItems = async () => {
   }
 };
 
-  const loadOrders = async () => {
+const loadOrders = async () => {
   setLoading(true);
   try {
     let query = supabase
@@ -151,52 +151,50 @@ const loadStockItems = async () => {
       .select('*, suppliers(name)')
       .eq('site_id', siteId)
       .order('order_date', { ascending: false });
-
+    
     if (statusFilter !== 'ALL') {
       query = query.eq('status', statusFilter);
     }
-
+    
     const { data, error } = await query;
     if (error) throw error;
-
-    console.log('📥 Commandes chargées:', data?.length || 0);
-    setOrders(data || []);
     
-    // ✅ Calculer les stats avec les vraies données
+    setOrders(data || []);
     calculateStats(data || []);
     
-    // Charger les articles et réceptions pour chaque commande
+    // ✅ CHARGEMENT PARALLÈLE EN UNE SEULE REQUÊTE PAR TABLE
     if (data && data.length > 0) {
+      const orderIds = data.map(o => o.id);
+      
+      const [itemsRes, receptionsRes] = await Promise.all([
+        supabase.from('supplier_order_items')
+          .select('*')
+          .in('order_id', orderIds),
+        supabase.from('supplier_receptions')
+          .select('*, supplier_reception_items(*, supplier_order_items(item_name))')
+          .in('order_id', orderIds)
+          .order('reception_date', { ascending: false })
+      ]);
+      
+      // ✅ Construction des maps côté client (plus de boucle N+1)
       const itemsMap: Record<string, any[]> = {};
       const receptionsMap: Record<string, any[]> = {};
       
-      for (const order of data) {
-        // Charger les articles
-        const { data: items } = await supabase
-          .from('supplier_order_items')
-          .select('*')
-          .eq('order_id', order.id);
-        itemsMap[order.id] = items || [];
-        
-        // Charger les réceptions
-        const { data: receptionsData } = await supabase
-          .from('supplier_receptions')
-          .select('*, supplier_reception_items(*, supplier_order_items(item_name))')
-          .eq('order_id', order.id)
-          .order('reception_date', { ascending: false });
-        
-        if (receptionsData) {
-          receptionsMap[order.id] = receptionsData.map(r => ({
-            ...r,
-            items: (r.supplier_reception_items || []).map((ri: any) => ({
-              ...ri,
-              item_name: ri.supplier_order_items?.item_name || 'Article'
-            }))
-          }));
-        } else {
-          receptionsMap[order.id] = [];
-        }
-      }
+      (itemsRes.data || []).forEach(item => {
+        if (!itemsMap[item.order_id]) itemsMap[item.order_id] = [];
+        itemsMap[item.order_id].push(item);
+      });
+      
+      (receptionsRes.data || []).forEach(r => {
+        if (!receptionsMap[r.order_id]) receptionsMap[r.order_id] = [];
+        receptionsMap[r.order_id].push({
+          ...r,
+          items: (r.supplier_reception_items || []).map((ri: any) => ({
+            ...ri,
+            item_name: ri.supplier_order_items?.item_name || 'Article'
+          }))
+        });
+      });
       
       setOrderItems(itemsMap);
       setReceptions(receptionsMap);

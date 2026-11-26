@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useProfile } from '@/hooks/useHotel';
 import {
@@ -51,12 +51,23 @@ export default function HotelExpensesPage() {
     notes: '',
   });
 
+  // ✅ CACHE : éviter de recharger si données < 30s
+  const cacheRef = useRef<{ data: any[]; timestamp: number } | null>(null);
+
   useEffect(() => {
     if (siteId) loadExpenses();
   }, [siteId]);
 
-  const loadExpenses = async () => {
+  const loadExpenses = async (forceRefresh = false) => {
     if (!siteId) return;
+    
+    // ✅ Vérifier le cache
+    const now = Date.now();
+    if (!forceRefresh && cacheRef.current && (now - cacheRef.current.timestamp) < 30000) {
+      setExpenses(cacheRef.current.data);
+      return;
+    }
+
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -66,6 +77,9 @@ export default function HotelExpensesPage() {
         .order('created_at', { ascending: false });
       
       if (error) throw error;
+      
+      // ✅ Sauvegarder dans le cache
+      cacheRef.current = { data: data || [], timestamp: now };
       setExpenses(data || []);
     } catch (err: any) {
       console.error('Erreur chargement:', err);
@@ -83,18 +97,18 @@ export default function HotelExpensesPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const payload: any = {
-  site_id: siteId,
-  category: formData.category,
-  title: formData.title,
-  supplier_name: formData.supplier_name || null,
-  description: formData.description || null,
-  estimated_amount: Number(formData.estimated_amount) || 0,
-  actual_amount: Number(formData.actual_amount) || 0,
-  status: formData.status,
-  payment_method: formData.payment_method || null,
-  invoice_number: formData.invoice_number || null,
-  notes: formData.notes || null,
-};
+        site_id: siteId,
+        category: formData.category,
+        title: formData.title,
+        supplier_name: formData.supplier_name || null,
+        description: formData.description || null,
+        estimated_amount: Number(formData.estimated_amount) || 0,
+        actual_amount: Number(formData.actual_amount) || 0,
+        status: formData.status,
+        payment_method: formData.payment_method || null,
+        invoice_number: formData.invoice_number || null,
+        notes: formData.notes || null,
+      };
 
       if (editingExpense) {
         const { error } = await supabase.from('hotel_expenses').update(payload).eq('id', editingExpense.id);
@@ -105,7 +119,6 @@ export default function HotelExpensesPage() {
         if (error) throw error;
       }
 
-      // Si on passe à "Payée", créer automatiquement une transaction en caisse
       if (formData.status === 'PAID' && (!editingExpense || editingExpense.status !== 'PAID')) {
         await supabase.from('cash_transactions').insert({
           site_id: siteId,
@@ -127,7 +140,7 @@ export default function HotelExpensesPage() {
       setShowModal(false);
       setEditingExpense(null);
       resetForm();
-      await loadExpenses();
+      await loadExpenses(true); // ✅ Force refresh après modification
     } catch (err: any) {
       alert(`Erreur: ${err.message}`);
     }
@@ -140,7 +153,7 @@ export default function HotelExpensesPage() {
     try {
       const { error } = await supabase.from('hotel_expenses').delete().eq('id', id);
       if (error) throw error;
-      await loadExpenses();
+      await loadExpenses(true);
     } catch (err: any) {
       alert(`Erreur: ${err.message}`);
     }
@@ -182,7 +195,6 @@ export default function HotelExpensesPage() {
 
   return (
     <div className="p-6 space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -199,7 +211,6 @@ export default function HotelExpensesPage() {
         </button>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
           <div className="text-xs font-medium text-slate-600 mb-1">Total général</div>
@@ -213,9 +224,8 @@ export default function HotelExpensesPage() {
           <div className="text-xs font-medium text-emerald-700 mb-1">Déjà payées</div>
           <div className="text-2xl font-bold text-emerald-900">{formatFCFA(stats.paid)}</div>
         </div>
-        </div>
+      </div>
 
-      {/* Onglets et Filtres */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div className="flex gap-2">
           {(['all', 'pending', 'paid'] as const).map(tab => (
@@ -252,7 +262,6 @@ export default function HotelExpensesPage() {
         </div>
       </div>
 
-      {/* Tableau des dépenses */}
       {loading ? (
         <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 text-red-600 animate-spin" /></div>
       ) : filteredExpenses.length === 0 ? (
@@ -346,7 +355,6 @@ export default function HotelExpensesPage() {
         </div>
       )}
 
-      {/* Modal Formulaire */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -380,7 +388,7 @@ export default function HotelExpensesPage() {
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                   >
                     {Object.entries(statusConfig).map(([key, val]) => (
-                      <option key={key} value={key}>{val.icon && <val.icon className="w-3 h-3 inline mr-1"/>} {val.label}</option>
+                      <option key={key} value={key}>{val.label}</option>
                     ))}
                   </select>
                 </div>

@@ -241,43 +241,55 @@ export default function CaissePage() {
     }
   };
 
-  const loadAll = async () => {
-    // Charger les commandes
-    const { data: o } = await supabase.from('restaurant_orders')
+const loadAll = async () => {
+  // ✅ CHARGEMENT PARALLÈLE
+  const [ordersRes, sessionRes] = await Promise.all([
+    supabase.from('restaurant_orders')
       .select(`*, restaurant_tables(number), rooms(number), restaurant_order_items(item_name, quantity, unit_price, total_price)`)
       .eq('site_id', siteId)
       .in('status', ['DRAFT','SENT','PREPARING','READY','SERVED'])
-      .order('created_at', { ascending: false });
-    setOrders(o || []);
+      .order('created_at', { ascending: false }),
+    supabase.from('cash_sessions')
+      .select('*')
+      .eq('site_id', siteId)
+      .eq('status', 'OPEN')
+      .order('opened_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  ]);
 
-    // ✅ CHARGER LES PAIEMENTS DE LA SESSION ACTIVE (pas tous les paiements)
-    if (session) {
-      const { data: p } = await supabase.from('restaurant_payments')
-        .select(`
-          *, 
-          restaurant_orders(order_number, table_id, room_id, restaurant_tables(number), rooms(number))
-        `)
-        .eq('session_id', session.id)
-        .order('paid_at', { ascending: false });
-      setSessionPayments(p || []);
-      
-      // Pour l'historique global, charger seulement les paiements récents
-      const { data: recentP } = await supabase.from('restaurant_payments')
+  setOrders(ordersRes.data || []);
+  const currentSession = sessionRes.data || null;
+  setSession(currentSession);
+
+  if (currentSession) {
+    // ✅ 2 requêtes parallèles pour les paiements
+    const [sessionPayRes, recentPayRes] = await Promise.all([
+      supabase.from('restaurant_payments')
+        .select(`*, restaurant_orders(order_number, table_id, room_id, restaurant_tables(number), rooms(number))`)
+        .eq('session_id', currentSession.id)
+        .order('paid_at', { ascending: false }),
+      supabase.from('restaurant_payments')
         .select('*, restaurant_orders(order_number)')
         .eq('site_id', siteId)
-        .gte('paid_at', new Date(Date.now() - 7 * 86400000).toISOString()) // 7 derniers jours
+        .gte('paid_at', new Date(Date.now() - 7 * 86400000).toISOString())
         .order('paid_at', { ascending: false })
-        .limit(200);
-      setPayments(recentP || []);
-    } else {
-      setSessionPayments([]);
-      setPayments([]);
-    }
+        .limit(200)
+    ]);
     
-    await loadActiveStays();
-    await loadSession(); // Recharger la session au cas où elle a changé
-    await loadSessionExpenses();
-  };
+    setSessionPayments(sessionPayRes.data || []);
+    setPayments(recentPayRes.data || []);
+  } else {
+    setSessionPayments([]);
+    setPayments([]);
+  }
+
+  // ✅ 2 dernières requêtes parallèles
+  await Promise.all([
+    loadActiveStays(),
+    loadSessionExpenses()
+  ]);
+};
 
   const reconcileOrder = async (orderId: string) => {
     if (!confirm('Confirmer la réconciliation de cette commande avec la caisse réception ?')) return;

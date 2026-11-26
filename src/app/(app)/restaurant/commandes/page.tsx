@@ -148,17 +148,20 @@ export default function CommandesPage() {
   }, []);
 
   useEffect(() => {
-    if (siteId) {
-      loadOrders();
-      loadTables();
-      loadRooms();
-      loadMenu();
-      loadEmployees();
-      loadSupplements();
-      loadOccupiedRooms();
-      loadHotelInfo();
-    }
-  }, [siteId, editingOrderId]);
+  if (siteId) {
+    // ✅ CHARGEMENT PARALLÈLE DE TOUTES LES DONNÉES
+    Promise.all([
+      loadOrders(),
+      loadTables(),
+      loadRooms(),
+      loadMenu(),
+      loadEmployees(),
+      loadSupplements(),
+      loadOccupiedRooms(),
+      loadHotelInfo()
+    ]).catch(err => console.error('Erreur chargement initial:', err));
+  }
+}, [siteId, editingOrderId]);
 
     // Ajoutez ce useEffect juste après vos autres useEffect existants
   useEffect(() => {
@@ -278,40 +281,35 @@ const loadHotelInfo = async () => {
     }
   };
 
+
 const loadMenu = async () => {
   try {
-    // 1. Charger les articles du menu AVEC les champs de consommation
-    const { data: menuData, error: menuError } = await supabase
-      .from('restaurant_items')
-      .select(`id, name, restaurant_categories(name), price, destination, is_available, sale_type, servings_per_bottle, current_servings`)
-      .eq('site_id', siteId)
-      .eq('is_available', true)
-      .order('name');
+    // ✅ 3 REQUÊTES PARALLÈLES AU LIEU DE 3 SÉQUENTIELLES
+    const [menuRes, recipesRes, stockRes] = await Promise.all([
+      supabase.from('restaurant_items')
+        .select(`id, name, restaurant_categories(name), price, destination, is_available, sale_type, servings_per_bottle, current_servings`)
+        .eq('site_id', siteId)
+        .eq('is_available', true)
+        .order('name'),
+      supabase.from('item_recipes')
+        .select('menu_item_id, stock_item_id, quantity')
+        .eq('site_id', siteId),
+      supabase.from('stock_items')
+        .select('id, name, current_stock, unit')
+        .eq('site_id', siteId)
+    ]);
 
-    if (menuError) throw menuError;
-    if (!menuData || menuData.length === 0) { setMenuItems([]); return; }
-
-    // 2. Charger les fiches techniques et le stock physique
-    const { data: allRecipes } = await supabase
-      .from('item_recipes')
-      .select('menu_item_id, stock_item_id, quantity')
-      .eq('site_id', siteId);
-
-    const { data: allStockItems } = await supabase
-      .from('stock_items')
-      .select('id, name, current_stock, unit')
-      .eq('site_id', siteId);
+    const menuData = menuRes.data || [];
+    if (menuData.length === 0) { setMenuItems([]); return; }
 
     const stockMap = new Map();
-    allStockItems?.forEach(stock => {
+    (stockRes.data || []).forEach(stock => {
       stockMap.set(stock.id, { current_stock: Number(stock.current_stock) || 0, unit: stock.unit });
     });
 
-    // 3. Calculer le stock réel disponible (Verres ouverts + Bouteilles physiques)
     const menuItemsWithStock = menuData.map(menuItem => {
-      const itemRecipes = allRecipes?.filter(r => r.menu_item_id === menuItem.id) || [];
-
-      // Cas 1 : Pas de fiche technique = Indisponible
+      const itemRecipes = (recipesRes.data || []).filter(r => r.menu_item_id === menuItem.id);
+      
       if (itemRecipes.length === 0) {
         return {
           id: menuItem.id,
@@ -324,12 +322,10 @@ const loadMenu = async () => {
         };
       }
 
-      // Cas 2 : Article "À LA CONSOMMATION" (Logique hybride)
       if (menuItem.sale_type === 'consumption') {
         const servingsLeft = Number(menuItem.current_servings) || 0;
-        
-        // Calculer combien de bouteilles PHYSIQUES sont encore disponibles
         let physicalBottlesAvailable = Infinity;
+        
         for (const recipe of itemRecipes) {
           const stockInfo = stockMap.get(recipe.stock_item_id);
           if (!stockInfo) { physicalBottlesAvailable = 0; break; }
@@ -338,7 +334,6 @@ const loadMenu = async () => {
           if (bottlesFromThisStock < physicalBottlesAvailable) physicalBottlesAvailable = bottlesFromThisStock;
         }
 
-        // Stock total = Verres déjà ouverts + (Bouteilles physiques × Nb verres par bouteille)
         const totalAvailableServings = servingsLeft + (physicalBottlesAvailable * (Number(menuItem.servings_per_bottle) || 1));
         
         return {
@@ -347,12 +342,11 @@ const loadMenu = async () => {
           category: (menuItem as any).restaurant_categories?.name || 'Autres',
           price: menuItem.price,
           destination: menuItem.destination || undefined,
-          stock: Math.max(0, totalAvailableServings), // ✅ C'est ici que la magie opère
+          stock: Math.max(0, totalAvailableServings),
           stockManaged: true
         };
       }
 
-      // Cas 3 : Article NORMAL (Bouteille entière / Cuisine) -> Logique existante
       let maxPossibleStock = Infinity;
       let hasValidStock = true;
       for (const recipe of itemRecipes) {

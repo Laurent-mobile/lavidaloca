@@ -117,208 +117,184 @@ export default function RapportsDetaillesPage() {
     }
   }, [siteId, startDate, endDate]);
 
-  const loadAllData = async () => {
-    setLoading(true);
-    try {
-      const startDateISO = `${startDate}T00:00:00`;
-      const endDateISO = `${endDate}T23:59:59`;
+const loadAllData = async () => {
+  setLoading(true);
+  try {
+    const startDateISO = `${startDate}T00:00:00`;
+    const endDateISO = `${endDate}T23:59:59`;
 
-      // 1. Ventes
-      const { data: allVentes } = await supabase
-        .from('restaurant_orders')
+    // ✅ 5 REQUÊTES PARALLÈLES AU LIEU DE 6 SÉQUENTIELLES
+    const [ventesRes, expCourantesRes, expFixesRes, suppOrdersRes, suppPaymentsRes] = await Promise.all([
+      supabase.from('restaurant_orders')
         .select(`*, restaurant_tables(number), restaurant_employees(first_name, last_name)`)
         .eq('site_id', siteId)
         .eq('status', 'PAID')
         .gte('created_at', startDateISO)
         .lte('created_at', endDateISO)
         .order('created_at', { ascending: false })
-        .limit(5000);
-
-      const totalVentes = allVentes?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0;
-      setVentes(allVentes || []);
-
-      // 2. Dépenses courantes
-      const { data: expensesCourantes } = await supabase
-        .from('expenses')
+        .limit(5000),
+      supabase.from('expenses')
         .select('*')
         .eq('site_id', siteId)
         .eq('type', 'COURANTE')
         .gte('date', startDate)
         .lte('date', endDate)
-        .limit(5000);
-
-      const depensesCourantesTotal = expensesCourantes?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
-      setDepensesCourantes(expensesCourantes || []);
-
-      // 3. Dépenses fixes
-      const { data: expensesFixes } = await supabase
-        .from('expenses')
+        .limit(5000),
+      supabase.from('expenses')
         .select('*')
         .eq('site_id', siteId)
         .eq('type', 'FIXE')
         .gte('date', startDate)
         .lte('date', endDate)
-        .limit(5000);
-
-      const depensesFixesTotal = expensesFixes?.reduce((sum, e) => sum + (e.amount || 0), 0) || 0;
-      setDepensesFixes(expensesFixes || []);
-
-      // 4. Commandes fournisseurs
-      const { data: supplierOrders } = await supabase
-        .from('supplier_orders')
+        .limit(5000),
+      supabase.from('supplier_orders')
         .select('*, suppliers(name)')
         .eq('site_id', siteId)
         .gte('order_date', startDate)
         .lte('order_date', endDate)
-        .limit(5000);
-
-      const commandesFournisseursTotal = supplierOrders?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0;
-      setCommandesFournisseurs(supplierOrders || []);
-
-      // 5. Paiements fournisseurs
-      const { data: supplierPayments } = await supabase
-        .from('supplier_payments')
+        .limit(5000),
+      supabase.from('supplier_payments')
         .select('*, suppliers(name)')
         .eq('site_id', siteId)
         .gte('paid_at', startDateISO)
         .lte('paid_at', endDateISO)
-        .limit(5000);
+        .limit(5000)
+    ]);
 
-      const paiementsFournisseursTotal = supplierPayments?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
-      setPaiementsFournisseurs(supplierPayments || []);
+    const allVentes = ventesRes.data || [];
+    const expensesCourantes = expCourantesRes.data || [];
+    const expensesFixes = expFixesRes.data || [];
+    const supplierOrders = suppOrdersRes.data || [];
+    const supplierPayments = suppPaymentsRes.data || [];
 
-          // 6. Cuisine & Bar — SANS jointure inverse (100% robuste)
-      const orderIds = (allVentes || []).map(o => o.id);
-      let cbDetailed: any[] = [];
+    // Calculs
+    const totalVentes = allVentes.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+    const depensesCourantesTotal = expensesCourantes.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const depensesFixesTotal = expensesFixes.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const commandesFournisseursTotal = supplierOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+    const paiementsFournisseursTotal = supplierPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-      if (orderIds.length > 0) {
-        // 6a. Items de ces commandes (select simple, aucune jointure)
-        const { data: items, error: itemsErr } = await supabase
-          .from('restaurant_order_items')
-          .select('id, item_name, quantity, unit_price, total_price, destination, menu_item_id')
-          .in('order_id', orderIds);
+    setVentes(allVentes);
+    setDepensesCourantes(expensesCourantes);
+    setDepensesFixes(expensesFixes);
+    setCommandesFournisseurs(supplierOrders);
+    setPaiementsFournisseurs(supplierPayments);
 
-        if (itemsErr) console.error('Erreur items cuisine-bar:', itemsErr);
+    // ✅ Cuisine & Bar - optimisé
+    const orderIds = allVentes.map(o => o.id);
+    let cbDetailed: any[] = [];
+    
+    if (orderIds.length > 0) {
+      const { data: items } = await supabase
+        .from('restaurant_order_items')
+        .select('id, item_name, quantity, unit_price, total_price, destination, menu_item_id')
+        .in('order_id', orderIds);
 
-        // 6b. Map commande → infos (réutilise allVentes déjà chargé avec succès)
-        const orderMap: Record<string, any> = {};
-        (allVentes || []).forEach(o => { orderMap[o.id] = o; });
+      const orderMap: Record<string, any> = {};
+      allVentes.forEach(o => { orderMap[o.id] = o; });
 
-        // 6c. Catégories via restaurant_items (seule jointure nécessaire, très légère)
-        const menuIds = [...new Set((items || []).map((it: any) => it.menu_item_id).filter(Boolean))];
-        const catMap: Record<string, string> = {};
-        if (menuIds.length > 0) {
-          const { data: riData } = await supabase
-            .from('restaurant_items')
-            .select('id, restaurant_categories(name)')
-            .in('id', menuIds);
-          (riData || []).forEach((r: any) => {
-            const rc = Array.isArray(r.restaurant_categories) ? r.restaurant_categories[0] : r.restaurant_categories;
-            catMap[r.id] = rc?.name || '—';
-          });
-        }
-
-        // 6d. Construction des données
-        let totalAll = 0, totalQtyAll = 0, cuisineTotal = 0, cuisineQty = 0, barTotal = 0, barQty = 0;
-        const seen = new Set<string>();
-
-        (items || []).forEach((it: any) => {
-          const order = orderMap[it.order_id];
-          if (!order) return; // Sécurité
-          
-          const category = it.menu_item_id ? (catMap[it.menu_item_id] || '—') : '—';
-          const type = (it.destination || '').toUpperCase() === 'BAR' ? 'Bar' : 'Cuisine';
-
-          const qty = Number(it.quantity) || 0;
-          const amount = Number(it.total_price) || 0;
-          
-          totalAll += amount; totalQtyAll += qty;
-          if (type === 'Bar') { barTotal += amount; barQty += qty; } 
-          else { cuisineTotal += amount; cuisineQty += qty; }
-          
-          seen.add(it.item_name);
-
-          cbDetailed.push({
-            id: it.id, name: it.item_name, category, type, qty,
-            unitPrice: Number(it.unit_price) || 0, total: amount,
-            orderNumber: order.order_number || '-',
-            table: order.restaurant_tables?.number || (order.order_type === 'TAKEAWAY' ? 'À emporter' : '—'),
-            server: order.restaurant_employees
-              ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}` : '—',
-            date: order.created_at
-          });
+      const menuIds = [...new Set((items || []).map((it: any) => it.menu_item_id).filter(Boolean))];
+      const catMap: Record<string, string> = {};
+      
+      if (menuIds.length > 0) {
+        const { data: riData } = await supabase
+          .from('restaurant_items')
+          .select('id, restaurant_categories(name)')
+          .in('id', menuIds);
+        (riData || []).forEach((r: any) => {
+          const rc = Array.isArray(r.restaurant_categories) ? r.restaurant_categories[0] : r.restaurant_categories;
+          catMap[r.id] = rc?.name || '—';
         });
-
-        // 6e. Agrégation pour le Résumé
-        const agg: Record<string, { qty: number; total: number; unitPrice: number; category: string; type: string }> = {};
-        cbDetailed.forEach(it => {
-          if (!agg[it.name]) agg[it.name] = { qty: 0, total: 0, unitPrice: it.unitPrice, category: it.category, type: it.type };
-          agg[it.name].qty += it.qty; agg[it.name].total += it.total;
-        });
-        const cbAggregated = Object.entries(agg).map(([name, d]) => ({ name, ...d })).sort((a, b) => b.total - a.total);
-        setCbSummary(cbAggregated);
-
-        setCbStats({
-          total: totalAll, totalQty: totalQtyAll, totalArticles: seen.size,
-          cuisine: cuisineTotal, cuisineQty, cuisineArticles: cbAggregated.filter(i => i.type === 'Cuisine').length,
-          bar: barTotal, barQty, barArticles: cbAggregated.filter(i => i.type === 'Bar').length
-        });
-      } else {
-        setCbItems([]); setCbSummary([]);
-        setCbStats({ total: 0, totalQty: 0, totalArticles: 0, cuisine: 0, cuisineQty: 0, cuisineArticles: 0, bar: 0, barQty: 0, barArticles: 0 });
       }
-      setCbItems(cbDetailed);
 
-      // Calcul des stats globales
-      const totalDepenses = depensesCourantesTotal + depensesFixesTotal + paiementsFournisseursTotal;
-      const profitNet = totalVentes - totalDepenses;
-      const margeBeneficiaire = totalVentes > 0 ? (profitNet / totalVentes) * 100 : 0;
-
-      setStats({
-        totalVentes,
-        countVentes: allVentes?.length || 0,
-        totalDepenses,
-        depensesCourantes: depensesCourantesTotal,
-        countDepensesCourantes: expensesCourantes?.length || 0,
-        depensesFixes: depensesFixesTotal,
-        countDepensesFixes: expensesFixes?.length || 0,
-        paiementsFournisseurs: paiementsFournisseursTotal,
-        countPaiementsFournisseurs: supplierPayments?.length || 0,
-        commandesFournisseurs: commandesFournisseursTotal,
-        countCommandesFournisseurs: supplierOrders?.length || 0,
-        profitNet,
-        margeBeneficiaire
+      let totalAll = 0, totalQtyAll = 0, cuisineTotal = 0, cuisineQty = 0, barTotal = 0, barQty = 0;
+      const seen = new Set<string>();
+      
+      (items || []).forEach((it: any) => {
+        const order = orderMap[it.order_id];
+        if (!order) return;
+        const category = it.menu_item_id ? (catMap[it.menu_item_id] || '—') : '—';
+        const type = (it.destination || '').toUpperCase() === 'BAR' ? 'Bar' : 'Cuisine';
+        const qty = Number(it.quantity) || 0;
+        const amount = Number(it.total_price) || 0;
+        
+        totalAll += amount; totalQtyAll += qty;
+        if (type === 'Bar') { barTotal += amount; barQty += qty; }
+        else { cuisineTotal += amount; cuisineQty += qty; }
+        seen.add(it.item_name);
+        
+        cbDetailed.push({
+          id: it.id, name: it.item_name, category, type, qty,
+          unitPrice: Number(it.unit_price) || 0, total: amount,
+          orderNumber: order.order_number || '-',
+          table: order.restaurant_tables?.number || (order.order_type === 'TAKEAWAY' ? 'À emporter' : '—'),
+          server: order.restaurant_employees
+            ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}` : '—',
+          date: order.created_at
+        });
       });
 
-      setExpenseSummary({
-        current: depensesCourantesTotal,
-        fixed: depensesFixesTotal,
-        supplierPayments: paiementsFournisseursTotal,
-        total: totalDepenses
+      const agg: Record<string, any> = {};
+      cbDetailed.forEach(it => {
+        if (!agg[it.name]) agg[it.name] = { qty: 0, total: 0, unitPrice: it.unitPrice, category: it.category, type: it.type };
+        agg[it.name].qty += it.qty; agg[it.name].total += it.total;
       });
-
-      setExpenseCounts({
-        current: expensesCourantes?.length || 0,
-        fixed: expensesFixes?.length || 0,
-        supplier: supplierPayments?.length || 0
+      const cbAggregated = Object.entries(agg).map(([name, d]) => ({ name, ...d })).sort((a, b) => b.total - a.total);
+      
+      setCbSummary(cbAggregated);
+      setCbStats({
+        total: totalAll, totalQty: totalQtyAll, totalArticles: seen.size,
+        cuisine: cuisineTotal, cuisineQty, cuisineArticles: cbAggregated.filter(i => i.type === 'Cuisine').length,
+        bar: barTotal, barQty, barArticles: cbAggregated.filter(i => i.type === 'Bar').length
       });
-
-      const paidOrders = supplierOrders?.filter(o => ['PAYÉ', 'PAID'].includes(o.payment_status)) || [];
-      const partialOrders = supplierOrders?.filter(o => ['PARTIEL', 'PARTIAL'].includes(o.payment_status)) || [];
-      const unpaidOrders = supplierOrders?.filter(o => !['PAYÉ', 'PAID', 'PARTIEL', 'PARTIAL'].includes(o.payment_status || '')) || [];
-
-      setSupplierOrderStatus({
-        paid: { count: paidOrders.length, amount: paidOrders.reduce((s, o) => s + (o.total_amount || 0), 0) },
-        partial: { count: partialOrders.length, amount: partialOrders.reduce((s, o) => s + (o.total_amount || 0), 0) },
-        unpaid: { count: unpaidOrders.length, amount: unpaidOrders.reduce((s, o) => s + (o.total_amount || 0), 0) }
-      });
-
-    } catch (error) {
-      console.error('Erreur chargement données:', error);
-    } finally {
-      setLoading(false);
+    } else {
+      setCbItems([]); setCbSummary([]);
+      setCbStats({ total: 0, totalQty: 0, totalArticles: 0, cuisine: 0, cuisineQty: 0, cuisineArticles: 0, bar: 0, barQty: 0, barArticles: 0 });
     }
-  };
+    setCbItems(cbDetailed);
+
+    const totalDepenses = depensesCourantesTotal + depensesFixesTotal + paiementsFournisseursTotal;
+    const profitNet = totalVentes - totalDepenses;
+    const margeBeneficiaire = totalVentes > 0 ? (profitNet / totalVentes) * 100 : 0;
+
+    setStats({
+      totalVentes, countVentes: allVentes.length,
+      totalDepenses,
+      depensesCourantes: depensesCourantesTotal, countDepensesCourantes: expensesCourantes.length,
+      depensesFixes: depensesFixesTotal, countDepensesFixes: expensesFixes.length,
+      paiementsFournisseurs: paiementsFournisseursTotal, countPaiementsFournisseurs: supplierPayments.length,
+      commandesFournisseurs: commandesFournisseursTotal, countCommandesFournisseurs: supplierOrders.length,
+      profitNet, margeBeneficiaire
+    });
+
+    setExpenseSummary({
+      current: depensesCourantesTotal,
+      fixed: depensesFixesTotal,
+      supplierPayments: paiementsFournisseursTotal,
+      total: totalDepenses
+    });
+
+    setExpenseCounts({
+      current: expensesCourantes.length,
+      fixed: expensesFixes.length,
+      supplier: supplierPayments.length
+    });
+
+    const paidOrders = supplierOrders.filter(o => ['PAYÉ', 'PAID'].includes(o.payment_status));
+    const partialOrders = supplierOrders.filter(o => ['PARTIEL', 'PARTIAL'].includes(o.payment_status));
+    const unpaidOrders = supplierOrders.filter(o => !['PAYÉ', 'PAID', 'PARTIEL', 'PARTIAL'].includes(o.payment_status || ''));
+    
+    setSupplierOrderStatus({
+      paid: { count: paidOrders.length, amount: paidOrders.reduce((s, o) => s + (o.total_amount || 0), 0) },
+      partial: { count: partialOrders.length, amount: partialOrders.reduce((s, o) => s + (o.total_amount || 0), 0) },
+      unpaid: { count: unpaidOrders.length, amount: unpaidOrders.reduce((s, o) => s + (o.total_amount || 0), 0) }
+    });
+  } catch (error) {
+    console.error('Erreur chargement données:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const loadPaymentMethods = async () => {
     const startDateISO = `${startDate}T00:00:00`;
