@@ -89,6 +89,12 @@ export default function RoomServicePage() {
   // ✅ CACHE pour éviter de recharger le menu à chaque changement de tab
   const menuCacheRef = useRef<{ data: MenuItem[]; categories: any[]; timestamp: number } | null>(null);
 
+  // ✅ Helper pour gérer les relations Supabase (objet OU tableau)
+const pick = <T,>(rel: T | T[] | null | undefined): T | null => {
+  if (!rel) return null;
+  return Array.isArray(rel) ? rel[0] : rel;
+};
+
   useEffect(() => {
     if (siteId) {
       // ✅ CHARGEMENT PARALLÈLE (5 requêtes en même temps au lieu de séquentiel)
@@ -181,125 +187,150 @@ export default function RoomServicePage() {
     }
   };
 
-  const loadOccupiedRooms = async () => {
-    try {
-      // ✅ JOIN direct au lieu de requêtes séparées
-      const { data, error } = await supabase
-        .from('rooms')
-        .select(`
-          id, number, 
-          stays!inner(id, folio_balance, customers(first_name, last_name))
-        `)
-        .eq('site_id', siteId)
-        .eq('status', 'OCCUPIED')
-        .eq('stays.status', 'IN_HOUSE')
-        .order('number', { ascending: true });
+const loadOccupiedRooms = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('rooms')
+      .select(`
+        id, number, 
+        stays!inner(id, folio_balance, customers(first_name, last_name))
+      `)
+      .eq('site_id', siteId)
+      .eq('status', 'OCCUPIED')
+      .eq('stays.status', 'IN_HOUSE')
+      .order('number', { ascending: true });
 
-      if (error) {
-        console.error('❌ Erreur chargement chambres:', error);
-        setOccupiedRooms([]);
-        return;
-      }
+    if (error) {
+      console.error('❌ Erreur chargement chambres:', error);
+      setOccupiedRooms([]);
+      return;
+    }
 
-      const formatted = (data || []).map((room: any) => {
-        const stay = room.stays;
-        const customer = stay?.customers;
+    const formatted = (data || []).map((room: any) => {
+      // ✅ stays est un tableau à cause de !inner
+      const stay = Array.isArray(room.stays) ? room.stays[0] : room.stays;
+      const customer = stay?.customers 
+        ? (Array.isArray(stay.customers) ? stay.customers[0] : stay.customers)
+        : null;
+      
+      return {
+        id: stay?.id || room.id,
+        room_id: room.id,
+        room_number: room.number,
+        folio_balance: stay?.folio_balance || 0,
+        has_stay: !!stay,
+        rooms: { id: room.id, number: room.number },
+        customers: customer 
+          ? { first_name: customer.first_name || '', last_name: customer.last_name || '' }
+          : { first_name: 'Client', last_name: 'Inconnu' }
+      };
+    });
+
+    setOccupiedRooms(formatted);
+  } catch (error: any) {
+    console.error('❌ Erreur chargement chambres:', error?.message || error);
+    setOccupiedRooms([]);
+  }
+};
+
+const loadPendingOrders = async () => {
+  try {
+    const { data } = await supabase
+      .from('restaurant_orders')
+      .select(`
+        id, order_number, order_type, stay_id, room_id, total_amount, status, created_at, server_id,
+        restaurant_order_items(id, item_name, quantity, unit_price, total_price),
+        rooms!room_id(number),
+        stays!stay_id(customer_id, customers!customer_id(first_name, last_name)),
+        restaurant_employees!server_id(first_name, last_name)
+      `)
+      .eq('site_id', siteId)
+      .in('status', ['ROOM_CHARGE', 'SENT', 'READY', 'SERVED'])
+      .order('created_at', { ascending: false });
+
+    // ✅ Filtrage et formatage avec gestion correcte des tableaux
+    const formatted: RoomServiceOrder[] = (data || [])
+      .filter(o => o.stay_id || o.room_id)
+      .map(order => {
+        // ✅ rooms est un tableau
+        const room = Array.isArray(order.rooms) ? order.rooms[0] : order.rooms;
         
+        // ✅ stays est un tableau, et customers à l'intérieur aussi
+        const stay = Array.isArray(order.stays) ? order.stays[0] : order.stays;
+        const customer = stay?.customers 
+          ? (Array.isArray(stay.customers) ? stay.customers[0] : stay.customers)
+          : null;
+        
+        // ✅ restaurant_employees est un tableau
+        const employee = Array.isArray(order.restaurant_employees) 
+          ? order.restaurant_employees[0] 
+          : order.restaurant_employees;
+
         return {
-          id: stay?.id || room.id,
-          room_id: room.id,
-          room_number: room.number,
-          folio_balance: stay?.folio_balance || 0,
-          has_stay: !!stay,
-          rooms: { id: room.id, number: room.number },
-          customers: customer 
-            ? { first_name: customer.first_name || '', last_name: customer.last_name || '' }
-            : { first_name: 'Client', last_name: 'Inconnu' }
+          ...order,
+          room_number: room?.number || '—',
+          customer_name: customer 
+            ? `${customer.last_name || ''} ${customer.first_name || ''}`.trim() || 'Client'
+            : 'Client',
+          server_name: employee 
+            ? `${employee.first_name} ${employee.last_name}`
+            : '—',
+          items: order.restaurant_order_items || []
         };
       });
 
-      setOccupiedRooms(formatted);
-    } catch (error: any) {
-      console.error('❌ Erreur chargement chambres:', error?.message || error);
-      setOccupiedRooms([]);
-    }
-  };
+    setPendingOrders(formatted);
+  } catch (err) {
+    console.error('Erreur chargement commandes:', err);
+  }
+};
 
-  const loadPendingOrders = async () => {
-    try {
-      // ✅ Requête avec JOIN pour éviter les N+1
-      const { data } = await supabase
-        .from('restaurant_orders')
-        .select(`
-          id, order_number, order_type, stay_id, room_id, total_amount, status, created_at, server_id,
-          restaurant_order_items(id, item_name, quantity, unit_price, total_price),
-          rooms!room_id(number),
-          stays!stay_id(customer_id, customers!customer_id(first_name, last_name)),
-          restaurant_employees!server_id(first_name, last_name)
-        `)
-        .eq('site_id', siteId)
-        .in('status', ['ROOM_CHARGE', 'SENT', 'READY', 'SERVED'])
-        .order('created_at', { ascending: false });
+const loadPaidOrders = async () => {
+  try {
+    const startOfDay = new Date(startDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(endDate);
+    endOfDay.setHours(23, 59, 59, 999);
 
-      // ✅ Filtrage et formatage SANS requêtes supplémentaires
-      const formatted: RoomServiceOrder[] = (data || [])
-        .filter(o => o.stay_id || o.room_id)
-        .map(order => ({
+    const { data } = await supabase
+      .from('restaurant_orders')
+      .select(`
+        id, order_number, order_type, stay_id, room_id, total_amount, status, created_at, paid_at, server_id,
+        restaurant_order_items(id, item_name, quantity, unit_price, total_price),
+        rooms!room_id(number),
+        stays!stay_id(customer_id, customers!customer_id(first_name, last_name))
+      `)
+      .eq('site_id', siteId)
+      .eq('status', 'PAID')
+      .gte('paid_at', startOfDay.toISOString())
+      .lte('paid_at', endOfDay.toISOString())
+      .order('paid_at', { ascending: false });
+
+    const formatted: RoomServiceOrder[] = (data || [])
+      .filter(o => o.stay_id || o.room_id)
+      .map(order => {
+        // ✅ Gestion correcte des tableaux
+        const room = Array.isArray(order.rooms) ? order.rooms[0] : order.rooms;
+        const stay = Array.isArray(order.stays) ? order.stays[0] : order.stays;
+        const customer = stay?.customers 
+          ? (Array.isArray(stay.customers) ? stay.customers[0] : stay.customers)
+          : null;
+
+        return {
           ...order,
-          room_number: order.rooms?.number || '—',
-          customer_name: order.stays?.customers 
-            ? `${order.stays.customers.last_name || ''} ${order.stays.customers.first_name || ''}`.trim() || 'Client'
-            : 'Client',
-          server_name: order.restaurant_employees 
-            ? `${order.restaurant_employees.first_name} ${order.restaurant_employees.last_name}`
-            : '—',
-          items: order.restaurant_order_items || []
-        }));
-
-      setPendingOrders(formatted);
-    } catch (err) {
-      console.error('Erreur chargement commandes:', err);
-    }
-  };
-
-  const loadPaidOrders = async () => {
-    try {
-      const startOfDay = new Date(startDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(endDate);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      // ✅ Requête avec JOIN
-      const { data } = await supabase
-        .from('restaurant_orders')
-        .select(`
-          id, order_number, order_type, stay_id, room_id, total_amount, status, created_at, paid_at, server_id,
-          restaurant_order_items(id, item_name, quantity, unit_price, total_price),
-          rooms!room_id(number),
-          stays!stay_id(customer_id, customers!customer_id(first_name, last_name))
-        `)
-        .eq('site_id', siteId)
-        .eq('status', 'PAID')
-        .gte('paid_at', startOfDay.toISOString())
-        .lte('paid_at', endOfDay.toISOString())
-        .order('paid_at', { ascending: false });
-
-      const formatted: RoomServiceOrder[] = (data || [])
-        .filter(o => o.stay_id || o.room_id)
-        .map(order => ({
-          ...order,
-          room_number: order.rooms?.number || '—',
-          customer_name: order.stays?.customers 
-            ? `${order.stays.customers.last_name || ''} ${order.stays.customers.first_name || ''}`.trim() || 'Client'
+          room_number: room?.number || '—',
+          customer_name: customer 
+            ? `${customer.last_name || ''} ${customer.first_name || ''}`.trim() || 'Client'
             : 'Client',
           items: order.restaurant_order_items || []
-        }));
+        };
+      });
 
-      setPaidOrders(formatted);
-    } catch (err) {
-      console.error('Erreur chargement historique:', err);
-    }
-  };
+    setPaidOrders(formatted);
+  } catch (err) {
+    console.error('Erreur chargement historique:', err);
+  }
+};
 
   const loadHotelInfo = async () => {
     try {
