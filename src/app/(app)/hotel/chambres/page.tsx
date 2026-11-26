@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useProfile } from '@/hooks/useHotel';
 import {
   Bed, Bath, Users, AlertCircle, Plus, Loader2,
-  Clock, LogIn, Bell, Wrench, Settings, Building2, Calendar, CheckCircle, Edit, AlertTriangle
+  Clock, LogIn, Bell, Wrench, Settings, Building2, Calendar, CheckCircle, Edit, AlertTriangle, X
 } from 'lucide-react';
 import ReservationModal from '@/components/ReservationModal';
 import RoomActionModal from '@/components/RoomActionModal';
@@ -162,6 +162,30 @@ const [editingReservation, setEditingReservation] = useState<any>(null); // ✅ 
     } catch (e) { console.error(e); }
     setSyncing(false);
   };
+
+// ✅ NOUVEAU : Annuler une réservation
+const cancelReservation = async (res: any) => {
+  if (!confirm(`⚠️ Confirmer l'annulation de la réservation ${res.number} ?\n\nClient : ${res.customers?.last_name || ''} ${res.customers?.first_name || ''}\nPériode : ${res.check_in_date} → ${res.check_out_date}\n\nCette action est irréversible.`)) return;
+  
+  try {
+    const { error } = await supabase
+      .from('reservations')
+      .update({ 
+        status: 'CANCELLED',
+        cancelled_at: new Date().toISOString(),
+        cancellation_reason: 'Annulée depuis le plan de chambres'
+      })
+      .eq('id', res.id);
+    
+    if (error) throw error;
+    
+    alert(`✅ Réservation ${res.number} annulée avec succès.`);
+    setRefreshKey(k => k + 1);
+  } catch (err: any) {
+    console.error('Erreur annulation:', err);
+    alert(`❌ Erreur : ${err.message}`);
+  }
+};
 
   // ✅ Détecte UNIQUEMENT les VRAIS chevauchements (pas les enchaînements légitimes)
   const roomsWithMultipleRes = useMemo(() => {
@@ -427,33 +451,76 @@ const [editingReservation, setEditingReservation] = useState<any>(null); // ✅ 
                   ))}
                 </div>
               )}
-                            {upcomingReservations.length === 0 ? (
-                <p className="text-xs text-slate-500 text-center py-4">Aucune réservation à venir</p>
-              ) : (
-                upcomingReservations.map((res: any) => (
-                  <div key={res.id} className="p-2 rounded-lg border border-amber-200 bg-amber-50 group">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="font-bold text-xs">{res.number}</div>
-                        <div className="text-xs">👤 {res.customers?.last_name} {res.customers?.first_name}</div>
-                        {res.rooms?.number && <div className="text-[10px] font-semibold text-amber-700">🚪 Ch. {res.rooms.number}</div>}
-                        <div className="text-[10px] text-amber-600 mt-0.5">📅 {formatDateShort(res.check_in_date)} → {formatDateShort(res.check_out_date)}</div>
-                      </div>
-                      {/* ✅ NOUVEAU : Bouton Modifier */}
-                      <button
-                        onClick={() => {
-                          setEditingReservation(res);
-                          setIsModalOpen(true);
-                        }}
-                        className="ml-2 p-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg opacity-80 group-hover:opacity-100 transition-opacity"
-                        title="Modifier la réservation"
-                      >
-                        <Edit className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                ))
+                       {upcomingReservations.length === 0 ? (
+  <p className="text-xs text-slate-500 text-center py-4">Aucune réservation à venir</p>
+) : (
+  upcomingReservations.map((res: any) => {
+    const isToday = res.check_in_date === new Date().toISOString().split('T')[0];
+    const isCheckIn = res.status === 'CHECKED_IN';
+    
+    return (
+      <div 
+        key={res.id} 
+        className={`p-2 rounded-lg border group transition-all ${
+          isToday 
+            ? 'border-indigo-300 bg-indigo-50' 
+            : 'border-amber-200 bg-amber-50'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-1">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-bold text-xs">{res.number}</span>
+              {isToday && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-600 text-white font-bold">
+                  AUJOURD'HUI
+                </span>
               )}
+              {isCheckIn && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-600 text-white font-bold">
+                  EN SÉJOUR
+                </span>
+              )}
+            </div>
+            <div className="text-xs truncate">👤 {res.customers?.last_name} {res.customers?.first_name}</div>
+            {res.rooms?.number && (
+              <div className="text-[10px] font-semibold text-amber-700">🚪 Ch. {res.rooms.number}</div>
+            )}
+            <div className="text-[10px] text-amber-600 mt-0.5">
+              📅 {formatDateShort(res.check_in_date)} → {formatDateShort(res.check_out_date)}
+            </div>
+          </div>
+          
+          {/* ✅ Boutons d'action */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {/* Bouton Modifier */}
+            <button
+              onClick={() => {
+                setEditingReservation(res);
+                setIsModalOpen(true);
+              }}
+              className="p-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg opacity-80 group-hover:opacity-100 transition-opacity"
+              title="Modifier la réservation"
+            >
+              <Edit className="w-3 h-3" />
+            </button>
+            
+            {/* ✅ Bouton Annuler (désactivé si déjà en séjour) */}
+            {!isCheckIn && (
+              <button
+                onClick={() => cancelReservation(res)}
+                className="p-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg opacity-80 group-hover:opacity-100 transition-opacity"
+                title="Annuler la réservation"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  })
+)}
             </div>
           </div>
 
