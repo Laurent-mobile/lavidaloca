@@ -6,7 +6,7 @@ import {
   Users, Clock, DollarSign, Calendar, Plus, Download,
   Search, Filter, Eye, Edit2, Trash2, CheckCircle, X,
   UserCheck, UserX, FileText, Printer, Calculator, Save,
-  Phone, Mail, Briefcase, AlertCircle
+  Phone, Mail, Briefcase, AlertCircle, TrendingUp
 } from 'lucide-react';
 import PayrollDetailModal from './components/PayrollDetailModal';
 import PayslipPreviewModal from './components/PayslipPreviewModal';
@@ -661,7 +661,400 @@ export default function GestionEmployesPage() {
       </div>
     );
   }
+// ✅ Helper pour formater les montants
+const formatMoney = (n: number) => Number(n || 0).toLocaleString('fr-FR');
 
+// ✅ NOUVEAU : État complet du personnel
+const handlePrintStaffReport = () => {
+  const reportId = `STAFF-${siteId?.slice(0, 8).toUpperCase() || 'GLOBAL'}-${Date.now().toString().slice(-6)}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_STAFF_REPORT|${reportId}|${employees.length}|${stats.monthlySalary}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+  const activeEmployees = employees.filter(e => e.is_active !== false);
+  const inactiveEmployees = employees.filter(e => e.is_active === false);
+
+  // Stats par poste
+  const byRole: Record<string, { count: number; totalSalary: number }> = {};
+  activeEmployees.forEach(emp => {
+    const role = emp.role || 'Non défini';
+    if (!byRole[role]) byRole[role] = { count: 0, totalSalary: 0 };
+    byRole[role].count += 1;
+    byRole[role].totalSalary += emp.salary || 0;
+  });
+
+  const roleRows = Object.entries(byRole)
+    .sort((a, b) => b[1].totalSalary - a[1].totalSalary)
+    .map(([role, data]) => `
+      <tr>
+        <td>${role}</td>
+        <td style="text-align:center;">${data.count}</td>
+        <td style="text-align:right; font-weight: bold;">${formatMoney(data.totalSalary)} F</td>
+        <td style="text-align:right;">${stats.monthlySalary > 0 ? ((data.totalSalary / stats.monthlySalary) * 100).toFixed(1) : 0}%</td>
+      </tr>
+    `).join('');
+
+  const employeeRows = activeEmployees.map(emp => `
+    <tr>
+      <td>${emp.first_name} ${emp.last_name}</td>
+      <td>${emp.role || '-'}</td>
+      <td>${emp.phone || '-'}</td>
+      <td>${emp.email || '-'}</td>
+      <td>${emp.hire_date ? new Date(emp.hire_date).toLocaleDateString('fr-FR') : '-'}</td>
+      <td style="text-align:right; font-weight: bold;">${formatMoney(emp.salary || 0)} F</td>
+    </tr>
+  `).join('');
+
+  const printWindow = window.open('', '_blank', 'width=1000,height=1400');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>État du Personnel - ${new Date().toLocaleDateString('fr-FR')}</title>
+      <style>
+        @page { size: A4 landscape; margin: 12mm; }
+        body { font-family: Arial, sans-serif; font-size: 10px; color: #1f2937; margin: 0; padding: 15px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #4f46e5; padding-bottom: 12px; margin-bottom: 15px; }
+        .header-left h1 { color: #4f46e5; margin: 0; font-size: 22px; }
+        .header-left .subtitle { color: #6b7280; font-size: 11px; margin-top: 3px; }
+        .header-left .title { font-size: 16px; font-weight: bold; margin-top: 8px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 4px; border-radius: 6px; }
+        .qr-box small { display: block; margin-top: 3px; color: #6b7280; font-size: 9px; }
+        .section { margin-bottom: 15px; }
+        .section-title { font-size: 12px; font-weight: bold; color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 4px; margin-bottom: 8px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+        .stat-card { background: #f9fafb; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-value { font-size: 18px; font-weight: bold; color: #4f46e5; }
+        .stat-label { font-size: 9px; color: #6b7280; margin-top: 3px; }
+        .stat-card.green { background: #ecfdf5; border-color: #10b981; }
+        .stat-card.green .stat-value { color: #059669; }
+        .stat-card.red { background: #fef2f2; border-color: #ef4444; }
+        .stat-card.red .stat-value { color: #dc2626; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }
+        th { background: #4f46e5; color: white; padding: 6px; text-align: left; font-size: 9px; }
+        td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .footer { margin-top: 30px; border-top: 2px solid #e5e7eb; padding-top: 12px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 8px; border-radius: 5px; margin-bottom: 15px; font-size: 10px; color: #92400e; text-align: center; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+          <div class="subtitle">📞 +226 01 04 11 11</div>
+          <div class="title">👥 ÉTAT DU PERSONNEL</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code d'authenticité" />
+          <small>Document unique<br/>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📊 Synthèse</div>
+        <div class="stats-grid">
+          <div class="stat-card green">
+            <div class="stat-value">${activeEmployees.length}</div>
+            <div class="stat-label">Employés actifs</div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-value">${inactiveEmployees.length}</div>
+            <div class="stat-label">Employés inactifs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${formatMoney(stats.monthlySalary)} F</div>
+            <div class="stat-label">Masse salariale</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${Object.keys(byRole).length}</div>
+            <div class="stat-label">Postes différents</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📈 Répartition par poste</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Poste</th>
+              <th style="text-align:center;">Effectif</th>
+              <th style="text-align:right;">Masse salariale</th>
+              <th style="text-align:right;">% du total</th>
+            </tr>
+          </thead>
+          <tbody>${roleRows}</tbody>
+          <tfoot>
+            <tr style="background:#eef2ff; font-weight:bold;">
+              <td>TOTAL</td>
+              <td style="text-align:center;">${activeEmployees.length}</td>
+              <td style="text-align:right;">${formatMoney(stats.monthlySalary)} F</td>
+              <td style="text-align:right;">100%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-title">👥 Liste complète du personnel actif (${activeEmployees.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Nom complet</th>
+              <th>Poste</th>
+              <th>Téléphone</th>
+              <th>Email</th>
+              <th>Embauche</th>
+              <th style="text-align:right;">Salaire</th>
+            </tr>
+          </thead>
+          <tbody>${employeeRows}</tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        <div class="authenticity">
+          🔐 <strong>Document certifié unique</strong> — Cet état est protégé par un QR code d'authenticité.
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Responsable RH</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Directeur Général</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+        <div class="text-center" style="margin-top: 15px; font-size: 9px; color: #6b7280;">
+          Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 20px;">
+        <button onclick="window.print()" style="padding: 10px 25px; background: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;">🖨️ Imprimer l'état</button>
+        <button onclick="window.close()" style="padding: 10px 25px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
+
+// ✅ NOUVEAU : État des présences
+const handlePrintAttendanceReport = () => {
+  const reportId = `ATT-${Date.now().toString().slice(-8)}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_ATTENDANCE|${reportId}|${attendance.length}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+  const attendanceRows = attendance.map(a => `
+    <tr>
+      <td>${a.restaurant_employees ? `${a.restaurant_employees.first_name} ${a.restaurant_employees.last_name}` : 'Inconnu'}</td>
+      <td>${new Date(a.date).toLocaleDateString('fr-FR')}</td>
+      <td>${a.check_in || '-'}</td>
+      <td>${a.check_out || '-'}</td>
+      <td style="text-align:center;">
+        ${a.status === 'PRESENT' ? '<span style="color:#059669;">✅ Présent</span>' :
+          a.status === 'ABSENT' ? '<span style="color:#dc2626;">❌ Absent</span>' :
+          '<span style="color:#d97706;">⚠️ Retard</span>'}
+      </td>
+    </tr>
+  `).join('');
+
+  const printWindow = window.open('', '_blank', 'width=900,height=1200');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>État des Présences - ${new Date().toLocaleDateString('fr-FR')}</title>
+      <style>
+        @page { size: A4; margin: 12mm; }
+        body { font-family: Arial, sans-serif; font-size: 10px; color: #1f2937; margin: 0; padding: 15px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #059669; padding-bottom: 12px; margin-bottom: 15px; }
+        .header-left h1 { color: #059669; margin: 0; font-size: 22px; }
+        .header-left .subtitle { color: #6b7280; font-size: 11px; margin-top: 3px; }
+        .header-left .title { font-size: 16px; font-weight: bold; margin-top: 8px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 4px; border-radius: 6px; }
+        .qr-box small { display: block; margin-top: 3px; color: #6b7280; font-size: 9px; }
+        .section { margin-bottom: 15px; }
+        .section-title { font-size: 12px; font-weight: bold; color: #059669; border-bottom: 2px solid #059669; padding-bottom: 4px; margin-bottom: 8px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+        .stat-card { background: #f9fafb; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-value { font-size: 18px; font-weight: bold; color: #059669; }
+        .stat-label { font-size: 9px; color: #6b7280; margin-top: 3px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }
+        th { background: #059669; color: white; padding: 6px; text-align: left; font-size: 9px; }
+        td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .footer { margin-top: 30px; border-top: 2px solid #e5e7eb; padding-top: 12px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 8px; border-radius: 5px; margin-bottom: 15px; font-size: 10px; color: #92400e; text-align: center; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="title">🕐 ÉTAT DES PRÉSENCES</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code" />
+          <small>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📊 Statistiques</div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${stats.presentToday}</div>
+            <div class="stat-label">Présents aujourd'hui</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color:#dc2626;">${stats.absentToday}</div>
+            <div class="stat-label">Absents aujourd'hui</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" style="color:#d97706;">${stats.lateThisMonth}</div>
+            <div class="stat-label">Retards ce mois</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Historique des pointages (${attendance.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Employé</th>
+              <th>Date</th>
+              <th>Arrivée</th>
+              <th>Départ</th>
+              <th style="text-align:center;">Statut</th>
+            </tr>
+          </thead>
+          <tbody>${attendanceRows}</tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        <div class="authenticity">🔐 Document certifié unique avec QR code d'authenticité.</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Responsable</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Directeur</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 20px;">
+        <button onclick="window.print()" style="padding: 10px 25px; background: #059669; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;">🖨️ Imprimer</button>
+        <button onclick="window.close()" style="padding: 10px 25px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
+
+// ✅ NOUVEAU : État de paie amélioré avec QR Code
+const handlePrintPayrollReport = (payroll: Payroll) => {
+  const reportId = `PAY-${payroll.id.slice(0, 8).toUpperCase()}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_PAYROLL|${reportId}|${payroll.total_amount}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+  const printWindow = window.open('', '_blank', 'width=900,height=1200');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Bulletin de Paie - ${reportId}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #1f2937; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #10b981; padding-bottom: 15px; margin-bottom: 20px; }
+        .header-left h1 { color: #10b981; margin: 0; font-size: 24px; }
+        .header-left .subtitle { color: #6b7280; font-size: 12px; margin-top: 4px; }
+        .header-left .title { font-size: 18px; font-weight: bold; margin-top: 10px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 5px; border-radius: 8px; }
+        .qr-box small { display: block; margin-top: 5px; color: #6b7280; font-size: 10px; }
+        .section { margin-bottom: 20px; }
+        .section-title { font-size: 14px; font-weight: bold; color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 5px; margin-bottom: 10px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .info-box { background: #f9fafb; padding: 10px; border-radius: 6px; border-left: 3px solid #10b981; }
+        .info-box label { font-size: 10px; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase; font-weight: bold; }
+        .info-box value { font-size: 13px; color: #1f2937; font-weight: bold; }
+        .highlight-box { background: #ecfdf5; border: 2px solid #10b981; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center; }
+        .highlight-box .label { font-size: 11px; color: #6b7280; margin-bottom: 3px; }
+        .highlight-box .value { font-size: 24px; font-weight: bold; color: #10b981; }
+        .footer { margin-top: 40px; border-top: 2px solid #e5e7eb; padding-top: 15px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 11px; color: #92400e; text-align: center; }
+        .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; }
+        .signature-box { border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 11px; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="title">💰 BULLETIN DE PAIE</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code" />
+          <small>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Informations de la période</div>
+        <div class="info-grid">
+          <div class="info-box"><label>Période</label><value>${new Date(payroll.period_start).toLocaleDateString('fr-FR')} au ${new Date(payroll.period_end).toLocaleDateString('fr-FR')}</value></div>
+          <div class="info-box"><label>Nombre d'employés</label><value>${payroll.employee_count}</value></div>
+          <div class="info-box"><label>Statut</label><value>${payroll.status === 'PAID' ? '✅ Payé' : '⏳ En attente'}</value></div>
+          <div class="info-box"><label>Date de génération</label><value>${new Date().toLocaleDateString('fr-FR')}</value></div>
+        </div>
+      </div>
+
+      <div class="highlight-box">
+        <div class="label">MONTANT TOTAL DE LA PAIE</div>
+        <div class="value">${formatMoney(payroll.total_amount)} FCFA</div>
+      </div>
+
+      <div class="footer">
+        <div class="authenticity">🔐 Document certifié unique avec QR code d'authenticité.</div>
+        <div class="signatures">
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Responsable Paie</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Directeur Général</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 30px;">
+        <button onclick="window.print()" style="padding: 12px 30px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Imprimer</button>
+        <button onclick="window.close()" style="padding: 12px 30px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
   return (
     <div className="p-4 lg:p-6 space-y-6">
       {/* Header */}
@@ -674,28 +1067,35 @@ export default function GestionEmployesPage() {
           <p className="text-sm text-slate-500 mt-1">Gestion complète du personnel du restaurant</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          >
-            <Download className="w-4 h-4" />
-            Export CSV
-          </button>
-          <button
-            onClick={() => {
-              setSelectedEmployee(null);
-              setNewEmployeeForm({
-                first_name: '', last_name: '', role: '', phone: '', email: '',
-                hire_date: '', salary: 0, notes: '', is_active: true
-              });
-              setShowNewEmployeeModal(true);
-            }}
-            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            Nouvel Employé
-          </button>
-        </div>
+  <button
+    onClick={handlePrintStaffReport}
+    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+  >
+    <Printer className="w-4 h-4" />
+    État Personnel PDF
+  </button>
+  <button
+    onClick={handleExportCSV}
+    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+  >
+    <Download className="w-4 h-4" />
+    Export CSV
+  </button>
+  <button
+    onClick={() => {
+      setSelectedEmployee(null);
+      setNewEmployeeForm({
+        first_name: '', last_name: '', role: '', phone: '', email: '',
+        hire_date: '', salary: 0, notes: '', is_active: true
+      });
+      setShowNewEmployeeModal(true);
+    }}
+    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium"
+  >
+    <Plus className="w-4 h-4" />
+    Nouvel Employé
+  </button>
+</div>
       </div>
 
       {/* Onglets */}
@@ -849,11 +1249,20 @@ export default function GestionEmployesPage() {
       {activeTab === 'attendance' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-900">Gestion des Présences</h2>
-            <button onClick={() => setShowAttendanceModal(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-              <Plus className="w-4 h-4" /> Nouveau Pointage
-            </button>
-          </div>
+  <h2 className="text-lg font-bold text-slate-900">Gestion des Présences</h2>
+  <div className="flex gap-2">
+    <button
+      onClick={handlePrintAttendanceReport}
+      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+    >
+      <Printer className="w-4 h-4" />
+      État Présences PDF
+    </button>
+    <button onClick={() => setShowAttendanceModal(true)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+      <Plus className="w-4 h-4" /> Nouveau Pointage
+    </button>
+  </div>
+</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
               <div className="flex items-center justify-between">
@@ -994,11 +1403,11 @@ export default function GestionEmployesPage() {
                               </button>
                             )}
                             <button
-                              onClick={() => handlePrintPayroll(payroll)}
-                              className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded flex items-center gap-1"
-                            >
-                              <Printer className="w-3 h-3" /> Imprimer
-                            </button>
+  onClick={() => handlePrintPayrollReport(payroll)}
+  className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded flex items-center gap-1"
+>
+  <Printer className="w-3 h-3" /> Imprimer PDF
+</button>
                           </div>
                         </td>
                       </tr>

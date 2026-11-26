@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   Package, Search, Plus, AlertTriangle, CheckCircle, XCircle, 
   Edit2, Trash2, X, TrendingUp, TrendingDown, History, List,
-  User, Clock, DollarSign, AlertCircle, Save, Box, ClipboardCheck, RotateCcw
+  User, Clock, DollarSign, AlertCircle, Save, Box, ClipboardCheck, RotateCcw,
+  Printer, FileText  // ✅ AJOUTER CES DEUX ICÔNES
 } from 'lucide-react';
 
 interface StockItem {
@@ -422,19 +423,320 @@ export default function StockPage() {
     if (item.quantity <= item.min_threshold) return { label: 'Stock bas', color: 'bg-amber-100 text-amber-800 border-amber-200', icon: AlertTriangle };
     return { label: 'OK', color: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: CheckCircle };
   };
+// ✅ Helper pour formater les montants
+const formatMoney = (n: number) => Number(n || 0).toLocaleString('fr-FR');
 
+// ✅ NOUVEAU : Imprimer l'état global du stock avec QR Code
+const handlePrintStockReport = () => {
+  const reportId = `STOCK-${siteId?.slice(0, 8).toUpperCase() || 'GLOBAL'}-${Date.now().toString().slice(-6)}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_STOCK_REPORT|${reportId}|${items.length}|${stats.totalValue}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+  // Stats par catégorie
+  const byCategory: Record<string, { items: number; value: number; low: number; out: number }> = {};
+  items.forEach(item => {
+    if (!byCategory[item.category]) byCategory[item.category] = { items: 0, value: 0, low: 0, out: 0 };
+    byCategory[item.category].items += 1;
+    byCategory[item.category].value += item.quantity * item.unit_cost;
+    if (item.quantity === 0) byCategory[item.category].out += 1;
+    else if (item.quantity <= item.min_threshold) byCategory[item.category].low += 1;
+  });
+
+  const categoryRows = Object.entries(byCategory)
+    .sort((a, b) => b[1].value - a[1].value)
+    .map(([cat, data]) => `
+      <tr>
+        <td>${cat}</td>
+        <td style="text-align:center;">${data.items}</td>
+        <td style="text-align:center; color: ${data.out > 0 ? '#dc2626' : data.low > 0 ? '#d97706' : '#059669'};">
+          ${data.out > 0 ? `⚠️ ${data.out}` : data.low > 0 ? `⚡ ${data.low}` : '✅ 0'}
+        </td>
+        <td style="text-align:right; font-weight: bold;">${formatMoney(data.value)} F</td>
+        <td style="text-align:right;">${stats.totalValue > 0 ? ((data.value / stats.totalValue) * 100).toFixed(1) : 0}%</td>
+      </tr>
+    `).join('');
+
+  // Articles en alerte (stock bas ou rupture)
+  const alertItems = items.filter(i => i.quantity <= i.min_threshold);
+  const alertRows = alertItems.map(item => `
+    <tr style="background: ${item.quantity === 0 ? '#fef2f2' : '#fffbeb'};">
+      <td>${item.name}</td>
+      <td>${item.category}</td>
+      <td style="text-align:center; font-weight: bold; color: ${item.quantity === 0 ? '#dc2626' : '#d97706'};">
+        ${item.quantity} ${item.unit}
+      </td>
+      <td style="text-align:center;">${item.min_threshold} ${item.unit}</td>
+      <td style="text-align:right;">${formatMoney(item.unit_cost)} F</td>
+      <td style="text-align:center;">
+        ${item.quantity === 0 ? '<span style="color:#dc2626;">❌ RUPTURE</span>' : '<span style="color:#d97706;">⚠️ STOCK BAS</span>'}
+      </td>
+    </tr>
+  `).join('');
+
+  // Détail complet des articles
+  const itemsRows = items
+    .sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))
+    .map(item => {
+      const status = item.quantity === 0 ? '❌' : item.quantity <= item.min_threshold ? '⚠️' : '✅';
+      return `
+        <tr>
+          <td>${item.name}</td>
+          <td>${item.category}</td>
+          <td style="text-align:center;">${item.quantity} ${item.unit}</td>
+          <td style="text-align:center;">${item.min_threshold}</td>
+          <td style="text-align:center;">${status}</td>
+          <td style="text-align:right;">${formatMoney(item.unit_cost)} F</td>
+          <td style="text-align:right; font-weight: bold;">${formatMoney(item.quantity * item.unit_cost)} F</td>
+        </tr>
+      `;
+    }).join('');
+
+  // Mouvements récents
+  const recentMovements = movements.slice(0, 20);
+  const movementRows = recentMovements.map(m => `
+    <tr>
+      <td>${new Date(m.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+      <td>${m.stock_items?.name || 'Inconnu'}</td>
+      <td style="text-align:center;">
+        ${m.movement_type === 'IN' ? '<span style="color:#059669;">📥 Entrée</span>' : '<span style="color:#dc2626;">📤 Sortie</span>'}
+      </td>
+      <td style="text-align:right; font-weight: bold; color: ${m.movement_type === 'IN' ? '#059669' : '#dc2626'};">
+        ${m.movement_type === 'IN' ? '+' : '-'}${m.quantity} ${m.stock_items?.unit || ''}
+      </td>
+      <td>${m.reason || '—'}</td>
+    </tr>
+  `).join('');
+
+  const printWindow = window.open('', '_blank', 'width=1000,height=1400');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>État Global du Stock - ${new Date().toLocaleDateString('fr-FR')}</title>
+      <style>
+        @page { size: A4; margin: 12mm; }
+        body { font-family: Arial, sans-serif; font-size: 10px; color: #1f2937; margin: 0; padding: 15px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #4f46e5; padding-bottom: 12px; margin-bottom: 15px; }
+        .header-left h1 { color: #4f46e5; margin: 0; font-size: 22px; }
+        .header-left .subtitle { color: #6b7280; font-size: 11px; margin-top: 3px; }
+        .header-left .title { font-size: 16px; font-weight: bold; margin-top: 8px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 4px; border-radius: 6px; }
+        .qr-box small { display: block; margin-top: 3px; color: #6b7280; font-size: 9px; }
+        .section { margin-bottom: 15px; }
+        .section-title { font-size: 12px; font-weight: bold; color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 4px; margin-bottom: 8px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+        .stat-card { background: #f9fafb; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-value { font-size: 18px; font-weight: bold; color: #4f46e5; }
+        .stat-label { font-size: 9px; color: #6b7280; margin-top: 3px; }
+        .stat-card.green { background: #ecfdf5; border-color: #10b981; }
+        .stat-card.green .stat-value { color: #059669; }
+        .stat-card.red { background: #fef2f2; border-color: #ef4444; }
+        .stat-card.red .stat-value { color: #dc2626; }
+        .stat-card.amber { background: #fffbeb; border-color: #f59e0b; }
+        .stat-card.amber .stat-value { color: #d97706; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }
+        th { background: #4f46e5; color: white; padding: 6px; text-align: left; font-size: 9px; }
+        td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .footer { margin-top: 30px; border-top: 2px solid #e5e7eb; padding-top: 12px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 8px; border-radius: 5px; margin-bottom: 15px; font-size: 10px; color: #92400e; text-align: center; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+          <div class="subtitle">📞 +226 01 04 11 11</div>
+          <div class="title">📊 ÉTAT GLOBAL DU STOCK</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code d'authenticité" />
+          <small>Document unique<br/>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Informations générales</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+          <div style="background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #4f46e5;">
+            <div style="font-size: 9px; color: #6b7280; text-transform: uppercase; font-weight: bold;">Date du rapport</div>
+            <div style="font-size: 11px; font-weight: bold;">${new Date().toLocaleString('fr-FR')}</div>
+          </div>
+          <div style="background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #4f46e5;">
+            <div style="font-size: 9px; color: #6b7280; text-transform: uppercase; font-weight: bold;">Nombre d'articles</div>
+            <div style="font-size: 11px; font-weight: bold;">${items.length} articles</div>
+          </div>
+          <div style="background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #4f46e5;">
+            <div style="font-size: 9px; color: #6b7280; text-transform: uppercase; font-weight: bold;">Catégories</div>
+            <div style="font-size: 11px; font-weight: bold;">${Object.keys(byCategory).length} catégories</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">💰 Synthèse financière</div>
+        <div class="stats-grid">
+          <div class="stat-card green">
+            <div class="stat-value">${formatMoney(stats.totalValue)} F</div>
+            <div class="stat-label">Valeur totale du stock</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${items.length}</div>
+            <div class="stat-label">Articles référencés</div>
+          </div>
+          <div class="stat-card amber">
+            <div class="stat-value">${stats.lowStock}</div>
+            <div class="stat-label">Stocks bas</div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-value">${stats.outOfStock}</div>
+            <div class="stat-label">En rupture</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📊 Répartition par catégorie</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Catégorie</th>
+              <th style="text-align:center;">Nb articles</th>
+              <th style="text-align:center;">Alertes</th>
+              <th style="text-align:right;">Valeur</th>
+              <th style="text-align:right;">% du total</th>
+            </tr>
+          </thead>
+          <tbody>${categoryRows}</tbody>
+          <tfoot>
+            <tr style="background:#eef2ff; font-weight:bold;">
+              <td>TOTAL</td>
+              <td style="text-align:center;">${items.length}</td>
+              <td style="text-align:center;">${stats.lowStock + stats.outOfStock}</td>
+              <td style="text-align:right;">${formatMoney(stats.totalValue)} F</td>
+              <td style="text-align:right;">100%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      ${alertItems.length > 0 ? `
+      <div class="section">
+        <div class="section-title">⚠️ Alertes de stock (${alertItems.length} article(s))</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Article</th>
+              <th>Catégorie</th>
+              <th style="text-align:center;">Stock actuel</th>
+              <th style="text-align:center;">Seuil min.</th>
+              <th style="text-align:right;">Coût unit.</th>
+              <th style="text-align:center;">Statut</th>
+            </tr>
+          </thead>
+          <tbody>${alertRows}</tbody>
+        </table>
+      </div>
+      ` : ''}
+
+      <div class="section">
+        <div class="section-title">📦 Détail complet des articles (${items.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Article</th>
+              <th>Catégorie</th>
+              <th style="text-align:center;">Quantité</th>
+              <th style="text-align:center;">Seuil min.</th>
+              <th style="text-align:center;">Statut</th>
+              <th style="text-align:right;">Coût unit.</th>
+              <th style="text-align:right;">Valeur</th>
+            </tr>
+          </thead>
+          <tbody>${itemsRows}</tbody>
+          <tfoot>
+            <tr style="background:#eef2ff; font-weight:bold;">
+              <td colspan="6" style="text-align:right;">VALEUR TOTALE :</td>
+              <td style="text-align:right;">${formatMoney(stats.totalValue)} F</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      ${recentMovements.length > 0 ? `
+      <div class="section">
+        <div class="section-title">📜 Derniers mouvements de stock (${recentMovements.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Article</th>
+              <th style="text-align:center;">Type</th>
+              <th style="text-align:right;">Quantité</th>
+              <th>Motif</th>
+            </tr>
+          </thead>
+          <tbody>${movementRows}</tbody>
+        </table>
+      </div>
+      ` : ''}
+
+      <div class="footer">
+        <div class="authenticity">
+          🔐 <strong>Document certifié unique</strong> — Cet état de stock est protégé par un QR code d'authenticité. Scannez-le pour vérifier l'intégrité des données.
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Responsable Stock</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Directeur Général</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+        <div class="text-center" style="margin-top: 15px; font-size: 9px; color: #6b7280;">
+          Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS • ${items.length} article(s) • Valeur: ${formatMoney(stats.totalValue)} F
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 20px;">
+        <button onclick="window.print()" style="padding: 10px 25px; background: #4f46e5; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;">🖨️ Imprimer l'état de stock</button>
+        <button onclick="window.close()" style="padding: 10px 25px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
 
   return (
     <div className="p-4 lg:p-6 h-full space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2"><Package className="w-7 h-7 text-indigo-600" /> Gestion des Stocks</h1>
-          <p className="text-sm text-slate-500 mt-1">Gérez vos articles, quantités, historique et inventaires.</p>
-        </div>
-        <button onClick={() => setIsAddModalOpen(true)} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-medium transition-colors shadow-sm">
-          <Plus className="w-5 h-5" /> Nouvel Article
-        </button>
-      </div>
+  <div>
+    <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2"><Package className="w-7 h-7 text-indigo-600" /> Gestion des Stocks</h1>
+    <p className="text-sm text-slate-500 mt-1">Gérez vos articles, quantités, historique et inventaires.</p>
+  </div>
+  <div className="flex flex-wrap gap-2">
+    {/* ✅ NOUVEAU : Bouton État PDF */}
+    <button 
+      onClick={handlePrintStockReport}
+      disabled={items.length === 0}
+      className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-4 py-2.5 rounded-lg font-medium transition-colors shadow-sm"
+      title="Générer l'état global du stock PDF avec QR Code"
+    >
+      <FileText className="w-5 h-5" /> État PDF
+    </button>
+    <button onClick={() => setIsAddModalOpen(true)} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-medium transition-colors shadow-sm">
+      <Plus className="w-5 h-5" /> Nouvel Article
+    </button>
+  </div>
+</div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">

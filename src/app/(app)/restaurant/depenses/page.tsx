@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   RefreshCw, Filter, Settings, Plus, Calendar, DollarSign,
   ShoppingCart, Wallet, Users, TrendingUp, TrendingDown,
-  Edit2, Trash2, X, Search, ChevronDown, Receipt, Lock, AlertTriangle, Building2, Utensils
+  Edit2, Trash2, X, Search, ChevronDown, Receipt, Lock, AlertTriangle, Building2, Utensils, Printer, FileText, QrCode
 } from 'lucide-react';
 
 interface Expense {
@@ -624,7 +624,415 @@ const [showPeriodPicker, setShowPeriodPicker] = useState(false);
     if (m?.includes('cheque') || m?.includes('chèque')) return '📝';
     return '';
   };
+// ✅ Helper pour formater les montants
+const formatMoney = (n: number) => Number(n || 0).toLocaleString('fr-FR');
 
+// ✅ NOUVEAU : Imprimer un reçu de dépense individuelle
+const handlePrintExpenseReceipt = (expense: Expense) => {
+  const reportId = `DEP-${expense.id.slice(0, 8).toUpperCase()}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_EXPENSE|${reportId}|${expense.reference || expense.description}|${expense.amount}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+  
+  const printWindow = window.open('', '_blank', 'width=800,height=1000');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+  
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Reçu de Dépense - ${expense.reference || expense.description}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: Arial, sans-serif; font-size: 12px; color: #1f2937; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #dc2626; padding-bottom: 15px; margin-bottom: 20px; }
+        .header-left h1 { color: #dc2626; margin: 0; font-size: 24px; }
+        .header-left .subtitle { color: #6b7280; font-size: 12px; margin-top: 4px; }
+        .header-left .title { font-size: 18px; font-weight: bold; margin-top: 10px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 5px; border-radius: 8px; }
+        .qr-box small { display: block; margin-top: 5px; color: #6b7280; font-size: 10px; }
+        .section { margin-bottom: 20px; }
+        .section-title { font-size: 14px; font-weight: bold; color: #dc2626; border-bottom: 2px solid #dc2626; padding-bottom: 5px; margin-bottom: 10px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .info-box { background: #f9fafb; padding: 10px; border-radius: 6px; border-left: 3px solid #dc2626; }
+        .info-box label { font-size: 10px; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase; font-weight: bold; }
+        .info-box value { font-size: 13px; color: #1f2937; font-weight: bold; display: block; }
+        .highlight-box { background: #fef2f2; border: 2px solid #dc2626; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center; }
+        .highlight-box .label { font-size: 11px; color: #6b7280; margin-bottom: 3px; }
+        .highlight-box .value { font-size: 24px; font-weight: bold; color: #dc2626; }
+        .footer { margin-top: 40px; border-top: 2px solid #e5e7eb; padding-top: 15px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 11px; color: #92400e; text-align: center; }
+        .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; }
+        .signature-box { border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 11px; }
+        .text-center { text-align: center; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+          <div class="subtitle">📞 +226 01 04 11 11</div>
+          <div class="title">📤 REÇU DE DÉPENSE</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code d'authenticité" />
+          <small>Document unique<br/>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Informations générales</div>
+        <div class="info-grid">
+          <div class="info-box"><label>Date</label><value>${new Date(expense.date).toLocaleDateString('fr-FR')}</value></div>
+          <div class="info-box"><label>Type</label><value>${expense.type === 'COURANTE' ? 'Dépense courante' : expense.type === 'FIXE' ? 'Dépense fixe' : expense.type === 'SALAIRE' ? 'Salaire' : 'Fournisseur'}</value></div>
+          <div class="info-box"><label>Département</label><value>${expense.subtype === 'HOTEL' ? '🏨 Hôtel' : '🍽️ Restaurant'}</value></div>
+          <div class="info-box"><label>Catégorie</label><value>${getCategoryEmoji(expense.category)} ${expense.category}</value></div>
+          <div class="info-box"><label>Mode de paiement</label><value>${getPaymentMethodIcon(expense.payment_method)} ${expense.payment_method}</value></div>
+          ${expense.reference ? `<div class="info-box"><label>Référence</label><value>${expense.reference}</value></div>` : ''}
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📝 Description</div>
+        <div class="info-box" style="border-left-color: #6b7280;">
+          <value style="font-size: 14px;">${expense.description}</value>
+        </div>
+        ${expense.notes ? `
+        <div class="info-box" style="margin-top: 10px; border-left-color: #6b7280;">
+          <label>Notes</label>
+          <value style="font-size: 12px; font-weight: normal;">${expense.notes}</value>
+        </div>` : ''}
+      </div>
+
+      <div class="highlight-box">
+        <div class="label">MONTANT DE LA DÉPENSE</div>
+        <div class="value">${formatMoney(expense.amount)} FCFA</div>
+      </div>
+
+      <div class="footer">
+        <div class="authenticity">
+          🔐 <strong>Document certifié unique</strong> — Ce reçu est protégé par un QR code d'authenticité.
+        </div>
+        <div class="signatures">
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Demandeur</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Directeur / Responsable</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+        <div class="text-center" style="margin-top: 20px; font-size: 10px; color: #6b7280;">
+          Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 30px;">
+        <button onclick="window.print()" style="padding: 12px 30px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Imprimer le reçu</button>
+        <button onclick="window.close()" style="padding: 12px 30px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
+
+// ✅ NOUVEAU : Imprimer l'état récapitulatif de la période
+const handlePrintPeriodReport = () => {
+  const reportId = `RPT-DEP-${Date.now().toString().slice(-8)}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_EXPENSE_REPORT|${reportId}|${startDate}|${endDate}|${stats.total}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+  
+  // Regrouper par catégorie
+  const byCategory: Record<string, { amount: number; count: number; items: Expense[] }> = {};
+  (activeTab === 'fournisseurs' ? [] : filteredExpenses).forEach(e => {
+    if (!byCategory[e.category]) byCategory[e.category] = { amount: 0, count: 0, items: [] };
+    byCategory[e.category].amount += e.amount;
+    byCategory[e.category].count += 1;
+    byCategory[e.category].items.push(e);
+  });
+  
+  // Regrouper par département
+  const byDept: Record<string, number> = { HOTEL: 0, RESTAURANT: 0 };
+  (activeTab === 'fournisseurs' ? [] : filteredExpenses).forEach(e => {
+    if (e.subtype === 'HOTEL') byDept.HOTEL += e.amount;
+    else if (e.subtype === 'RESTAURANT') byDept.RESTAURANT += e.amount;
+  });
+  
+  // Regrouper par mode de paiement
+  const byPayment: Record<string, number> = {};
+  (activeTab === 'fournisseurs' ? [] : filteredExpenses).forEach(e => {
+    byPayment[e.payment_method] = (byPayment[e.payment_method] || 0) + e.amount;
+  });
+  
+  const categoryRows = Object.entries(byCategory)
+    .sort((a, b) => b[1].amount - a[1].amount)
+    .map(([cat, data]) => `
+      <tr>
+        <td>${getCategoryEmoji(cat)} ${cat}</td>
+        <td style="text-align:center;">${data.count}</td>
+        <td style="text-align:right; font-weight: bold;">${formatMoney(data.amount)} F</td>
+        <td style="text-align:right;">${stats.total > 0 ? ((data.amount / stats.total) * 100).toFixed(1) : 0}%</td>
+      </tr>
+    `).join('');
+  
+  const deptRows = Object.entries(byDept)
+    .filter(([, v]) => v > 0)
+    .map(([dept, amount]) => `
+      <tr>
+        <td>${dept === 'HOTEL' ? '🏨 Hôtel' : '🍽️ Restaurant'}</td>
+        <td style="text-align:right; font-weight: bold;">${formatMoney(amount)} F</td>
+        <td style="text-align:right;">${stats.total > 0 ? ((amount / stats.total) * 100).toFixed(1) : 0}%</td>
+      </tr>
+    `).join('');
+  
+  const paymentRows = Object.entries(byPayment)
+    .sort((a, b) => b[1] - a[1])
+    .map(([method, amount]) => `
+      <tr>
+        <td>${getPaymentMethodIcon(method)} ${method}</td>
+        <td style="text-align:right; font-weight: bold;">${formatMoney(amount)} F</td>
+        <td style="text-align:right;">${stats.total > 0 ? ((amount / stats.total) * 100).toFixed(1) : 0}%</td>
+      </tr>
+    `).join('');
+  
+  const expensesList = (activeTab === 'fournisseurs' ? [] : filteredExpenses)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .map(e => `
+      <tr>
+        <td>${new Date(e.date).toLocaleDateString('fr-FR')}</td>
+        <td>${e.category}</td>
+        <td>${e.description}</td>
+        <td>${e.subtype === 'HOTEL' ? '🏨' : '🍽️'}</td>
+        <td>${e.payment_method}</td>
+        ${e.reference ? `<td style="font-family:monospace;font-size:10px;">${e.reference}</td>` : '<td>—</td>'}
+        <td style="text-align:right; font-weight: bold;">${formatMoney(e.amount)} F</td>
+      </tr>
+    `).join('');
+  
+  const printWindow = window.open('', '_blank', 'width=1000,height=1400');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+  
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>État des Dépenses - ${startDate} au ${endDate}</title>
+      <style>
+        @page { size: A4 landscape; margin: 12mm; }
+        body { font-family: Arial, sans-serif; font-size: 10px; color: #1f2937; margin: 0; padding: 15px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #dc2626; padding-bottom: 12px; margin-bottom: 15px; }
+        .header-left h1 { color: #dc2626; margin: 0; font-size: 22px; }
+        .header-left .subtitle { color: #6b7280; font-size: 11px; margin-top: 3px; }
+        .header-left .title { font-size: 16px; font-weight: bold; margin-top: 8px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 4px; border-radius: 6px; }
+        .qr-box small { display: block; margin-top: 3px; color: #6b7280; font-size: 9px; }
+        .section { margin-bottom: 15px; }
+        .section-title { font-size: 12px; font-weight: bold; color: #dc2626; border-bottom: 2px solid #dc2626; padding-bottom: 4px; margin-bottom: 8px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+        .stat-card { background: #f9fafb; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-value { font-size: 18px; font-weight: bold; color: #dc2626; }
+        .stat-label { font-size: 9px; color: #6b7280; margin-top: 3px; }
+        .stat-card.blue { background: #eff6ff; border-color: #3b82f6; }
+        .stat-card.blue .stat-value { color: #1e40af; }
+        .stat-card.purple { background: #f5f3ff; border-color: #8b5cf6; }
+        .stat-card.purple .stat-value { color: #6d28d9; }
+        .stat-card.amber { background: #fffbeb; border-color: #f59e0b; }
+        .stat-card.amber .stat-value { color: #b45309; }
+        .stat-card.green { background: #ecfdf5; border-color: #10b981; }
+        .stat-card.green .stat-value { color: #047857; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        .info-box { background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #dc2626; }
+        .info-box label { font-size: 9px; color: #6b7280; display: block; margin-bottom: 2px; text-transform: uppercase; font-weight: bold; }
+        .info-box value { font-size: 11px; color: #1f2937; font-weight: bold; display: block; }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }
+        th { background: #dc2626; color: white; padding: 6px; text-align: left; font-size: 9px; }
+        td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .footer { margin-top: 30px; border-top: 2px solid #e5e7eb; padding-top: 12px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 8px; border-radius: 5px; margin-bottom: 15px; font-size: 10px; color: #92400e; text-align: center; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+          <div class="subtitle">📞 +226 01 04 11 11</div>
+          <div class="title">📊 ÉTAT RÉCAPITULATIF DES DÉPENSES</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code d'authenticité" />
+          <small>Document unique<br/>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Période concernée</div>
+        <div class="info-grid">
+          <div class="info-box"><label>Du</label><value>${startDate}</value></div>
+          <div class="info-box"><label>Au</label><value>${endDate}</value></div>
+          <div class="info-box"><label>Total opérations</label><value>${stats.countCourantes + stats.countFixes + stats.countFournisseurs + stats.countSalaires}</value></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">💰 Synthèse financière</div>
+        <div class="stats-grid">
+          <div class="stat-card blue">
+            <div class="stat-value">${formatMoney(stats.courantes)} F</div>
+            <div class="stat-label">Dépenses courantes</div>
+          </div>
+          <div class="stat-card purple">
+            <div class="stat-value">${formatMoney(stats.fixes)} F</div>
+            <div class="stat-label">Dépenses fixes</div>
+          </div>
+          <div class="stat-card amber">
+            <div class="stat-value">${formatMoney(stats.fournisseurs)} F</div>
+            <div class="stat-label">Fournisseurs</div>
+          </div>
+          <div class="stat-card green">
+            <div class="stat-value">${formatMoney(stats.total)} F</div>
+            <div class="stat-label">TOTAL GÉNÉRAL</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="section">
+          <div class="section-title">📊 Par catégorie</div>
+          <table>
+            <thead><tr><th>Catégorie</th><th style="text-align:center;">Nb</th><th style="text-align:right;">Montant</th><th style="text-align:right;">%</th></tr></thead>
+            <tbody>${categoryRows}</tbody>
+            <tfoot>
+              <tr style="background:#fef2f2; font-weight:bold;">
+                <td>TOTAL</td>
+                <td style="text-align:center;">${Object.values(byCategory).reduce((s, c) => s + c.count, 0)}</td>
+                <td style="text-align:right;">${formatMoney(stats.total)} F</td>
+                <td style="text-align:right;">100%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div>
+          <div class="section">
+            <div class="section-title">🏢 Par département</div>
+            <table>
+              <thead><tr><th>Département</th><th style="text-align:right;">Montant</th><th style="text-align:right;">%</th></tr></thead>
+              <tbody>${deptRows}</tbody>
+            </table>
+          </div>
+
+          <div class="section">
+            <div class="section-title">💳 Par mode de paiement</div>
+            <table>
+              <thead><tr><th>Mode</th><th style="text-align:right;">Montant</th><th style="text-align:right;">%</th></tr></thead>
+              <tbody>${paymentRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📜 Détail des dépenses (${filteredExpenses.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Catégorie</th>
+              <th>Description</th>
+              <th>Dépt</th>
+              <th>Paiement</th>
+              <th>Référence</th>
+              <th style="text-align:right;">Montant</th>
+            </tr>
+          </thead>
+          <tbody>${expensesList}</tbody>
+          <tfoot>
+            <tr style="background:#fef2f2; font-weight:bold;">
+              <td colspan="6" style="text-align:right;">TOTAL GÉNÉRAL :</td>
+              <td style="text-align:right;">${formatMoney(stats.total)} F</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="footer">
+        <div class="authenticity">
+          🔐 <strong>Document certifié unique</strong> — Cet état est protégé par un QR code d'authenticité.
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 20px;">
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Comptable</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Directeur Financier</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Directeur Général</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+        <div class="text-center" style="margin-top: 15px; font-size: 9px; color: #6b7280;">
+          Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 20px;">
+        <button onclick="window.print()" style="padding: 10px 25px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;">🖨️ Imprimer l'état</button>
+        <button onclick="window.close()" style="padding: 10px 25px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
+
+// ✅ NOUVEAU : Export CSV amélioré avec toutes les colonnes
+const handleExportCSV = () => {
+  const isFournisseurs = activeTab === 'fournisseurs';
+  const data = isFournisseurs ? filteredSupplierPayments : filteredExpenses;
+  
+  const headers = isFournisseurs 
+    ? ['Date', 'Fournisseur', 'Référence', 'Montant', 'Mode paiement', 'Notes']
+    : ['Date', 'Type', 'Département', 'Catégorie', 'Description', 'Montant', 'Mode paiement', 'Référence', 'Notes'];
+  
+  const rows = data.map((item: any) => {
+    if (isFournisseurs) {
+      return [
+        new Date(item.paid_at).toLocaleDateString('fr-FR'),
+        item.suppliers?.name || '-',
+        item.reference_number || '-',
+        item.amount.toString(),
+        item.payment_method || '-',
+        item.notes || ''
+      ];
+    }
+    return [
+      new Date(item.date).toLocaleDateString('fr-FR'),
+      item.type,
+      item.subtype || '-',
+      item.category,
+      item.description,
+      item.amount.toString(),
+      item.payment_method,
+      item.reference || '',
+      item.notes || ''
+    ];
+  });
+
+  const csvContent = [headers, ...rows].map(row => row.join(';')).join('\n');
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `depenses_${activeTab}_${startDate.replace(/\//g, '-')}_au_${endDate.replace(/\//g, '-')}.csv`;
+  link.click();
+};
   return (
     <div className="p-4 lg:p-6 space-y-6">
       {/* Header */}
@@ -674,19 +1082,39 @@ const [showPeriodPicker, setShowPeriodPicker] = useState(false);
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={loadExpenses} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-            <RefreshCw className="w-4 h-4" /> Rafraîchir
-          </button>
-          <button onClick={() => setShowFiltersModal(true)} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium">
-            <Filter className="w-4 h-4" /> Filtres
-          </button>
-          <button onClick={() => setShowCategoriesModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-            <Settings className="w-4 h-4" /> Catégories
-          </button>
-          <button onClick={() => setShowNewExpenseModal(true)} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">
-            <Plus className="w-4 h-4" /> Nouvelle Dépense
-          </button>
-        </div>
+  <button onClick={loadExpenses} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+    <RefreshCw className="w-4 h-4" /> Rafraîchir
+  </button>
+  
+  {/* ✅ NOUVEAU : Bouton Imprimer l'état PDF */}
+  <button 
+    onClick={handlePrintPeriodReport}
+    disabled={filteredExpenses.length === 0 && filteredSupplierPayments.length === 0}
+    className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg text-sm font-medium"
+    title="Générer l'état PDF de la période avec QR Code"
+  >
+    <Printer className="w-4 h-4" /> État PDF
+  </button>
+  
+  {/* ✅ NOUVEAU : Bouton Export CSV amélioré */}
+  <button 
+    onClick={handleExportCSV}
+    disabled={filteredExpenses.length === 0 && filteredSupplierPayments.length === 0}
+    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg text-sm font-medium"
+  >
+    <FileText className="w-4 h-4" /> Export CSV
+  </button>
+  
+  <button onClick={() => setShowFiltersModal(true)} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm font-medium">
+    <Filter className="w-4 h-4" /> Filtres
+  </button>
+  <button onClick={() => setShowCategoriesModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+    <Settings className="w-4 h-4" /> Catégories
+  </button>
+  <button onClick={() => setShowNewExpenseModal(true)} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">
+    <Plus className="w-4 h-4" /> Nouvelle Dépense
+  </button>
+</div>
       </div>
 
       {/* Onglets */}
@@ -804,8 +1232,31 @@ const [showPeriodPicker, setShowPeriodPicker] = useState(false);
                       <td className="px-4 py-3 text-right font-bold text-slate-900">{payment.amount.toLocaleString('fr-FR')} f CFA</td>
                       <td className="px-4 py-3 text-slate-600">💰 {payment.payment_method || 'Espèces'}</td>
                       <td className="px-4 py-3 text-center">
-                        <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4" /></button>
-                      </td>
+  <div className="flex items-center justify-center gap-1">
+    <button 
+      onClick={() => handlePrintExpenseReceipt({
+        id: payment.id,
+        date: payment.paid_at,
+        category: payment.suppliers?.name || 'Fournisseur',
+        description: `Paiement fournisseur - ${payment.reference_number || 'N/A'}`,
+        type: 'FOURNISSEUR',
+        subtype: 'HOTEL',
+        reference: payment.reference_number,
+        amount: payment.amount,
+        payment_method: payment.payment_method || 'Espèces',
+        notes: payment.notes || '',
+        created_at: payment.created_at
+      })}
+      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" 
+      title="Imprimer le reçu"
+    >
+      <Printer className="w-4 h-4" />
+    </button>
+    <button className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Modifier">
+      <Edit2 className="w-4 h-4" />
+    </button>
+  </div>
+</td>
                     </tr>
                   ))
                 )
@@ -843,11 +1294,23 @@ const [showPeriodPicker, setShowPeriodPicker] = useState(false);
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => openEditModal(expense)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Modifier"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => setDeletingExpense(expense)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Supprimer"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    </td>
+  <div className="flex items-center justify-center gap-1">
+    {/* ✅ NOUVEAU : Bouton Imprimer le reçu */}
+    <button 
+      onClick={() => handlePrintExpenseReceipt(expense)}
+      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded" 
+      title="Imprimer le reçu PDF"
+    >
+      <Printer className="w-4 h-4" />
+    </button>
+    <button onClick={() => openEditModal(expense)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Modifier">
+      <Edit2 className="w-4 h-4" />
+    </button>
+    <button onClick={() => setDeletingExpense(expense)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Supprimer">
+      <Trash2 className="w-4 h-4" />
+    </button>
+  </div>
+</td>
                   </tr>
                 ))
               )}

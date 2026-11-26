@@ -5,8 +5,11 @@ import { useProfile } from '@/hooks/useHotel';
 import {
   Landmark, Plus, RefreshCw, TrendingUp, TrendingDown, Clock, CheckCircle,
   X, Save, AlertCircle, Filter, Search, Edit2, Trash2, Loader2,
-  ArrowDownCircle, ArrowUpCircle, Receipt, DollarSign, Calendar
+  ArrowDownCircle, ArrowUpCircle, Receipt, DollarSign, Calendar,
+  Printer, FileText, QrCode
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface BankAccount {
   id: string;
@@ -36,6 +39,22 @@ interface BankTransaction {
   notes: string;
   created_at: string;
 }
+
+// ✅ Helper pour formater les montants
+const money = (n: number) => Number(n || 0).toLocaleString('fr-FR');
+
+// ✅ Helper pour les types de transaction
+const getTransactionTypeLabel = (type: string) => {
+  const labels: Record<string, string> = {
+    TRANSFER: 'Virement',
+    CHECK: 'Chèque',
+    DEPOSIT: 'Dépôt',
+    MOBILE_MONEY: 'Mobile Money',
+    CARD: 'Carte bancaire',
+    CASH: 'Espèces'
+  };
+  return labels[type] || type;
+};
 
 export default function BanquePage() {
   const supabase = createClient();
@@ -185,7 +204,6 @@ export default function BanquePage() {
     try {
       const amount = parseFloat(depositForm.amount);
       
-      // 1. Créer la transaction
       const { error: transError } = await supabase.from('bank_transactions').insert({
         site_id: siteId,
         bank_account_id: selectedAccountId,
@@ -201,7 +219,6 @@ export default function BanquePage() {
 
       if (transError) throw transError;
 
-      // 2. Mettre à jour le solde du compte
       const { data: account } = await supabase
         .from('bank_accounts')
         .select('current_balance')
@@ -244,7 +261,6 @@ export default function BanquePage() {
     try {
       const amount = parseFloat(paymentForm.amount);
       
-      // 1. Créer la transaction
       const { error: transError } = await supabase.from('bank_transactions').insert({
         site_id: siteId,
         bank_account_id: selectedAccountId,
@@ -284,7 +300,6 @@ export default function BanquePage() {
     
     setLoading(true);
     try {
-      // 1. Marquer comme rapprochée
       const { error: transError } = await supabase
         .from('bank_transactions')
         .update({ 
@@ -295,7 +310,6 @@ export default function BanquePage() {
 
       if (transError) throw transError;
 
-      // 2. Mettre à jour le solde du compte
       const { data: transaction } = await supabase
         .from('bank_transactions')
         .select('amount, direction')
@@ -331,6 +345,300 @@ export default function BanquePage() {
       alert(`Erreur: ${err.message}`);
     }
     setLoading(false);
+  };
+
+  // ✅ NOUVEAU : Impression d'un reçu de transaction (Dépôt ou Paiement)
+  const handlePrintTransaction = (transaction: BankTransaction) => {
+    if (!selectedAccount) return;
+    
+    const isDeposit = transaction.direction === 'INCOME';
+    const reportId = `TX-${transaction.id.slice(0, 8).toUpperCase()}`;
+    const generatedAt = new Date().toISOString();
+    const qrData = `VIDALOCA_BANK|${reportId}|${transaction.reference}|${transaction.amount}|${generatedAt}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+    
+    const printWindow = window.open('', '_blank', 'width=800,height=1000');
+    if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>${isDeposit ? 'Reçu de Dépôt' : 'Reçu de Paiement'} - ${transaction.reference}</title>
+        <style>
+          @page { size: A4; margin: 15mm; }
+          body { font-family: Arial, sans-serif; font-size: 12px; color: #1f2937; margin: 0; padding: 20px; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid ${isDeposit ? '#059669' : '#dc2626'}; padding-bottom: 15px; margin-bottom: 20px; }
+          .header-left h1 { color: ${isDeposit ? '#059669' : '#dc2626'}; margin: 0; font-size: 24px; }
+          .header-left .subtitle { color: #6b7280; font-size: 12px; margin-top: 4px; }
+          .header-left .title { font-size: 18px; font-weight: bold; margin-top: 10px; color: #1f2937; }
+          .qr-box { text-align: center; }
+          .qr-box img { border: 2px solid #e2e8f0; padding: 5px; border-radius: 8px; }
+          .qr-box small { display: block; margin-top: 5px; color: #6b7280; font-size: 10px; }
+          .section { margin-bottom: 20px; }
+          .section-title { font-size: 14px; font-weight: bold; color: ${isDeposit ? '#059669' : '#dc2626'}; border-bottom: 2px solid ${isDeposit ? '#059669' : '#dc2626'}; padding-bottom: 5px; margin-bottom: 10px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+          .info-box { background: #f9fafb; padding: 10px; border-radius: 6px; border-left: 3px solid ${isDeposit ? '#059669' : '#dc2626'}; }
+          .info-box label { font-size: 10px; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase; font-weight: bold; }
+          .info-box value { font-size: 13px; color: #1f2937; font-weight: bold; }
+          .highlight-box { background: ${isDeposit ? '#ecfdf5' : '#fef2f2'}; border: 2px solid ${isDeposit ? '#059669' : '#dc2626'}; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center; }
+          .highlight-box .label { font-size: 11px; color: #6b7280; margin-bottom: 3px; }
+          .highlight-box .value { font-size: 24px; font-weight: bold; color: ${isDeposit ? '#059669' : '#dc2626'}; }
+          .footer { margin-top: 40px; border-top: 2px solid #e5e7eb; padding-top: 15px; }
+          .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 11px; color: #92400e; text-align: center; }
+          .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; }
+          .signature-box { border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 11px; }
+          .text-right { text-align: right; }
+          .text-center { text-align: center; }
+          @media print { body { padding: 0; } .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-left">
+            <h1>🏦 LA VIDA-LOCA</h1>
+            <div class="subtitle">Hôtel • Resto • Lounge</div>
+            <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+            <div class="subtitle">📞 +226 01 04 11 11</div>
+            <div class="title">${isDeposit ? '📥 REÇU DE DÉPÔT BANCAIRE' : '📤 REÇU DE PAIEMENT BANCAIRE'}</div>
+            <div class="subtitle">N° ${reportId}</div>
+          </div>
+          <div class="qr-box">
+            <img src="${qrUrl}" alt="QR Code d'authenticité" />
+            <small>Document unique<br/>ID: ${reportId}</small>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">📋 Informations du compte</div>
+          <div class="info-grid">
+            <div class="info-box"><label>Banque</label><value>${selectedAccount.bank_name}</value></div>
+            <div class="info-box"><label>Titulaire</label><value>${selectedAccount.account_name}</value></div>
+            <div class="info-box"><label>N° de compte</label><value>${selectedAccount.account_number || '—'}</value></div>
+            <div class="info-box"><label>Type</label><value>${selectedAccount.account_type === 'CHECKING' ? 'Courant' : selectedAccount.account_type === 'SAVINGS' ? 'Épargne' : 'Carte de crédit'}</value></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">💰 Détails de la transaction</div>
+          <div class="info-grid">
+            <div class="info-box"><label>Référence</label><value>${transaction.reference}</value></div>
+            <div class="info-box"><label>Type</label><value>${getTransactionTypeLabel(transaction.transaction_type)}</value></div>
+            <div class="info-box"><label>Date</label><value>${new Date(transaction.transaction_date).toLocaleDateString('fr-FR')}</value></div>
+            <div class="info-box"><label>Statut</label><value>${transaction.status === 'RECONCILED' ? '✅ Rapprochée' : '⏳ En attente'}</value></div>
+            ${transaction.counterparty ? `<div class="info-box"><label>Bénéficiaire</label><value>${transaction.counterparty}</value></div>` : ''}
+            ${transaction.source_table ? `<div class="info-box"><label>Source</label><value>${transaction.source_table}</value></div>` : ''}
+          </div>
+          ${transaction.description ? `
+          <div class="info-box" style="margin-bottom: 15px;">
+            <label>Description</label>
+            <value style="display:block; margin-top: 3px;">${transaction.description}</value>
+          </div>` : ''}
+        </div>
+
+        <div class="highlight-box">
+          <div class="label">MONTANT ${isDeposit ? 'DÉPOSÉ' : 'DÉBITÉ'}</div>
+          <div class="value">${money(transaction.amount)} FCFA</div>
+        </div>
+
+        ${transaction.notes ? `
+        <div class="section">
+          <div class="section-title">📝 Notes</div>
+          <div style="background: #f9fafb; padding: 10px; border-radius: 6px; border-left: 3px solid #6b7280;">
+            ${transaction.notes}
+          </div>
+        </div>` : ''}
+
+        <div class="footer">
+          <div class="authenticity">
+            🔐 <strong>Document certifié unique</strong> — Ce reçu est protégé par un QR code d'authenticité. Scannez-le pour vérifier l'intégrité des données.
+          </div>
+          <div class="signatures">
+            <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Caissier(ère)</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+            <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Responsable / Directeur</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+          </div>
+          <div class="text-center" style="margin-top: 20px; font-size: 10px; color: #6b7280;">
+            Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS
+          </div>
+        </div>
+
+        <div class="no-print" style="text-align: center; margin-top: 30px;">
+          <button onclick="window.print()" style="padding: 12px 30px; background: ${isDeposit ? '#059669' : '#dc2626'}; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Imprimer le reçu</button>
+          <button onclick="window.close()" style="padding: 12px 30px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">Fermer</button>
+        </div>
+        <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // ✅ NOUVEAU : Relevé de compte complet avec QR Code
+  const handlePrintAccountStatement = () => {
+    if (!selectedAccount) return;
+    
+    const reportId = `REL-${selectedAccount.id.slice(0, 8).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+    const generatedAt = new Date().toISOString();
+    const qrData = `VIDALOCA_BANK_STATEMENT|${reportId}|${selectedAccount.account_number}|${stats.theoreticalBalance}|${generatedAt}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+    
+    // Stats pour le relevé
+    const totalDeposits = transactions.filter(t => t.direction === 'INCOME').reduce((sum, t) => sum + Number(t.amount), 0);
+    const totalPayments = transactions.filter(t => t.direction === 'EXPENSE').reduce((sum, t) => sum + Number(t.amount), 0);
+    const pendingCount = transactions.filter(t => t.status === 'PENDING').length;
+    const reconciledCount = transactions.filter(t => t.status === 'RECONCILED').length;
+    
+    const printWindow = window.open('', '_blank', 'width=900,height=1200');
+    if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+    
+    const transactionsRows = transactions.map(t => `
+      <tr>
+        <td>${new Date(t.transaction_date).toLocaleDateString('fr-FR')}</td>
+        <td><strong>${t.reference}</strong></td>
+        <td>${getTransactionTypeLabel(t.transaction_type)}</td>
+        <td>${t.description || '—'}</td>
+        <td style="text-align:right; color: ${t.direction === 'INCOME' ? '#059669' : '#dc2626'}; font-weight: bold;">
+          ${t.direction === 'INCOME' ? '+' : '-'}${money(t.amount)} F
+        </td>
+        <td style="text-align:center;">
+          ${t.status === 'RECONCILED' ? '<span style="color:#059669;">✅</span>' : '<span style="color:#d97706;">⏳</span>'}
+        </td>
+      </tr>
+    `).join('');
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Relevé de Compte - ${selectedAccount.bank_name}</title>
+        <style>
+          @page { size: A4 landscape; margin: 12mm; }
+          body { font-family: Arial, sans-serif; font-size: 10px; color: #1f2937; margin: 0; padding: 15px; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1e40af; padding-bottom: 12px; margin-bottom: 15px; }
+          .header-left h1 { color: #1e40af; margin: 0; font-size: 22px; }
+          .header-left .subtitle { color: #6b7280; font-size: 11px; margin-top: 3px; }
+          .header-left .title { font-size: 16px; font-weight: bold; margin-top: 8px; color: #1f2937; }
+          .qr-box { text-align: center; }
+          .qr-box img { border: 2px solid #e2e8f0; padding: 4px; border-radius: 6px; }
+          .qr-box small { display: block; margin-top: 3px; color: #6b7280; font-size: 9px; }
+          .section { margin-bottom: 15px; }
+          .section-title { font-size: 12px; font-weight: bold; color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 4px; margin-bottom: 8px; }
+          .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+          .info-box { background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #1e40af; }
+          .info-box label { font-size: 9px; color: #6b7280; display: block; margin-bottom: 2px; text-transform: uppercase; font-weight: bold; }
+          .info-box value { font-size: 11px; color: #1f2937; font-weight: bold; }
+          .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+          .stat-card { background: #f9fafb; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e5e7eb; }
+          .stat-value { font-size: 18px; font-weight: bold; color: #1e40af; }
+          .stat-label { font-size: 9px; color: #6b7280; margin-top: 3px; }
+          .stat-card.income { background: #ecfdf5; border-color: #059669; }
+          .stat-card.income .stat-value { color: #059669; }
+          .stat-card.expense { background: #fef2f2; border-color: #dc2626; }
+          .stat-card.expense .stat-value { color: #dc2626; }
+          .stat-card.balance { background: #eff6ff; border-color: #1e40af; }
+          .stat-card.balance .stat-value { color: #1e40af; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }
+          th { background: #1e40af; color: white; padding: 6px; text-align: left; font-size: 9px; }
+          td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+          tr:nth-child(even) { background: #f9fafb; }
+          .footer { margin-top: 30px; border-top: 2px solid #e5e7eb; padding-top: 12px; }
+          .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 8px; border-radius: 5px; margin-bottom: 15px; font-size: 10px; color: #92400e; text-align: center; }
+          .text-right { text-align: right; }
+          .text-center { text-align: center; }
+          @media print { body { padding: 0; } .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-left">
+            <h1>🏦 LA VIDA-LOCA</h1>
+            <div class="subtitle">Hôtel • Resto • Lounge</div>
+            <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+            <div class="subtitle">📞 +226 01 04 11 11</div>
+            <div class="title">📊 RELEVÉ DE COMPTE BANCAIRE</div>
+            <div class="subtitle">N° ${reportId}</div>
+          </div>
+          <div class="qr-box">
+            <img src="${qrUrl}" alt="QR Code d'authenticité" />
+            <small>Document unique<br/>ID: ${reportId}</small>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">📋 Informations du compte</div>
+          <div class="info-grid">
+            <div class="info-box"><label>Banque</label><value>${selectedAccount.bank_name}</value></div>
+            <div class="info-box"><label>Titulaire</label><value>${selectedAccount.account_name}</value></div>
+            <div class="info-box"><label>N° de compte</label><value>${selectedAccount.account_number || '—'}</value></div>
+            <div class="info-box"><label>Type</label><value>${selectedAccount.account_type === 'CHECKING' ? 'Courant' : selectedAccount.account_type === 'SAVINGS' ? 'Épargne' : 'Carte de crédit'}</value></div>
+            <div class="info-box"><label>Devise</label><value>${selectedAccount.currency}</value></div>
+            <div class="info-box"><label>Période</label><value>${transactions.length > 0 ? new Date(transactions[transactions.length - 1].transaction_date).toLocaleDateString('fr-FR') : '—'} au ${transactions.length > 0 ? new Date(transactions[0].transaction_date).toLocaleDateString('fr-FR') : '—'}</value></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">💰 Résumé financier</div>
+          <div class="stats-grid">
+            <div class="stat-card balance">
+              <div class="stat-value">${money(stats.theoreticalBalance)} F</div>
+              <div class="stat-label">Solde actuel</div>
+            </div>
+            <div class="stat-card income">
+              <div class="stat-value">${money(totalDeposits)} F</div>
+              <div class="stat-label">Total dépôts</div>
+            </div>
+            <div class="stat-card expense">
+              <div class="stat-value">${money(totalPayments)} F</div>
+              <div class="stat-label">Total paiements</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${transactions.length}</div>
+              <div class="stat-label">Transactions (${reconciledCount}✅ / ${pendingCount}⏳)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">📜 Détail des transactions (${transactions.length})</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Référence</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th style="text-align:right;">Montant</th>
+                <th style="text-align:center;">Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${transactionsRows}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="footer">
+          <div class="authenticity">
+            🔐 <strong>Document certifié unique</strong> — Ce relevé est protégé par un QR code d'authenticité. Scannez-le pour vérifier l'intégrité des données.
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+            <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Responsable Financier</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+            <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Directeur Général</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+          </div>
+          <div class="text-center" style="margin-top: 15px; font-size: 9px; color: #6b7280;">
+            Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS • ${transactions.length} transaction(s)
+          </div>
+        </div>
+
+        <div class="no-print" style="text-align: center; margin-top: 20px;">
+          <button onclick="window.print()" style="padding: 10px 25px; background: #1e40af; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;">🖨️ Imprimer le relevé</button>
+          <button onclick="window.close()" style="padding: 10px 25px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: 10px;">Fermer</button>
+        </div>
+        <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const selectedAccount = accounts.find(a => a.id === selectedAccountId);
@@ -372,6 +680,15 @@ export default function BanquePage() {
           <p className="text-sm text-slate-500 mt-1">Gestion des comptes bancaires et rapprochement</p>
         </div>
         <div className="flex gap-2">
+          {/* ✅ NOUVEAU : Bouton Relevé PDF */}
+          <button
+            onClick={handlePrintAccountStatement}
+            disabled={!selectedAccountId || transactions.length === 0}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            title="Générer le relevé de compte PDF avec QR Code"
+          >
+            <FileText className="w-4 h-4" /> Relevé PDF
+          </button>
           <button
             onClick={() => setShowDeposit(true)}
             disabled={!selectedAccountId}
@@ -524,10 +841,7 @@ export default function BanquePage() {
                         trans.direction === 'INCOME' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
                       }`}>
                         {trans.direction === 'INCOME' ? <ArrowDownCircle className="w-3 h-3" /> : <ArrowUpCircle className="w-3 h-3" />}
-                        {trans.transaction_type === 'TRANSFER' ? 'Virement' :
-                         trans.transaction_type === 'CHECK' ? 'Chèque' :
-                         trans.transaction_type === 'DEPOSIT' ? 'Dépôt' :
-                         trans.transaction_type === 'MOBILE_MONEY' ? 'Mobile Money' : trans.transaction_type}
+                        {getTransactionTypeLabel(trans.transaction_type)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -551,15 +865,25 @@ export default function BanquePage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {trans.status === 'PENDING' && (
+                      <div className="flex items-center justify-center gap-1">
+                        {/* ✅ NOUVEAU : Bouton Imprimer reçu */}
                         <button
-                          onClick={() => handleReconcile(trans.id)}
-                          className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded"
-                          title="Rapprocher"
+                          onClick={() => handlePrintTransaction(trans)}
+                          className="text-indigo-600 hover:bg-indigo-50 p-1.5 rounded"
+                          title="Imprimer le reçu PDF"
                         >
-                          <CheckCircle className="w-4 h-4" />
+                          <Printer className="w-4 h-4" />
                         </button>
-                      )}
+                        {trans.status === 'PENDING' && (
+                          <button
+                            onClick={() => handleReconcile(trans.id)}
+                            className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded"
+                            title="Rapprocher"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

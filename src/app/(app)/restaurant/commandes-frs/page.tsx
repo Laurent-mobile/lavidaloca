@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { 
   Package, Search, Plus, Eye, CheckCircle, 
   X, Download, Printer, RefreshCw, TrendingUp,
-  Truck, CreditCard, Calendar, Clock, History as HistoryIcon
+  Truck, CreditCard, Calendar, Clock, History as HistoryIcon, FileText
 } from 'lucide-react';
 import SupplierReceptionModal from '@/components/SupplierReceptionModal';
 import MonthlySummaryModal from './components/MonthlySummaryModal';
@@ -351,6 +351,580 @@ const calculateStats = (ordersData: SupplierOrder[]) => {
     `);
     printWindow.document.close();
   };
+// ✅ Helper pour formater les montants
+const formatMoney = (n: number) => Number(n || 0).toLocaleString('fr-FR');
+
+// ✅ NOUVEAU : État global des commandes fournisseurs
+const handlePrintOrdersReport = () => {
+  const reportId = `FRS-${siteId?.slice(0, 8).toUpperCase() || 'GLOBAL'}-${Date.now().toString().slice(-6)}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_SUPPLIER_ORDERS|${reportId}|${filteredOrders.length}|${stats.totalMonth}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+  // Stats par fournisseur
+  const bySupplier: Record<string, { count: number; total: number; paid: number; unpaid: number }> = {};
+  filteredOrders.forEach(o => {
+    const name = o.suppliers?.name || 'Inconnu';
+    if (!bySupplier[name]) bySupplier[name] = { count: 0, total: 0, paid: 0, unpaid: 0 };
+    bySupplier[name].count += 1;
+    bySupplier[name].total += o.total_amount || 0;
+    const status = (o.payment_status || '').toUpperCase();
+    if (status === 'PAYÉ' || status === 'PAID') bySupplier[name].paid += o.total_amount || 0;
+    else bySupplier[name].unpaid += o.total_amount || 0;
+  });
+
+  const supplierRows = Object.entries(bySupplier)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([name, data]) => `
+      <tr>
+        <td>${name}</td>
+        <td style="text-align:center;">${data.count}</td>
+        <td style="text-align:right; font-weight: bold;">${formatMoney(data.total)} F</td>
+        <td style="text-align:right; color:#059669;">${formatMoney(data.paid)} F</td>
+        <td style="text-align:right; color:#dc2626;">${formatMoney(data.unpaid)} F</td>
+        <td style="text-align:right;">${data.total > 0 ? ((data.paid / data.total) * 100).toFixed(1) : 0}%</td>
+      </tr>
+    `).join('');
+
+  // Stats par statut de paiement
+  const paidOrders = filteredOrders.filter(o => ['PAYÉ', 'PAID'].includes((o.payment_status || '').toUpperCase()));
+  const partialOrders = filteredOrders.filter(o => ['PARTIEL', 'PARTIAL'].includes((o.payment_status || '').toUpperCase()));
+  const unpaidOrders = filteredOrders.filter(o => !['PAYÉ', 'PAID', 'PARTIEL', 'PARTIAL'].includes((o.payment_status || '').toUpperCase()));
+
+  const paidTotal = paidOrders.reduce((s, o) => s + (o.total_amount || 0), 0);
+  const partialTotal = partialOrders.reduce((s, o) => s + (o.total_amount || 0), 0);
+  const unpaidTotal = unpaidOrders.reduce((s, o) => s + (o.total_amount || 0), 0);
+
+  // Détail des commandes
+  const orderRows = filteredOrders
+    .sort((a, b) => new Date(b.order_date).getTime() - new Date(a.order_date).getTime())
+    .map(o => {
+      const paymentConfig = getPaymentStatusConfig(o.payment_status);
+      const receptionStatus = getReceptionStatus(o);
+      return `
+        <tr>
+          <td style="font-family:monospace; font-size:10px;">${o.order_number}</td>
+          <td>${o.suppliers?.name || '-'}</td>
+          <td>${new Date(o.order_date).toLocaleDateString('fr-FR')}</td>
+          <td style="text-align:right; font-weight: bold;">${formatMoney(o.total_amount)} F</td>
+          <td style="text-align:center;">
+            <span style="padding:2px 6px; border-radius:10px; font-size:9px; background:${receptionStatus.color.includes('emerald') ? '#dcfce7' : receptionStatus.color.includes('amber') ? '#fef3c7' : '#f1f5f9'}; color:${receptionStatus.color.includes('emerald') ? '#059669' : receptionStatus.color.includes('amber') ? '#d97706' : '#64748b'};">
+              ${receptionStatus.label}
+            </span>
+          </td>
+          <td style="text-align:center;">
+            <span style="padding:2px 6px; border-radius:10px; font-size:9px; background:${paymentConfig.color.includes('emerald') ? '#dcfce7' : paymentConfig.color.includes('amber') ? '#fef3c7' : paymentConfig.color.includes('red') ? '#fee2e2' : '#f1f5f9'}; color:${paymentConfig.color.includes('emerald') ? '#059669' : paymentConfig.color.includes('amber') ? '#d97706' : paymentConfig.color.includes('red') ? '#dc2626' : '#64748b'};">
+              ${paymentConfig.label}
+            </span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+  const printWindow = window.open('', '_blank', 'width=1000,height=1400');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>État des Commandes Fournisseurs - ${new Date().toLocaleDateString('fr-FR')}</title>
+      <style>
+        @page { size: A4 landscape; margin: 12mm; }
+        body { font-family: Arial, sans-serif; font-size: 10px; color: #1f2937; margin: 0; padding: 15px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #7c3aed; padding-bottom: 12px; margin-bottom: 15px; }
+        .header-left h1 { color: #7c3aed; margin: 0; font-size: 22px; }
+        .header-left .subtitle { color: #6b7280; font-size: 11px; margin-top: 3px; }
+        .header-left .title { font-size: 16px; font-weight: bold; margin-top: 8px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 4px; border-radius: 6px; }
+        .qr-box small { display: block; margin-top: 3px; color: #6b7280; font-size: 9px; }
+        .section { margin-bottom: 15px; }
+        .section-title { font-size: 12px; font-weight: bold; color: #7c3aed; border-bottom: 2px solid #7c3aed; padding-bottom: 4px; margin-bottom: 8px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+        .stat-card { background: #f9fafb; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-value { font-size: 18px; font-weight: bold; color: #7c3aed; }
+        .stat-label { font-size: 9px; color: #6b7280; margin-top: 3px; }
+        .stat-card.green { background: #ecfdf5; border-color: #10b981; }
+        .stat-card.green .stat-value { color: #059669; }
+        .stat-card.red { background: #fef2f2; border-color: #ef4444; }
+        .stat-card.red .stat-value { color: #dc2626; }
+        .stat-card.amber { background: #fffbeb; border-color: #f59e0b; }
+        .stat-card.amber .stat-value { color: #d97706; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 9px; }
+        th { background: #7c3aed; color: white; padding: 6px; text-align: left; font-size: 9px; }
+        td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .footer { margin-top: 30px; border-top: 2px solid #e5e7eb; padding-top: 12px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 8px; border-radius: 5px; margin-bottom: 15px; font-size: 10px; color: #92400e; text-align: center; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+          <div class="subtitle">📞 +226 01 04 11 11</div>
+          <div class="title">📊 ÉTAT DES COMMANDES FOURNISSEURS</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code d'authenticité" />
+          <small>Document unique<br/>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Informations générales</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+          <div style="background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #7c3aed;">
+            <div style="font-size: 9px; color: #6b7280; text-transform: uppercase; font-weight: bold;">Période</div>
+            <div style="font-size: 11px; font-weight: bold;">${dateFrom || '—'} au ${dateTo || '—'}</div>
+          </div>
+          <div style="background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #7c3aed;">
+            <div style="font-size: 9px; color: #6b7280; text-transform: uppercase; font-weight: bold;">Nombre de commandes</div>
+            <div style="font-size: 11px; font-weight: bold;">${filteredOrders.length}</div>
+          </div>
+          <div style="background: #f9fafb; padding: 8px; border-radius: 5px; border-left: 3px solid #7c3aed;">
+            <div style="font-size: 9px; color: #6b7280; text-transform: uppercase; font-weight: bold;">Fournisseurs</div>
+            <div style="font-size: 11px; font-weight: bold;">${Object.keys(bySupplier).length}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">💰 Synthèse financière (30 derniers jours)</div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${formatMoney(stats.totalMonth)} F</div>
+            <div class="stat-label">Total commandes</div>
+          </div>
+          <div class="stat-card green">
+            <div class="stat-value">${formatMoney(stats.paidMonth)} F</div>
+            <div class="stat-label">Payé</div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-value">${formatMoney(stats.unpaidMonth)} F</div>
+            <div class="stat-label">Reste à payer</div>
+          </div>
+          <div class="stat-card amber">
+            <div class="stat-value">${stats.paymentRate.toFixed(0)}%</div>
+            <div class="stat-label">Taux de règlement</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📊 Répartition par statut de paiement</div>
+        <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="stat-card green">
+            <div class="stat-value">${paidOrders.length}</div>
+            <div class="stat-label">Payées (${formatMoney(paidTotal)} F)</div>
+          </div>
+          <div class="stat-card amber">
+            <div class="stat-value">${partialOrders.length}</div>
+            <div class="stat-label">Partielles (${formatMoney(partialTotal)} F)</div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-value">${unpaidOrders.length}</div>
+            <div class="stat-label">Impayées (${formatMoney(unpaidTotal)} F)</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">🏢 Répartition par fournisseur</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Fournisseur</th>
+              <th style="text-align:center;">Nb commandes</th>
+              <th style="text-align:right;">Total</th>
+              <th style="text-align:right;">Payé</th>
+              <th style="text-align:right;">Impayé</th>
+              <th style="text-align:right;">% Payé</th>
+            </tr>
+          </thead>
+          <tbody>${supplierRows}</tbody>
+          <tfoot>
+            <tr style="background:#f5f3ff; font-weight:bold;">
+              <td>TOTAL</td>
+              <td style="text-align:center;">${filteredOrders.length}</td>
+              <td style="text-align:right;">${formatMoney(filteredOrders.reduce((s, o) => s + (o.total_amount || 0), 0))} F</td>
+              <td style="text-align:right;">${formatMoney(paidTotal)} F</td>
+              <td style="text-align:right;">${formatMoney(unpaidTotal + partialTotal)} F</td>
+              <td style="text-align:right;">${filteredOrders.reduce((s, o) => s + (o.total_amount || 0), 0) > 0 ? ((paidTotal / filteredOrders.reduce((s, o) => s + (o.total_amount || 0), 0)) * 100).toFixed(1) : 0}%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📜 Détail des commandes (${filteredOrders.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>N° Commande</th>
+              <th>Fournisseur</th>
+              <th>Date</th>
+              <th style="text-align:right;">Montant</th>
+              <th style="text-align:center;">Réception</th>
+              <th style="text-align:center;">Paiement</th>
+            </tr>
+          </thead>
+          <tbody>${orderRows}</tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        <div class="authenticity">
+          🔐 <strong>Document certifié unique</strong> — Cet état est protégé par un QR code d'authenticité.
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Responsable Achats</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div style="border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 10px;"><div style="height: 40px;"></div><b>Directeur Général</b><div style="font-size: 9px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+        <div class="text-center" style="margin-top: 15px; font-size: 9px; color: #6b7280;">
+          Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 20px;">
+        <button onclick="window.print()" style="padding: 10px 25px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold;">🖨️ Imprimer l'état</button>
+        <button onclick="window.close()" style="padding: 10px 25px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
+
+// ✅ NOUVEAU : État de réception d'une commande spécifique
+const handlePrintReceptionReport = (order: SupplierOrder) => {
+  const reportId = `REC-${order.id.slice(0, 8).toUpperCase()}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_RECEPTION|${reportId}|${order.order_number}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+  const items = orderItems[order.id] || [];
+  const receptions = orderReceptions[order.id] || [];
+
+  const totalOrdered = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+  const totalReceived = items.reduce((sum, item) => sum + (item.received_quantity || 0), 0);
+  const totalRemaining = totalOrdered - totalReceived;
+  const progress = totalOrdered > 0 ? (totalReceived / totalOrdered) * 100 : 0;
+
+  const itemRows = items.map(item => {
+    const remaining = item.quantity - (item.received_quantity || 0);
+    const itemProgress = item.quantity > 0 ? ((item.received_quantity || 0) / item.quantity) * 100 : 0;
+    const isComplete = remaining === 0;
+    return `
+      <tr style="${isComplete ? 'background:#ecfdf5;' : ''}">
+        <td>${item.item_name}</td>
+        <td style="text-align:center;">${item.unit || '-'}</td>
+        <td style="text-align:center; font-weight: bold;">${item.quantity}</td>
+        <td style="text-align:center; color:#059669; font-weight: bold;">${item.received_quantity || 0}</td>
+        <td style="text-align:center; color:${remaining > 0 ? '#dc2626' : '#059669'}; font-weight: bold;">${remaining}</td>
+        <td style="text-align:right;">${formatMoney(item.unit_price || 0)} F</td>
+        <td style="text-align:right; font-weight: bold;">${formatMoney(item.total_price || 0)} F</td>
+        <td style="text-align:center;">
+          <div style="background:#e5e7eb; border-radius:4px; height:8px; width:100%; display:inline-block;">
+            <div style="background:${isComplete ? '#059669' : '#d97706'}; height:8px; border-radius:4px; width:${itemProgress}%;"></div>
+          </div>
+          <div style="font-size:9px; margin-top:2px;">${itemProgress.toFixed(0)}%</div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const receptionRows = receptions.map(r => `
+    <tr>
+      <td style="font-family:monospace;">${r.reception_number || '-'}</td>
+      <td>${new Date(r.reception_date).toLocaleString('fr-FR')}</td>
+      <td>${r.items?.length || 0} article(s)</td>
+      <td>${r.notes || '-'}</td>
+    </tr>
+  `).join('');
+
+  const printWindow = window.open('', '_blank', 'width=900,height=1200');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Bon de Réception - ${order.order_number}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #1f2937; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #059669; padding-bottom: 15px; margin-bottom: 20px; }
+        .header-left h1 { color: #059669; margin: 0; font-size: 24px; }
+        .header-left .subtitle { color: #6b7280; font-size: 12px; margin-top: 4px; }
+        .header-left .title { font-size: 18px; font-weight: bold; margin-top: 10px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 5px; border-radius: 8px; }
+        .qr-box small { display: block; margin-top: 5px; color: #6b7280; font-size: 10px; }
+        .section { margin-bottom: 20px; }
+        .section-title { font-size: 14px; font-weight: bold; color: #059669; border-bottom: 2px solid #059669; padding-bottom: 5px; margin-bottom: 10px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .info-box { background: #f9fafb; padding: 10px; border-radius: 6px; border-left: 3px solid #059669; }
+        .info-box label { font-size: 10px; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase; font-weight: bold; }
+        .info-box value { font-size: 13px; color: #1f2937; font-weight: bold; display: block; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+        .stat-card { background: #f9fafb; padding: 10px; border-radius: 6px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-value { font-size: 18px; font-weight: bold; color: #059669; }
+        .stat-label { font-size: 9px; color: #6b7280; margin-top: 3px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px; }
+        th { background: #059669; color: white; padding: 6px; text-align: left; font-size: 10px; }
+        td { padding: 5px 6px; border-bottom: 1px solid #e5e7eb; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .footer { margin-top: 40px; border-top: 2px solid #e5e7eb; padding-top: 15px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 11px; color: #92400e; text-align: center; }
+        .signatures { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px; margin-top: 30px; }
+        .signature-box { border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 11px; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+          <div class="title">📦 BON DE RÉCEPTION</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code d'authenticité" />
+          <small>Document unique<br/>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Informations de la commande</div>
+        <div class="info-grid">
+          <div class="info-box"><label>N° Commande</label><value>${order.order_number}</value></div>
+          <div class="info-box"><label>Fournisseur</label><value>${order.suppliers?.name || '-'}</value></div>
+          <div class="info-box"><label>Date de commande</label><value>${new Date(order.order_date).toLocaleDateString('fr-FR')}</value></div>
+          <div class="info-box"><label>Montant total</label><value>${formatMoney(order.total_amount)} F</value></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📊 Progression de réception</div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value">${totalOrdered}</div>
+            <div class="stat-label">Articles commandés</div>
+          </div>
+          <div class="stat-card" style="background:#ecfdf5; border-color:#10b981;">
+            <div class="stat-value" style="color:#059669;">${totalReceived}</div>
+            <div class="stat-label">Articles reçus</div>
+          </div>
+          <div class="stat-card" style="background:#fef2f2; border-color:#ef4444;">
+            <div class="stat-value" style="color:#dc2626;">${totalRemaining}</div>
+            <div class="stat-label">Articles restants</div>
+          </div>
+          <div class="stat-card" style="background:#f5f3ff; border-color:#8b5cf6;">
+            <div class="stat-value" style="color:#7c3aed;">${progress.toFixed(0)}%</div>
+            <div class="stat-label">Taux de réception</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📦 Détail des articles</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Article</th>
+              <th style="text-align:center;">Unité</th>
+              <th style="text-align:center;">Commandé</th>
+              <th style="text-align:center;">Reçu</th>
+              <th style="text-align:center;">Reste</th>
+              <th style="text-align:right;">Prix unit.</th>
+              <th style="text-align:right;">Total</th>
+              <th style="text-align:center;">Progression</th>
+            </tr>
+          </thead>
+          <tbody>${itemRows}</tbody>
+          <tfoot>
+            <tr style="background:#ecfdf5; font-weight:bold;">
+              <td colspan="2">TOTAUX</td>
+              <td style="text-align:center;">${totalOrdered}</td>
+              <td style="text-align:center;">${totalReceived}</td>
+              <td style="text-align:center;">${totalRemaining}</td>
+              <td></td>
+              <td style="text-align:right;">${formatMoney(order.total_amount)} F</td>
+              <td style="text-align:center;">${progress.toFixed(0)}%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      ${receptions.length > 0 ? `
+      <div class="section">
+        <div class="section-title">📜 Historique des réceptions (${receptions.length})</div>
+        <table>
+          <thead>
+            <tr>
+              <th>N° Réception</th>
+              <th>Date</th>
+              <th>Articles</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>${receptionRows}</tbody>
+        </table>
+      </div>
+      ` : ''}
+
+      <div class="footer">
+        <div class="authenticity">
+          🔐 <strong>Document certifié unique</strong> — Ce bon de réception est protégé par un QR code d'authenticité.
+        </div>
+        <div class="signatures">
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Réceptionnaire</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Responsable Stock</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Directeur</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+        <div class="text-center" style="margin-top: 20px; font-size: 10px; color: #6b7280;">
+          Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 30px;">
+        <button onclick="window.print()" style="padding: 12px 30px; background: #059669; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Imprimer le bon</button>
+        <button onclick="window.close()" style="padding: 12px 30px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
+
+// ✅ NOUVEAU : État de paiement d'une commande
+const handlePrintPaymentReport = (order: SupplierOrder) => {
+  const reportId = `PAY-${order.id.slice(0, 8).toUpperCase()}`;
+  const generatedAt = new Date().toISOString();
+  const qrData = `VIDALOCA_SUPPLIER_PAYMENT|${reportId}|${order.order_number}|${order.total_amount}|${generatedAt}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
+
+  const paymentConfig = getPaymentStatusConfig(order.payment_status);
+  const receptionStatus = getReceptionStatus(order);
+
+  const printWindow = window.open('', '_blank', 'width=800,height=1000');
+  if (!printWindow) { alert('Veuillez autoriser les popups.'); return; }
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>État de Paiement - ${order.order_number}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #1f2937; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #10b981; padding-bottom: 15px; margin-bottom: 20px; }
+        .header-left h1 { color: #10b981; margin: 0; font-size: 24px; }
+        .header-left .subtitle { color: #6b7280; font-size: 12px; margin-top: 4px; }
+        .header-left .title { font-size: 18px; font-weight: bold; margin-top: 10px; color: #1f2937; }
+        .qr-box { text-align: center; }
+        .qr-box img { border: 2px solid #e2e8f0; padding: 5px; border-radius: 8px; }
+        .qr-box small { display: block; margin-top: 5px; color: #6b7280; font-size: 10px; }
+        .section { margin-bottom: 20px; }
+        .section-title { font-size: 14px; font-weight: bold; color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 5px; margin-bottom: 10px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .info-box { background: #f9fafb; padding: 10px; border-radius: 6px; border-left: 3px solid #10b981; }
+        .info-box label { font-size: 10px; color: #6b7280; display: block; margin-bottom: 3px; text-transform: uppercase; font-weight: bold; }
+        .info-box value { font-size: 13px; color: #1f2937; font-weight: bold; display: block; }
+        .highlight-box { background: #ecfdf5; border: 2px solid #10b981; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: center; }
+        .highlight-box .label { font-size: 11px; color: #6b7280; margin-bottom: 3px; }
+        .highlight-box .value { font-size: 24px; font-weight: bold; color: #10b981; }
+        .status-box { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+        .footer { margin-top: 40px; border-top: 2px solid #e5e7eb; padding-top: 15px; }
+        .authenticity { background: #fef3c7; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 11px; color: #92400e; text-align: center; }
+        .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; }
+        .signature-box { border-top: 1px solid #1f2937; padding-top: 5px; text-align: center; font-size: 11px; }
+        @media print { body { padding: 0; } .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="header-left">
+          <h1>🏨 LA VIDA-LOCA</h1>
+          <div class="subtitle">Hôtel • Resto • Lounge</div>
+          <div class="subtitle">📍 Rue 15.293, Ouaga 2000, Ouagadougou</div>
+          <div class="title">💰 ÉTAT DE PAIEMENT FOURNISSEUR</div>
+          <div class="subtitle">N° ${reportId}</div>
+        </div>
+        <div class="qr-box">
+          <img src="${qrUrl}" alt="QR Code d'authenticité" />
+          <small>Document unique<br/>ID: ${reportId}</small>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📋 Informations de la commande</div>
+        <div class="info-grid">
+          <div class="info-box"><label>N° Commande</label><value>${order.order_number}</value></div>
+          <div class="info-box"><label>Fournisseur</label><value>${order.suppliers?.name || '-'}</value></div>
+          <div class="info-box"><label>Date de commande</label><value>${new Date(order.order_date).toLocaleDateString('fr-FR')}</value></div>
+          <div class="info-box"><label>Statut réception</label><value>${receptionStatus.label}</value></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">💳 Statut de paiement</div>
+        <div style="text-align:center; margin: 20px 0;">
+          <span class="status-box" style="background:${paymentConfig.color.includes('emerald') ? '#dcfce7' : paymentConfig.color.includes('amber') ? '#fef3c7' : '#fee2e2'}; color:${paymentConfig.color.includes('emerald') ? '#059669' : paymentConfig.color.includes('amber') ? '#d97706' : '#dc2626'}; border: 2px solid ${paymentConfig.color.includes('emerald') ? '#10b981' : paymentConfig.color.includes('amber') ? '#f59e0b' : '#ef4444'};">
+            ${paymentConfig.label}
+          </span>
+        </div>
+      </div>
+
+      <div class="highlight-box">
+        <div class="label">MONTANT TOTAL DE LA COMMANDE</div>
+        <div class="value">${formatMoney(order.total_amount)} FCFA</div>
+      </div>
+
+      ${order.notes ? `
+      <div class="section">
+        <div class="section-title">📝 Notes</div>
+        <div style="background: #f9fafb; padding: 10px; border-radius: 6px; border-left: 3px solid #6b7280;">
+          ${order.notes}
+        </div>
+      </div>
+      ` : ''}
+
+      <div class="footer">
+        <div class="authenticity">
+          🔐 <strong>Document certifié unique</strong> — Cet état de paiement est protégé par un QR code d'authenticité.
+        </div>
+        <div class="signatures">
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Responsable Achats</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+          <div><div class="signature-box"><div style="height: 50px;"></div><div><b>Directeur Financier</b></div><div style="font-size: 10px; color: #6b7280;">Nom et signature</div></div></div>
+        </div>
+        <div class="text-center" style="margin-top: 20px; font-size: 10px; color: #6b7280;">
+          Document généré le ${new Date().toLocaleString('fr-FR')} • LA VIDA-LOCA PMS
+        </div>
+      </div>
+
+      <div class="no-print" style="text-align: center; margin-top: 30px;">
+        <button onclick="window.print()" style="padding: 12px 30px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold;">🖨️ Imprimer l'état</button>
+        <button onclick="window.close()" style="padding: 12px 30px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">Fermer</button>
+      </div>
+      <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); };</script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+};
   const handleSinglePayment = (order: SupplierOrder) => {
   // ✅ Ouvrir le modal de paiement simple pour cette commande spécifique
   setSelectedOrderForPayment(order);
@@ -524,35 +1098,45 @@ const calculateStats = (ordersData: SupplierOrder[]) => {
         </div>
 
         <div className="flex flex-wrap gap-2 pt-2">
-          <button 
-            onClick={() => setShowMonthlySummary(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-          >
-            <TrendingUp className="w-4 h-4" />
-            Résumé Mensuel
-          </button>
-          <button 
-            onClick={() => setShowBulkPayment(true)}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-          >
-            <CreditCard className="w-4 h-4" />
-            Paiement Groupé
-          </button>
-          <button 
-            onClick={handlePrintList}
-            className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-          >
-            <Printer className="w-4 h-4" />
-            Imprimer Liste
-          </button>
-          <button 
-            onClick={handleExportCSV}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Export CSV
-          </button>
-        </div>
+  <button 
+    onClick={() => setShowMonthlySummary(true)}
+    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+  >
+    <TrendingUp className="w-4 h-4" />
+    Résumé Mensuel
+  </button>
+  <button 
+    onClick={() => setShowBulkPayment(true)}
+    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+  >
+    <CreditCard className="w-4 h-4" />
+    Paiement Groupé
+  </button>
+  {/* ✅ NOUVEAU : Bouton État PDF global */}
+  <button 
+    onClick={handlePrintOrdersReport}
+    disabled={filteredOrders.length === 0}
+    className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+    title="Générer l'état global des commandes fournisseurs avec QR Code"
+  >
+    <FileText className="w-4 h-4" />
+    État PDF
+  </button>
+  <button 
+    onClick={handlePrintList}
+    className="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+  >
+    <Printer className="w-4 h-4" />
+    Imprimer Liste
+  </button>
+  <button 
+    onClick={handleExportCSV}
+    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+  >
+    <Download className="w-4 h-4" />
+    Export CSV
+  </button>
+</div>
       </div>
 
       {/* Orders Table */}
@@ -631,32 +1215,46 @@ const calculateStats = (ordersData: SupplierOrder[]) => {
                     </td>
 
                       <td className="px-4 py-3">
-  <div className="flex items-center justify-center gap-2">
+  <div className="flex items-center justify-center gap-1">
+    {/* ✅ NOUVEAU : Bouton Imprimer état paiement */}
+    <button
+      onClick={() => handlePrintPaymentReport(order)}
+      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"
+      title="Imprimer l'état de paiement PDF"
+    >
+      <Printer className="w-4 h-4" />
+    </button>
     {/* Bouton Voir détails */}
     <button
       onClick={() => handleViewDetails(order)}
-      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"
+      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
       title="Voir détails"
     >
       <Eye className="w-4 h-4" />
     </button>
-    
-    {/* ✅ NOUVEAU : Bouton Réception */}
+    {/* ✅ NOUVEAU : Bouton Imprimer bon de réception */}
+    <button
+      onClick={() => handlePrintReceptionReport(order)}
+      className="p-1.5 text-amber-600 hover:bg-amber-50 rounded"
+      title="Imprimer le bon de réception PDF"
+    >
+      <FileText className="w-4 h-4" />
+    </button>
+    {/* Bouton Réception */}
     {order.status !== 'RECEIVED' && order.status !== 'CANCELLED' && (
       <button
         onClick={() => handleOpenReception(order.id)}
-        className="p-1.5 text-amber-600 hover:bg-amber-50 rounded"
+        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"
         title="Enregistrer réception"
       >
         <Package className="w-4 h-4" />
       </button>
     )}
-    
-    {/* Bouton Payer (si commande non payée) */}
+    {/* Bouton Payer */}
     {order.payment_status !== 'PAYÉ' && order.payment_status !== 'PAID' && (
       <button
         onClick={() => handleSinglePayment(order)}
-        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded"
+        className="p-1.5 text-purple-600 hover:bg-purple-50 rounded"
         title="Payer cette commande"
       >
         <CreditCard className="w-4 h-4" />
