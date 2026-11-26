@@ -612,7 +612,7 @@ const handlePrintReceptionReport = (order: SupplierOrder) => {
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(qrData)}`;
 
   const items = orderItems[order.id] || [];
-  const receptions = orderReceptions[order.id] || [];
+  const receptionsList = receptions[order.id] || [];
 
   const totalOrdered = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
   const totalReceived = items.reduce((sum, item) => sum + (item.received_quantity || 0), 0);
@@ -642,7 +642,7 @@ const handlePrintReceptionReport = (order: SupplierOrder) => {
     `;
   }).join('');
 
-  const receptionRows = receptions.map(r => `
+const receptionRows = receptionsList.map((r: any) => `  // ✅ Type explicite ajouté
     <tr>
       <td style="font-family:monospace;">${r.reception_number || '-'}</td>
       <td>${new Date(r.reception_date).toLocaleString('fr-FR')}</td>
@@ -767,9 +767,9 @@ const handlePrintReceptionReport = (order: SupplierOrder) => {
         </table>
       </div>
 
-      ${receptions.length > 0 ? `
+      ${receptionsList.length > 0 ? `
       <div class="section">
-        <div class="section-title">📜 Historique des réceptions (${receptions.length})</div>
+        <div class="section-title">📜 Historique des réceptions (${receptionsList.length})</div>
         <table>
           <thead>
             <tr>
