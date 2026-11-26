@@ -76,52 +76,82 @@ export default function ParametresPage() {
     }
   };
 
-  const resetForms = () => {
-    setCatForm({ id: '', code: '', name: '', base_price: 0, max_adults: 2, max_children: 2, description: '' });
-    setRoomForm({ id: '', number: '', floor: 1, category_id: '' });
-    setIsEditingCat(false);
-    setIsEditingRoom(false);
-    setError('');
+const resetForms = () => {
+  setCatForm({ 
+    id: '', 
+    code: '', 
+    name: '', 
+    base_price: 0, 
+    max_adults: 2, 
+    max_children: 0,  // ✅ 0 par défaut
+    description: '' 
+  });
+  setRoomForm({ id: '', number: '', floor: 1, category_id: '' });
+  setIsEditingCat(false);
+  setIsEditingRoom(false);
+  setError('');
+};
+const handleSaveCategory = async (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  // ✅ Empêcher le double-submit
+  if (loading) return;
+  
+  setLoading(true);
+  setError('');
+
+  if (!catForm.code.trim() || !catForm.name.trim()) {
+    setError('Code et nom obligatoires.');
+    setLoading(false);
+    return;
+  }
+
+  const payload = {
+    site_id: siteId,
+    code: catForm.code.toUpperCase(),
+    name: catForm.name,
+    base_price: catForm.base_price,
+    max_adults: catForm.max_adults,
+    max_children: catForm.max_children,
+    description: catForm.description,
   };
 
-  const handleSaveCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+  console.log('💾 Payload:', payload);
+  console.log('🔍 Mode:', isEditingCat ? 'UPDATE' : 'INSERT');
 
-    if (!catForm.code.trim() || !catForm.name.trim()) {
-      setError('Code et nom obligatoires.');
-      setLoading(false);
-      return;
-    }
-
-    const payload = {
-      site_id: siteId,
-      code: catForm.code.toUpperCase(),
-      name: catForm.name,
-      base_price: catForm.base_price,
-      max_adults: catForm.max_adults,
-      max_children: catForm.max_children,
-      description: catForm.description,
-    };
-
-    let error;
+  try {
+    let res;
     if (isEditingCat && catForm.id) {
-      const res = await supabase.from('room_categories').update(payload).eq('id', catForm.id);
-      error = res.error;
+      // ✅ UPDATE : retirer site_id du payload (peut causer des conflits)
+      const { site_id, ...updatePayload } = payload;
+      res = await supabase
+        .from('room_categories')
+        .update(updatePayload)
+        .eq('id', catForm.id);
     } else {
-      const res = await supabase.from('room_categories').insert({ ...payload, is_active: true });
-      error = res.error;
+      res = await supabase
+        .from('room_categories')
+        .insert({ ...payload, is_active: true });
     }
 
-    if (error) {
-      setError(error.message);
+    console.log('📤 Résultat:', res);
+
+    // ✅ Vérification robuste de l'erreur
+    if (res.error && (res.error.message || res.error.code)) {
+      console.error('❌ Erreur Supabase:', res.error);
+      setError(`Erreur : ${res.error.message || res.error.code || 'Inconnue'}`);
     } else {
-      loadData();
+      console.log('✅ Succès !');
+      await loadData();
       resetForms();
     }
+  } catch (err: any) {
+    console.error('❌ Exception:', err);
+    setError(`Erreur inattendue : ${err.message || 'Voir console'}`);
+  } finally {
     setLoading(false);
-  };
+  }
+};
 
   const handleSaveRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,18 +189,21 @@ export default function ParametresPage() {
     setLoading(false);
   };
 
-  const handleEditCategory = (cat: any) => {
-    setCatForm({
-      id: cat.id,
-      code: cat.code,
-      name: cat.name,
-      base_price: cat.base_price || 0,
-      max_adults: cat.max_adults || 2,
-      max_children: cat.max_children || 2,
-      description: cat.description || '',
-    });
-    setIsEditingCat(true);
-  };
+const handleEditCategory = (cat: any) => {
+  console.log('📝 Édition catégorie:', cat);
+  setCatForm({
+    id: cat.id,
+    code: cat.code,
+    name: cat.name,
+    base_price: cat.base_price || 0,
+    max_adults: cat.max_adults ?? 2,      // ✅ ?? au lieu de ||
+    max_children: cat.max_children ?? 0,  // ✅ 0 par défaut (pas 2 !)
+    description: cat.description || '',
+  });
+  setIsEditingCat(true);
+  setActiveTab('category'); // ✅ Force l'affichage de l'onglet catégories
+  window.scrollTo({ top: 0, behavior: 'smooth' }); // ✅ Scroll vers le formulaire
+};
 
   const handleEditRoom = (room: any) => {
     setRoomForm({
@@ -394,9 +427,9 @@ export default function ParametresPage() {
                 <p className="text-slate-500 text-sm">Aucune catégorie créée pour le moment.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
                 {categories.map(cat => (
-                  <div key={cat.id} className="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                  <div key={cat.id} className="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-bold text-sm bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">{cat.code}</span>
@@ -457,7 +490,7 @@ export default function ParametresPage() {
               setError(error.message);
             }
             setLoading(false);
-          }} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4 max-w-2xl">
+          }} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3 max-w-xl">
             <h3 className="font-semibold text-slate-900 flex items-center gap-2 text-lg">
               <Percent className="w-5 h-5 text-indigo-600" />
               Paramètres de TVA
