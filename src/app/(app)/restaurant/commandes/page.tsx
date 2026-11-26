@@ -160,6 +160,21 @@ export default function CommandesPage() {
     }
   }, [siteId, editingOrderId]);
 
+    // Ajoutez ce useEffect juste après vos autres useEffect existants
+  useEffect(() => {
+    const handlePaymentCompleted = () => {
+      console.log('💰 Paiement détecté, rechargement des commandes...');
+      loadOrders(); // Recharge la liste complète
+    };
+
+    window.addEventListener('payment-completed', handlePaymentCompleted);
+    
+    // Nettoyage lors du démontage du composant
+    return () => {
+      window.removeEventListener('payment-completed', handlePaymentCompleted);
+    };
+  }, []); // Le tableau vide [] assure que l'écouteur n'est ajouté qu'une seule fois
+
   const loadEmployees = async () => {
     try {
       const { data } = await supabase.from('restaurant_employees').select('id, first_name, last_name, role').eq('site_id', siteId).eq('is_active', true).order('first_name', { ascending: true });

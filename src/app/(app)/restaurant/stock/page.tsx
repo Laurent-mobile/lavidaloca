@@ -77,6 +77,12 @@ export default function StockPage() {
   // ✅ NOUVEAU : États pour l'inventaire
   const [inventoryCounts, setInventoryCounts] = useState<Record<string, number>>({});
   const [isSavingInventory, setIsSavingInventory] = useState(false);
+    // ✅ NOUVEAU : États pour les catégories
+  const [stockCategories, setStockCategories] = useState<{ id: string; name: string; color: string }[]>([]);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryColor, setNewCategoryColor] = useState('#6366F1');
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -88,9 +94,62 @@ export default function StockPage() {
       }
       loadStockItems();
       loadMovements();
+      loadCategories();
     };
     init();
   }, []);
+
+// ✅ NOUVEAU : Charger les catégories
+  const loadCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('stock_categories')
+        .select('id, name, color')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+      
+      if (error) throw error;
+      setStockCategories(data || []);
+    } catch (error) {
+      console.error('Erreur chargement catégories:', error);
+    }
+  };
+
+  // ✅ NOUVEAU : Ajouter une catégorie
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    
+    setIsAddingCategory(true);
+    try {
+      const { error } = await supabase.from('stock_categories').insert({
+        site_id: siteId,
+        name: newCategoryName.trim(),
+        color: newCategoryColor,
+        is_active: true,
+        created_by: userId
+      });
+      
+      if (error) {
+        if (error.code === '23505') {
+          alert('⚠️ Cette catégorie existe déjà.');
+        } else {
+          throw error;
+        }
+        return;
+      }
+      
+      setNewCategoryName('');
+      setNewCategoryColor('#6366F1');
+      setShowCategoryModal(false);
+      await loadCategories();
+      alert('✅ Catégorie ajoutée !');
+    } catch (error: any) {
+      alert('Erreur : ' + error.message);
+    } finally {
+      setIsAddingCategory(false);
+    }
+  };
 
   const loadStockItems = async () => {
     setLoading(true);
@@ -122,13 +181,22 @@ export default function StockPage() {
 
   const loadMovements = async () => {
     try {
+      // ✅ AUGMENTATION DE LA LIMITE À 500 POUR VOIR PLUS D'HISTORIQUE
       const { data, error } = await supabase
         .from('stock_movements')
-        .select('*, stock_items(name, unit)')
+        .select(`
+          *, 
+          stock_items(name, unit)
+        `)
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(500); 
+
       if (error) throw error;
-      setMovements(data || []);
+      
+      // Filtrage de sécurité au cas où certaines jointures échouent
+      const validMovements = (data || []).filter(m => m.stock_items !== null);
+      
+      setMovements(validMovements);
     } catch (error) {
       console.error('Erreur chargement mouvements:', error);
     }
@@ -355,7 +423,6 @@ export default function StockPage() {
     return { label: 'OK', color: 'bg-emerald-100 text-emerald-800 border-emerald-200', icon: CheckCircle };
   };
 
-  const categories = ['ALL', ...Array.from(new Set(items.map(i => i.category)))];
 
   return (
     <div className="p-4 lg:p-6 h-full space-y-6">
@@ -410,9 +477,11 @@ export default function StockPage() {
             </div>
             <div className="flex gap-3">
               <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-sm cursor-pointer">
-                <option value="ALL">Toutes catégories</option>
-                {categories.filter(c => c !== 'ALL').map(cat => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
+  <option value="ALL">Toutes catégories</option>
+  {stockCategories.map(cat => (
+    <option key={cat.id} value={cat.name}>{cat.name}</option>
+  ))}
+</select>
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-sm cursor-pointer">
                 <option value="ALL">Tous les statuts</option>
                 <option value="OK">✅ En stock</option>
@@ -643,7 +712,35 @@ export default function StockPage() {
             </div>
             <form onSubmit={handleAddItem} className="p-6 space-y-4">
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Nom *</label><input type="text" required value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Catégorie *</label><input type="text" required value={newItem.category} onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
+              <div>
+  <label className="block text-sm font-medium text-slate-700 mb-1">Catégorie *</label>
+  <div className="flex gap-2">
+    <select 
+      required 
+      value={newItem.category} 
+      onChange={(e) => setNewItem({ ...newItem, category: e.target.value })} 
+      className="flex-1 border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
+    >
+      <option value="">-- Choisir une catégorie --</option>
+      {stockCategories.map(cat => (
+        <option key={cat.id} value={cat.name}>
+          {cat.name}
+        </option>
+      ))}
+    </select>
+    <button 
+      type="button"
+      onClick={() => setShowCategoryModal(true)}
+      className="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg transition-colors"
+      title="Ajouter une nouvelle catégorie"
+    >
+      <Plus className="w-5 h-5" />
+    </button>
+  </div>
+  {stockCategories.length === 0 && (
+    <p className="text-xs text-amber-600 mt-1">⚠️ Aucune catégorie disponible. Cliquez sur + pour en créer une.</p>
+  )}
+</div>
               
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Unité de vente (Stock)</label><input type="text" value={newItem.unit} onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="ex: bouteille" /></div>
@@ -720,7 +817,33 @@ export default function StockPage() {
                 <div className="text-sm text-slate-700 mt-1">La quantité actuelle (<span className="font-bold">{editingItem.quantity} {editingItem.unit}</span>) ne sera pas modifiée ici.</div>
               </div>
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Nom *</label><input type="text" required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Catégorie *</label><input type="text" required value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+              <div>
+  <label className="block text-sm font-medium text-slate-700 mb-1">Catégorie *</label>
+  <div className="flex gap-2">
+    <select 
+  required 
+  value={editForm.category} 
+  onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} 
+  className="flex-1 border border-slate-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+>
+  <option value="">-- Choisir une catégorie --</option>
+  {stockCategories.map(cat => (
+    <option key={cat.id} value={cat.name}>{cat.name}</option>
+  ))}
+</select>
+    <button 
+      type="button"
+      onClick={() => setShowCategoryModal(true)}
+      className="px-3 py-2 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 rounded-lg transition-colors"
+      title="Ajouter une nouvelle catégorie"
+    >
+      <Plus className="w-5 h-5" />
+    </button>
+  </div>
+  {stockCategories.length === 0 && (
+    <p className="text-xs text-amber-600 mt-1">⚠️ Aucune catégorie disponible. Cliquez sur + pour en créer une.</p>
+  )}
+</div>
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Unité vente</label><input type="text" value={editForm.unit} onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Unité achat</label><input type="text" value={editForm.purchase_unit} onChange={(e) => setEditForm({ ...editForm, purchase_unit: e.target.value })} className="w-full border border-slate-300 rounded-lg px-3 py-2" /></div>
@@ -767,6 +890,94 @@ export default function StockPage() {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+          {/* ✅ NOUVEAU : Modal Ajout de Catégorie */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-indigo-600 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Plus className="w-5 h-5" /> Nouvelle Catégorie
+              </h3>
+              <button onClick={() => { setShowCategoryModal(false); setNewCategoryName(''); }} className="hover:bg-indigo-700 p-1 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleAddCategory} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nom de la catégorie *</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={newCategoryName} 
+                  onChange={(e) => setNewCategoryName(e.target.value)} 
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="Ex: Boissons, Alimentation, Viandes..."
+                  autoFocus
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Couleur</label>
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="color" 
+                    value={newCategoryColor} 
+                    onChange={(e) => setNewCategoryColor(e.target.value)}
+                    className="w-12 h-10 border border-slate-300 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex gap-2 flex-wrap">
+                    {['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'].map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={() => setNewCategoryColor(color)}
+                        className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                          newCategoryColor === color ? 'border-slate-900 scale-110' : 'border-slate-200'
+                        }`}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div className="text-xs text-slate-600 mb-2">Aperçu :</div>
+                <span 
+                  className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium text-white"
+                  style={{ backgroundColor: newCategoryColor }}
+                >
+                  {newCategoryName || 'Nom de la catégorie'}
+                </span>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button" 
+                  onClick={() => { setShowCategoryModal(false); setNewCategoryName(''); }} 
+                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold py-2.5 rounded-lg"
+                >
+                  Annuler
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isAddingCategory || !newCategoryName.trim()} 
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-semibold py-2.5 rounded-lg flex items-center justify-center gap-2"
+                >
+                  {isAddingCategory ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4" /> Créer
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

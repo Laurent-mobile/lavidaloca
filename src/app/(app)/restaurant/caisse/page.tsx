@@ -242,21 +242,40 @@ export default function CaissePage() {
   };
 
   const loadAll = async () => {
-        const { data: o } = await supabase.from('restaurant_orders')
+    // Charger les commandes
+    const { data: o } = await supabase.from('restaurant_orders')
       .select(`*, restaurant_tables(number), rooms(number), restaurant_order_items(item_name, quantity, unit_price, total_price)`)
       .eq('site_id', siteId)
       .in('status', ['DRAFT','SENT','PREPARING','READY','SERVED'])
       .order('created_at', { ascending: false });
     setOrders(o || []);
 
-    const { data: p } = await supabase.from('restaurant_payments')
-      .select('*, restaurant_orders(order_number)')
-      .eq('site_id', siteId)
-      .order('paid_at', { ascending: false }).limit(200);
-    setPayments(p || []);
+    // ✅ CHARGER LES PAIEMENTS DE LA SESSION ACTIVE (pas tous les paiements)
+    if (session) {
+      const { data: p } = await supabase.from('restaurant_payments')
+        .select(`
+          *, 
+          restaurant_orders(order_number, table_id, room_id, restaurant_tables(number), rooms(number))
+        `)
+        .eq('session_id', session.id)
+        .order('paid_at', { ascending: false });
+      setSessionPayments(p || []);
+      
+      // Pour l'historique global, charger seulement les paiements récents
+      const { data: recentP } = await supabase.from('restaurant_payments')
+        .select('*, restaurant_orders(order_number)')
+        .eq('site_id', siteId)
+        .gte('paid_at', new Date(Date.now() - 7 * 86400000).toISOString()) // 7 derniers jours
+        .order('paid_at', { ascending: false })
+        .limit(200);
+      setPayments(recentP || []);
+    } else {
+      setSessionPayments([]);
+      setPayments([]);
+    }
     
     await loadActiveStays();
-    await loadSession();
+    await loadSession(); // Recharger la session au cas où elle a changé
     await loadSessionExpenses();
   };
 
@@ -543,7 +562,10 @@ export default function CaissePage() {
     }
 
     setSelected(null); setReceived(''); setNotes(''); setSelectedStayId('');
-    await loadAll(); setBusy(false);
+    await loadAll();
+    // ✅ NOUVEAU : Notifier les autres onglets/pages qu'un paiement a eu lieu
+  window.dispatchEvent(new CustomEvent('payment-completed'));
+    setBusy(false);
   };
 
   const printTicket = (order: Order, payData: any) => {
